@@ -438,6 +438,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 				gs->swapChain = swapChain;
 				gs->d3dDevice = d3dDevice;
 				gs->d3dDevice->GetImmediateContext(&gs->d3ddc);
+
+				// Disable alt + enter.
+				IDXGIDevice * pDXGIDevice;
+				d3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void **)&pDXGIDevice);
+				IDXGIAdapter * pDXGIAdapter;
+				pDXGIDevice->GetParent(__uuidof(IDXGIAdapter), (void **)&pDXGIAdapter);
+				IDXGIFactory * pIDXGIFactory;
+				pDXGIAdapter->GetParent(__uuidof(IDXGIFactory), (void **)&pIDXGIFactory);
+
+				pIDXGIFactory->MakeWindowAssociation(windowHandle, DXGI_MWA_NO_ALT_ENTER);
 			}
 
 			IDXGISwapChain* swapChain = gs->swapChain;
