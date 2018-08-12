@@ -1,0 +1,1 @@
+set APP_NAME="NoIdea"

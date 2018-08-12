@@ -1,0 +1,9 @@
+
+Freetype:
+
+Portions of this software are copyright © 2018 The FreeType
+Project (www.freetype.org).  All rights reserved.
+
+stb_image:
+
+Visit https://github.com/nothings/stb for more information.
