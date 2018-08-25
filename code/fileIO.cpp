@@ -61,6 +61,17 @@ int readFileToBuffer(char* buffer, char* fileName) {
 	return size;
 }
 
+int readFileToBufferMalloc(char* fileName, char** buffer) {
+	int size = fileSize(fileName);
+	char* buf = (char*)malloc(sizeof(char)*size);
+
+	readFileToBuffer(buf, fileName);
+
+	*buffer = buf;
+
+	return size;
+}
+
 char* readFileToBufferZeroTerminated(char* fileName) {
 	FILE* file = fopen(fileName, "rb");
 	if(file == 0) return 0;

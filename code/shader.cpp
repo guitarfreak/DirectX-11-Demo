@@ -88,7 +88,7 @@ struct ShaderMaterial {
 	float d;
 	int illum;
 	int hasBumpMap;
-	float _pad2;
+	int hasDispMap;
 
 	// Vec3 ambient;           // Ka 1.0 1.0 1.0
 	// Vec3 diffuse;           // Kd 0.0 0.0 0.0
@@ -130,7 +130,9 @@ struct MainShaderVars {
 	ShaderMaterial material;
 
 	MVPMatrix mvpTexProj;
-	Vec4 asdf;
+	int sharpenAlpha;
+
+	Vec3 endPad;
 };
 
 char* d3dMainShader = HLSL (
@@ -156,7 +158,7 @@ char* d3dMainShader = HLSL (
 		float3 half : NORMAL4;
 
 		float4 posTexProj : POSITION0;
-		float4 position : POSITION1;
+		// float4 position : POSITION1;
 	};
 
 	struct Light {
@@ -178,8 +180,7 @@ char* d3dMainShader = HLSL (
 		float d;
 		int illum;
 		int hasBumpMap;
-
-		float _pad1;
+		int hasDispMap;
 	};
 
 	struct MVPMatrix {
@@ -209,15 +210,19 @@ char* d3dMainShader = HLSL (
 		Material material;
 
 		MVPMatrix mvpTexProj;
-		float4 asdf;
+		int sharpenAlpha;
+
+		float3 endPad;
 	};
 
-	Texture2D     tex   : register(t0);
-	Texture2D     bump  : register(t1);
-	Texture2D     rough : register(t2);
-	Texture2D     pTex  : register(t5);
-	ShaderVars    vars  : register(b0);
-	SamplerState  samp  : register(s0);
+	Texture2D     ambi   : register(t0);
+	Texture2D     tex    : register(t1);
+	Texture2D     bump   : register(t2);
+	Texture2D     rough  : register(t3);
+	Texture2D     height : register(t4);
+	Texture2D     pTex   : register(t5);
+	ShaderVars    vars   : register(b0);
+	SamplerState  samp   : register(s0);
 	SamplerComparisonState sampP : register(s1);
 
 	PSInput vertexShader(VSInput input) {
@@ -239,9 +244,9 @@ char* d3dMainShader = HLSL (
 			output.bitangent = mul(input.bitangent, vars.mvp.model);
 		}
 
-		output.posTexProj = mul(mul(mul(float4(input.pos, 1), vars.mvp.model), vars.mvpTexProj.view), vars.mvpTexProj.proj);
+		output.posTexProj = mul(mul(posWorldSpace, vars.mvpTexProj.view), vars.mvpTexProj.proj);
 
-		output.position = output.pos;
+		// output.position = output.pos;
 
 		return output;
 	}
@@ -329,9 +334,9 @@ char* d3dMainShader = HLSL (
 
 			// Calculate bias.
 
-			float bias = 0;
+			float bias = 0.00001f;
 			float receiverPlaneDepthBias;
-			if(false)
+			if(true)
 			{
 				// Constant, slope-scale, normal and receiver plane depth biases.
 
@@ -361,8 +366,8 @@ char* d3dMainShader = HLSL (
 					}
 				}
 
-				bias += 0.002f * normalBiasScale;
-				bias += 0.002f * slopeBiasScale;
+				bias += 0.0005f * normalBiasScale;
+				bias += 0.0005f * slopeBiasScale;
 
 				// // Static depth biasing to make up for incorrect fractional sampling on the shadow map grid
 				// float2 texelSize = 1.0f / vars.shadowMapSize;
@@ -371,7 +376,7 @@ char* d3dMainShader = HLSL (
 				// bias += min(fractionalSamplingError, 0.01f);
 			}
 
-			// projCoord.z -= bias;
+			projCoord.z -= bias;
 
 			shadowFactor = 0.0f;
 			{
@@ -420,9 +425,13 @@ char* d3dMainShader = HLSL (
 			float3 bumpColor = bump.Sample(samp, input.uv).rgb;
 			float3 bumpNormal = normalize((bumpColor*2)-1);
 
-			float3x3 tbn = float3x3(normalize(input.bitangent), 
-			                        normalize(input.tangent), 
-			                        normalize(input.normal));
+			// float3x3 tbn = float3x3(normalize(input.bitangent), 
+			//                         normalize(input.tangent), 
+			//                         normalize(input.normal));
+
+			float3x3 tbn = float3x3(-normalize(input.tangent), 
+			                        -normalize(input.bitangent), 
+			                         normalize(input.normal));
 
 			normal = mul(bumpNormal, tbn);
 
@@ -430,8 +439,12 @@ char* d3dMainShader = HLSL (
 			normal = normalize(input.normal);
 		}
 
+		if(vars.sharpenAlpha) {
+			if(dot(normal, input.look) < 0) normal *= -1;
+		}
+
+		float3 ambient = ambi.Sample(samp, input.uv).rgb;
 		float3 roughness = rough.Sample(samp, input.uv).rgb;
-		float3 specularColor = vars.material.Ks * roughness.rgb;
 
 		float3 half = normalize(lightDir + normalize(input.look));
 
@@ -440,9 +453,9 @@ char* d3dMainShader = HLSL (
 		{
 			Material m = vars.material;
 
-			float3 Ia = m.Ka * vars.ambient;
+			float3 Ia = m.Ka * ambient.rgb * vars.ambient;
 			float3 Id = m.Kd * saturate(dot(normal, lightDir));
-			float3 Is = specularColor * pow(saturate(dot(normal, half)), m.Ns);
+			float3 Is = m.Ks * roughness.rgb * pow(saturate(dot(normal, half)), m.Ns);
 
 			lightIntensity = Ia + shadowFactor * ((Id + Is) * vars.light.color);
 		}
@@ -453,18 +466,14 @@ char* d3dMainShader = HLSL (
 	float4 pixelShader(PSInput input) : SV_Target {
 		float4 output;
 
-		// // output.a = round(output.a);
-		// // if(output.a != 0) output.a = 1;
-		// clip(output.a <= 0.5f ? -1:1);
-
-      // float4 texColor = tex.Sample(samp, input.uv);
-		// clip(texColor.a == 0.0f ? -1:1);
-
 		float3 lightIntensity = calculateLight(input);
 
 		output = input.color * 
 		         tex.Sample(samp, input.uv) * 
 		         float4(lightIntensity, 1);
+
+		if(vars.sharpenAlpha) 
+			output.a = (output.a - 0.25f) / max(fwidth(output.a), 0.0001) + 0.5;
 
 		return output;
 	}
@@ -735,7 +744,6 @@ char* d3dGradientShader = HLSL (
 		color.rgb = pow(color.rgb, vars.value);
 
 		return color;
-		// return float4(1,1,1,1);
 	}
 );
 

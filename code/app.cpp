@@ -27,6 +27,8 @@ ToDo:
 - Load assets better.
 - Hot reloading for all assets.
 
+- DDS file generation automation.
+
 Bugs:
 
 */
@@ -555,8 +557,10 @@ extern "C" APPMAINFUNCTION(appMain) {
 					recursiveFolderSearchStart(&fd, App_Mesh_Folder);
 					while(recursiveFolderSearchNext(&fd)) {
 
-						if(strFind(fd.fileName, ".obj") == -1 && 
-						   strFind(fd.fileName, ".mtl") == -1) continue;
+						// if(strFind(fd.fileName, ".obj") == -1 && 
+						   // strFind(fd.fileName, ".mtl") == -1) continue;
+
+						if(strFind(fd.fileName, ".obj") == -1) continue;
 
 						if(counter == 0) m = {};
 
@@ -567,11 +571,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 							m.file = getPStringCpy(fd.filePath);
 						}
 
-						if(counter == 0) counter++;
-						else {
-							counter = 0;
+						// if(counter == 0) counter++;
+						// else 
+						{
+							// counter = 0;
 
 							m.swapWinding = true;
+							// m.swapWinding = false;
 
 							dxLoadMesh(&m, &parser);
 
@@ -702,7 +708,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
 
 				// gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
-					// D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, true);
+				// 	D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, true);
 
 				gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
 					D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, true, false);
@@ -1239,7 +1245,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				{
 					if(init || reload) {
 						*skyVars = {};
-						ad->sunAngles = vec2(4.75f, 0.5f);
+						// ad->sunAngles = vec2(4.75f, 0.5f);
+						ad->sunAngles = vec2(5.0f, 0.5f);
 
 						skyVars->spotBrightness          = 4.0f;
 						skyVars->mieBrightness           = 0.3f;
@@ -1269,11 +1276,17 @@ extern "C" APPMAINFUNCTION(appMain) {
 				mainVars->mvp.proj = ad->proj;
 				mainVars->camPos = ad->activeCam.pos;
 				// mainVars->ambient = vec3(0.005f);
-				mainVars->ambient = vec3(0.05f);
+				// mainVars->ambient = vec3(0.2f);
+
+				mainVars->ambient = vec3(0.27f,0.55f,0.72f);
+				mainVars->ambient = mainVars->ambient * 0.2f;
+				// mainVars->ambient = vec3(0.2f);
+
 				mainVars->light.dir = -skyVars->sunDir;
-				mainVars->light.color = vec3(1,1,1);
+				mainVars->light.color = vec3(1.0f);
 				mainVars->lightCount = 1;
 				mainVars->shadowMapSize = vec2(gs->shadowMapSize);
+				mainVars->sharpenAlpha = 0;
 
 				{
 					Vec2 data[] = {
@@ -1551,7 +1564,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		// Debug cam.
 		{
 			Entity freeCam = {};
-			initEntity(&freeCam, ET_Camera, vec3(0,10,2), vec3(0,0,0), vec2i(0,0));
+			initEntity(&freeCam, ET_Camera, vec3(-4,5,3), vec3(0,0,0), vec2i(0,0));
+			freeCam.rot.xy = vec2(0.8f,-0.2f);
 			strCpy(freeCam.name, "Camera");
 			ad->cameraEntity = addEntity(&ad->entityList, &freeCam);
 		}
@@ -1670,7 +1684,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			dxSetShader(Shader_Cube);
 
-			Mesh* m = dxGetMesh("cube\\cube.obj");
+			Mesh* m = dxGetMesh("cube\\obj.obj");
 			dxSetMesh(m);
 
 			gs->d3ddc->PSSetShaderResources(0, 1, &gs->cubeMapView);
@@ -1823,151 +1837,183 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		dxSetShader(Shader_Main);
 
+		// @ShadowMap.
 		{
-			dxCullState(false); defer{dxCullState(true);};
-			dxSetBlendState(Blend_State_BlendAlphaCoverage); defer{dxSetBlendState(Blend_State_Blend);};
-
-			// @ShadowMap.
-			if(true)
+			// Draw normals.
+			#if 0
 			{
-				// Draw normals.
-				#if 0
-				{
-					// Draw debug normals.
-					// dxSetShader(Shader_Primitive);
-					// dxBeginPrimitiveColored(vec4(1,1), D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-					// for(int i = 0; i < m->vertices.count; i++) {
-					// 	MeshVertex v = m->vertices[i];
-						
-					// 	dxPushLine(v.pos, v.pos + v.normal*0.1f, vec4(0,0,1,1));
-					// 	dxPushLine(v.pos, v.pos + v.tangent*0.1f, vec4(0,1,0,1));
-					// 	dxPushLine(v.pos, v.pos + v.bitangent*0.1f, vec4(1,0,0,1));
-					// }
-					// dxEndPrimitive();
-				}
-				#endif
+				// Draw debug normals.
+				// dxSetShader(Shader_Primitive);
+				// dxBeginPrimitiveColored(vec4(1,1), D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+				// for(int i = 0; i < m->vertices.count; i++) {
+				// 	MeshVertex v = m->vertices[i];
+					
+				// 	dxPushLine(v.pos, v.pos + v.normal*0.1f, vec4(0,0,1,1));
+				// 	dxPushLine(v.pos, v.pos + v.tangent*0.1f, vec4(0,1,0,1));
+				// 	dxPushLine(v.pos, v.pos + v.bitangent*0.1f, vec4(1,0,0,1));
+				// }
+				// dxEndPrimitive();
+			}
+			#endif
 
-				// Setup objects.
-				Vec3 bd = vec3(0.5f);
+			// Setup objects.
 
-				Object objA[50];
-				int objC = 0;
+			Object objA[50];
+			int objC = 0;
 
-				{
-					Quat rot = quat(ad->time*0.20f, vec3(0,0,1)) * quat(M_PI_2, vec3(1,0,0));
-					// Quat rot = quat(M_PI_2, vec3(1,0,0));
+			{
+				Quat rot = quat(ad->time*0.20f, vec3(0,0,1));
+				// Quat rot = quat();
+				float dist = 1.25f;
 
-					Mesh* cylinderMesh = dxGetMesh("cylinder\\cylinder.obj");
-					Mesh* sphereMesh = dxGetMesh("sphere\\sphere.obj");
+				Vec3 startPos = vec3(0,-3.5f,1);
+				Vec3 pos = startPos;
+				int index = 0;
 
-					float dist = 2.5f;
+				for(int i = 0; i < gs->materialCount; i++) {
+					Material* m = gs->materials + i;
 
-					Vec3 startPos = vec3(0,-6,2);
-					Vec3 pos = startPos;
-					int index = 0;
+					if(strFind(m->name, "Matte") != -1) continue;
 
-					for(int i = 0; i < gs->materialCount; i++) {
-						Material* m = gs->materials + i;
+					float p = -dist*(gs->materialCount-2)/2 + (index*dist);
+					index++;
 
-						float p = -dist*(gs->materialCount-1)/2 + (index*dist);
-						index++;
+					bool alpha = false;
+					if(strFind(m->name, "Metal Grill") != -1) alpha = true;
 
-						objA[objC++] = { "cylinder\\cylinder.obj", pos + vec3(p,0,0), vec3(1), vec4(1,1), rot, m->name };
-						objA[objC++] = { "sphere\\sphere.obj", pos + vec3(p,0,2.5f), vec3(1), vec4(1,1), rot, m->name };
-					}
-				}
-
-				objA[objC++] = {"cube\\cube.obj", vec3(0,0,-0.05f + 0.0001f), vec3(10,10,0.05f), vec4(1,1), quat()};
-				objA[objC++] = {"cube\\cube.obj", vec3(0,3,(bd.z*2)/2), bd, hslToRgbf(0,0.5f,0.5f, 1), quat()};
-				objA[objC++] = {"cube\\cube.obj", vec3(-6,4,0), vec3(1,2,3), hslToRgbf(0.2f,0.7f,0.5f, 1), quat(0.8f,vec3(0,0,1))};
-				{
-					Quat rot = quat(ad->time*0.2f, vec3(1,0,0)) * quat(ad->time*0.1f, vec3(0,0,1));
-					objA[objC++] = {"cube\\cube.obj", vec3(1,6,6), vec3(2,0.2f,1), hslToRgbf(0.6f,0.8f,0.8f, 1), rot};
-				}
-				Quat rot = quat(M_PI_2, vec3(1,0,0));
-				objA[objC++] = {"treeRealistic\\Tree.obj", vec3(5,6,0), vec3(1,1,1), vec4(1,1), rot};
-				objA[objC++] = {"cube\\cube.obj", vec3(1,0,(bd.z*2)/2), bd, vec4(1,1), quat()};
-				objA[objC++] = {"sphere\\sphere.obj", vec3(-2,4,2), vec3(1), vec4(1,1), quat()};
-
-
-				// Setup light view and projection.
-				Mat4 viewLight = {};
-				Mat4 projLight = {};
-				{
-					float dist = 15;
-					float size = 30;
-					Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
-					viewLight = viewMatrix(sunDir * dist, sunDir);
-					projLight = orthoMatrixZ01(size, size, 0, 30);
-				}
-
-				// Render scene shadows.
-				{
-					dxDepthTest(true);
-					dxScissorState(false);
-					dxClearFrameBuffer("Shadow");
-
-					// dxSetBlendState(Blend_State_BlendAlphaCoverage);
-					// defer{dxSetBlendState(Blend_State_Blend);};
-
-					D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
-					{
-						gs->rasterizerState.DepthBias = 50000;
-						gs->rasterizerState.DepthBiasClamp = 0;
-						gs->rasterizerState.SlopeScaledDepthBias = 2;
-					}
-					dxSetRasterizer(); 
-					defer{
-						gs->rasterizerState = oldRasterizerState;
-						dxSetRasterizer(); 
-					};
-
-					// gs->rasterizerState.FrontCounterClockwise = true;
-					// dxSetRasterizer(); 
-					// defer{
-					// 	gs->rasterizerState.FrontCounterClockwise = false;
-					// 	dxSetRasterizer(); 
-					// };
-
-					// Remove warning.
-					ID3D11ShaderResourceView* srv = 0;
-					gs->d3ddc->PSSetShaderResources(5, 1, &srv);
-					dxBindFrameBuffer(0, "Shadow"); 
-
-					Vec2i vp = vec2i(theGState->shadowMapSize);
-					dxViewPort(vp);
-
-					dxSetShader(Shader_Shadow);
-					dxGetShaderVars(Shadow)->view = viewLight;
-					dxGetShaderVars(Shadow)->proj = projLight;
-
-					for(int i = 0; i < objC; i++) {
-						Object* obj = objA + i;
-
-						dxDrawObject(obj, true);
-					}
-				}
-
-				// Render scene.
-				{
-					dxBindFrameBuffer("3dMsaa", "ds3d");
-					dxSetShader(Shader_Main);
-					dxViewPort(ad->cur3dBufferRes);
-
-					FrameBuffer* fb = dxGetFrameBuffer("Shadow");
-					gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
-
-					dxGetShaderVars(Main)->mvpTexProj.view = viewLight;
-					dxGetShaderVars(Main)->mvpTexProj.proj = projLight;
-
-					for(int i = 0; i < objC; i++) {
-						Object* obj = objA + i;
-
-						dxDrawObject(obj);
-					}
+					objA[objC++] = { "cube\\obj.obj",     pos + vec3(p,0,0), vec3(1), vec4(1,1), quat(), m->name, alpha };
+					objA[objC++] = { "cylinder\\obj.obj", pos + vec3(p,0,1.25), vec3(1), vec4(1,1), rot, m->name, alpha };
+					objA[objC++] = { "sphere\\obj.obj",   pos + vec3(p,0,2.5f), vec3(1), vec4(1,1), rot, m->name, alpha };
 				}
 			}
 
+			char* mat = "Matte\\mat.mtl";
+
+			objA[objC++] = {"cube\\obj.obj", vec3(0,0,-0.05f + 0.0001f), vec3(10,10,0.1f), vec4(1,1), quat(), mat};
+			objA[objC++] = {"cube\\obj.obj", vec3(-3,2,0.5f), vec3(1,1,1), hslToRgbf(0,0.5f,0.5f, 1), quat(-0.6f, vec3(0,0,1)), mat};
+
+			Quat rot = quat(M_PI_2, vec3(1,0,0));
+			objA[objC++] = {"treeRealistic\\Tree.obj", vec3(3,3,0), vec3(0.8f), vec4(1,1), quat(), 0, true};
+
+			// Setup light view and projection.
+			Mat4 viewLight = {};
+			Mat4 projLight = {};
+			{
+				float dist = 8;
+				float size = 15;
+				Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
+				viewLight = viewMatrix(sunDir * dist, sunDir);
+				projLight = orthoMatrixZ01(size, size, 0, 30);
+			}
+
+			// Render scene shadows.
+			{
+				dxDepthTest(true);
+				dxScissorState(false);
+				dxClearFrameBuffer("Shadow");
+
+				// dxSetBlendState(Blend_State_BlendAlphaCoverage);
+				// defer{dxSetBlendState(Blend_State_Blend);};
+
+				#if 0
+				D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
+				{
+					// gs->rasterizerState.DepthBias = 50000;
+					// gs->rasterizerState.DepthBiasClamp = 0;
+					// gs->rasterizerState.SlopeScaledDepthBias = 2;
+
+					gs->rasterizerState.DepthBias = 0;
+					gs->rasterizerState.DepthBiasClamp = 0;
+					gs->rasterizerState.SlopeScaledDepthBias = 5;
+				}
+				dxSetRasterizer(); 
+				defer{
+					gs->rasterizerState = oldRasterizerState;
+					dxSetRasterizer(); 
+				};
+				#endif
+
+				// gs->rasterizerState.FrontCounterClockwise = true;
+				// dxSetRasterizer(); 
+				// defer{
+				// 	gs->rasterizerState.FrontCounterClockwise = false;
+				// 	dxSetRasterizer(); 
+				// };
+
+				// Remove warning.
+				ID3D11ShaderResourceView* srv = 0;
+				gs->d3ddc->PSSetShaderResources(5, 1, &srv);
+				dxBindFrameBuffer(0, "Shadow"); 
+
+				Vec2i vp = vec2i(theGState->shadowMapSize);
+				dxViewPort(vp);
+
+				dxSetShader(Shader_Shadow);
+				dxGetShaderVars(Shadow)->view = viewLight;
+				dxGetShaderVars(Shadow)->proj = projLight;
+
+				bool alphaMode = false;
+				for(int i = 0; i < objC; i++) {
+					Object* obj = objA + i;
+
+					if(obj->hasAlpha) {
+						if(!alphaMode) {
+							dxCullState(false);
+							dxSetBlendState(Blend_State_BlendAlphaCoverage);
+							alphaMode = true;
+						}
+					} else {
+						if(alphaMode) {
+							dxCullState(true);
+							dxSetBlendState(Blend_State_Blend);
+							alphaMode = false;
+						}
+					}
+
+					dxDrawObject(obj, true);
+				}
+			}
+
+			// Render scene.
+			{
+				dxBindFrameBuffer("3dMsaa", "ds3d");
+				dxSetShader(Shader_Main);
+				dxViewPort(ad->cur3dBufferRes);
+
+				FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+				gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
+
+				dxGetShaderVars(Main)->mvpTexProj.view = viewLight;
+				dxGetShaderVars(Main)->mvpTexProj.proj = projLight;
+
+				bool alphaMode = false;
+				for(int i = 0; i < objC; i++) {
+					Object* obj = objA + i;
+
+					if(obj->hasAlpha) {
+						if(!alphaMode) {
+							dxCullState(false);
+							dxSetBlendState(Blend_State_BlendAlphaCoverage);
+							dxGetShaderVars(Main)->sharpenAlpha = 1;
+
+							alphaMode = true;
+						}
+					} else {
+						if(alphaMode) {
+							dxCullState(true);
+							dxSetBlendState(Blend_State_Blend);
+							dxGetShaderVars(Main)->sharpenAlpha = 0;
+
+							alphaMode = false;
+						}
+					}
+
+					dxDrawObject(obj);
+				}
+			}
+
+			dxCullState(true);
+			dxSetBlendState(Blend_State_Blend);
 		}
 	}
 
@@ -1989,10 +2035,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 	{
 		FrameBuffer* fb = dxGetFrameBuffer("Shadow");
 		Rect sr = getScreenRect(ws);
-		dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
+		// dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
 	}
 
 	}
+
+	// {
+	// 	if(input->keysPressed[KEYCODE_1]) playSound("menuSelect");
+	// 	if(input->keysPressed[KEYCODE_2]) playSound("menuOption");
+	// 	if(input->keysPressed[KEYCODE_3]) playSound("gameStart");
+	// 	if(input->keysPressed[KEYCODE_4]) playSound("menuPush");
+	// 	if(input->keysPressed[KEYCODE_5]) playSound("menuPop");
+	// 	if(input->keysPressed[KEYCODE_6]) playSound("song1");
+	// }
 
 	updateAudio(&ad->audioState, ad->dt, ad->activeCam);
 

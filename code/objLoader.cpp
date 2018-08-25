@@ -13,9 +13,11 @@ struct ObjLoader {
 		int illum; // illuminationMode
 		// Vec3 Tf;   // transmission filter
 
+		char* map_Ka;
 		char* map_Kd;
 		char* map_Ks;
 		char* bump;
+		char* disp;
 
 		// map_Ka -s 1 1 1 -o 0 0 0 -mm 0 1 chrome.mpc
 		// map_Kd -s 1 1 1 -o 0 0 0 -mm 0 1 chrome.mpc
@@ -99,7 +101,15 @@ struct ObjLoader {
 					if(c2 == ' ') {
 						buf += 2;
 						materialArray[materialArray.count-1].d = strToFloat(buf);
-					} 
+
+					} else if(c2 == 'i') {
+						// disp
+						buf += 5;
+
+						char* fileName = getTStringCpy(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].disp = fillString("%s%s", objFolder, fileName);
+					}
+
 				} break;
 
 				case 'i': {
@@ -124,7 +134,14 @@ struct ObjLoader {
 				} break;
 
 				case 'm': {
-					if(buf[4] == 'K' && buf[5] == 'd') {
+					if(buf[4] == 'K' && buf[5] == 'a') {
+						// map_Ka
+						buf += 7;
+
+						char* fileName = getTStringCpy(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].map_Ka = fillString("%s%s", objFolder, fileName);
+
+					} else if(buf[4] == 'K' && buf[5] == 'd') {
 						// map_Kd
 						buf += 7;
 
@@ -485,6 +502,8 @@ struct ObjLoader {
 
 	int endOfLine(char* buf) {
 		int newLine = strFind(buf, '\n')-1;
+		if(newLine < 0) newLine = strLen(buf);
+
 		if(buf[newLine-1] == '\r') newLine--;
 		return newLine;
 	}

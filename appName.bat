@@ -1,1 +1,1 @@
-set APP_NAME="NoIdea"
+set APP_NAME="DirectX 11 Demo"

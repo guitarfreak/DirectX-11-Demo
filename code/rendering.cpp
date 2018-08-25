@@ -723,9 +723,9 @@ void dxLoadMaterial(Material* m, ObjLoader::ObjectMaterial* objM, char* folder) 
 	m->illum = objM->illum;
 
 	{
-		char* maps[] = { objM->map_Kd, objM->bump, objM->map_Ks };
-		bool srgb[] = { true, false, false };
-		for(int j = 0; j < 3; j++) {
+		char* maps[] = { objM->map_Ka, objM->map_Kd, objM->bump, objM->map_Ks, objM->disp };
+		bool srgb[] = { false, true, false, false, false };
+		for(int j = 0; j < arrayCount(maps); j++) {
 			char* map = maps[j];
 
 			if(map) {
@@ -742,13 +742,16 @@ void dxLoadMaterial(Material* m, ObjLoader::ObjectMaterial* objM, char* folder) 
 					dxLoadAndCreateTextureDDS(&tex, srgb[j]);
 				}
 
-				     if(j == 0) m->map_Kd = tex;
-				else if(j == 1) m->bump   = tex;
-				else if(j == 2) m->map_Ks = tex;
+				     if(j == 0) m->map_Ka = tex;
+				else if(j == 1) m->map_Kd = tex;
+				else if(j == 2) m->bump   = tex;
+				else if(j == 3) m->map_Ks = tex;
+				else if(j == 4) m->disp   = tex;
 
 			} else {
-				     if(j == 0) m->map_Kd = *theGState->textureWhite;
-				else if(j == 2) m->map_Ks = *theGState->textureWhite;
+				     if(j == 0) m->map_Ka = *theGState->textureWhite;
+				else if(j == 1) m->map_Kd = *theGState->textureWhite;
+				else if(j == 3) m->map_Ks = *theGState->textureWhite;
 			}
 		}
 	}
@@ -1134,14 +1137,17 @@ void dxSetMaterial(Material* m) {
 	dxGetShaderVars(Main)->material.d          = m->d;
 	dxGetShaderVars(Main)->material.illum      = m->illum;
 	dxGetShaderVars(Main)->material.hasBumpMap = m->bump.file ? true : false;
+	dxGetShaderVars(Main)->material.hasDispMap = m->disp.file ? true : false;
 
 	// Check if material uses texture.
 	{
-		theGState->d3ddc->PSSetShaderResources(0, 1, &m->map_Kd.view);
-		theGState->d3ddc->PSSetShaderResources(2, 1, &m->map_Ks.view);
-
+		theGState->d3ddc->PSSetShaderResources(0, 1, &m->map_Ka.view);
+		theGState->d3ddc->PSSetShaderResources(1, 1, &m->map_Kd.view);
 		if(dxGetShaderVars(Main)->material.hasBumpMap) 
-			theGState->d3ddc->PSSetShaderResources(1, 1, &m->bump.view);
+			theGState->d3ddc->PSSetShaderResources(2, 1, &m->bump.view);
+		theGState->d3ddc->PSSetShaderResources(3, 1, &m->map_Ks.view);
+		if(dxGetShaderVars(Main)->material.hasDispMap) 
+			theGState->d3ddc->PSSetShaderResources(4, 1, &m->disp.view);
 	}
 }
 

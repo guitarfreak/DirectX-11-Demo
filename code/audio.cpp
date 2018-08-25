@@ -25,7 +25,11 @@ struct Audio {
 	int sampleRate;
 	int bitsPerSample;
 
+	stb_vorbis* stbVorbis;
+	char* vorbisFile;
+
 	short* data;
+	int decodeIndex;
 	int frameCount;
 	int totalLength;
 };
@@ -195,16 +199,32 @@ void addAudio(AudioState* as, char* filePath, char* name) {
 	int result = strFind(extension, "ogg");
 	if(result == -1) return;
 
-	int channels;
-	int sampleRate;
-	short* data;
-	int frameCount = stb_vorbis_decode_filename(filePath, &channels, &sampleRate, &data);
+	// int channels;
+	// int sampleRate;
+	// short* data;
+	// int frameCount = stb_vorbis_decode_filename(filePath, &channels, &sampleRate, &data);
+
+	char* vorbisFile;
+	int size = readFileToBufferMalloc(filePath, &vorbisFile);
+
+	int error;
+	stb_vorbis* stbVorbis = stb_vorbis_open_memory((uchar*)vorbisFile, size, &error, 0);
+	int channels = stbVorbis->channels;
+	int sampleRate = stbVorbis->sample_rate;
+	int frameCount = stb_vorbis_stream_length_in_samples(stbVorbis);
+
+
 
 	Audio audio = {};
 
 	audio.name = getPStringCpy(name);
 	audio.file = 0;
-	audio.data = data;
+	audio.data = mallocArray(short, frameCount * channels);
+	audio.decodeIndex = 0;
+
+	audio.stbVorbis = stbVorbis;
+	audio.vorbisFile = vorbisFile;
+
 	audio.sampleRate = sampleRate;
 	audio.channels = channels;
 	audio.bitsPerSample = 16; // Always correct?
@@ -317,6 +337,20 @@ void updateAudio(AudioState* as, float dt, Camera cam) {
 
 							volume *= distanceVolumeMod;
 							volume *= 0.5f; // We don't want to distort when playing only in one channel.
+						}
+
+						{
+							TIMER_BLOCK_NAMED("Decoding");
+
+							int endFrame = (index + availableFrames + 1) * speed;
+							endFrame = min(endFrame, audio->frameCount);
+
+							if(audio->decodeIndex < audio->frameCount && endFrame > audio->decodeIndex) {
+								int framesToDecode = endFrame - audio->decodeIndex;
+								stb_vorbis_get_samples_short_interleaved(audio->stbVorbis, audio->channels, audio->data + audio->decodeIndex*audio->channels, (framesToDecode) * audio->channels);
+
+								audio->decodeIndex = endFrame;
+							}
 						}
 
 						for(int frameIndex = 0; frameIndex < availableFrames; frameIndex++) {
@@ -490,6 +524,8 @@ void initSoundTable(AudioState* as) {
 	sa[sc++] = sound("menuPush",   type, "ui\\menuPush.ogg",     0.5f, 0.3f, 0, 0.5f);
 	sa[sc++] = sound("menuPop",    type, "ui\\menuPop.ogg",      0.5f, 0.3f, 0, 0.5f);
 	sa[sc++] = sound("ping",       type, "misc\\pianoKey.ogg",   0.8f, 0, 0, 0, 2, 100);
+
+	sa[sc++] = sound("song1",       type, "misc\\01. Maenam.ogg",   1.0f, 0, 0, 0);
 
 	as->soundCount = sc;
 }

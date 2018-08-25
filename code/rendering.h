@@ -108,9 +108,11 @@ struct Material {
 	float d;   // alpha
 	int illum; // illuminationMode
 
+	Texture map_Ka;
 	Texture map_Kd;
 	Texture map_Ks;
 	Texture bump;
+	Texture disp;
 };
 
 struct Mesh {
@@ -149,4 +151,5 @@ struct Object {
 	Quat rot;
 
 	char* material;
+	bool hasAlpha;
 };
