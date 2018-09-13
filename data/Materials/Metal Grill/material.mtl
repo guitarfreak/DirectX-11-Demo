@@ -11,3 +11,4 @@ map_Ka ambient.dds
 map_Kd color.dds
 bump norm.dds
 map_Ns rough.dds
+#disp disp.dds

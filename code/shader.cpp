@@ -79,7 +79,7 @@ struct ShaderMaterial {
 	int smoothing;
 	Vec3 Ka; // ambient
 	Vec3 Kd; // diffuse
-	float _pad1;
+	float _pad0;
 	Vec3 Ks; // specular
 	float Ns; // shininess / specularExponent
 
@@ -88,22 +88,16 @@ struct ShaderMaterial {
 	float d;
 	int illum;
 	int hasBumpMap;
-	int hasDispMap;
 
-	// Vec3 ambient;           // Ka 1.0 1.0 1.0
-	// Vec3 diffuse;           // Kd 0.0 0.0 0.0
-	// Vec3 specular;          // Ks 0.9 0.9 0.9
-	// float specularExponent; // Ns 96.0
-	// Vec3 emission;          // Ke 0.0 0.0 0.0
-	// float refractionIndex;  // Ni 1.0
-	// float alpha;            // d 1.0
-	// int illuminationMode;   // illum 2
+	int   hasDispMap;
+	float heightScale;
+
+	Vec3 _pad1;
 };
 
 struct MVPMatrix {
 	Mat4 model;
-	Mat4 view;
-	Mat4 proj;
+	Mat4 viewProj;
 };
 
 struct ShaderSamples {
@@ -129,37 +123,18 @@ struct MainShaderVars {
 
 	ShaderMaterial material;
 
-	MVPMatrix mvpTexProj;
+	MVPMatrix mvpShadow;
 	int sharpenAlpha;
+
+	float farTessDistance;
+	float closeTessDistance;
+	float farTessFactor;
+	float closeTessFactor;
 
 	Vec3 endPad;
 };
 
 char* d3dMainShader = HLSL (
-
-	struct VSInput {
-		float3 pos       : POSITION;
-		float2 uv        : TEXCOORD;
-		float3 normal    : NORMAL0;
-		float3 tangent   : NORMAL1;
-		float3 bitangent : NORMAL2;
-	};
-
-	struct PSInput {
-		float4 pos : SV_POSITION;
-		float4 color : COLOR;
-		float2 uv : TEXCOORD0;
-
-		float3 normal : NORMAL0;
-		float3 tangent : NORMAL1;
-		float3 bitangent : NORMAL2;
-
-		float3 look : NORMAL3;
-		float3 half : NORMAL4;
-
-		float4 posTexProj : POSITION0;
-		// float4 position : POSITION1;
-	};
 
 	struct Light {
 		int type;
@@ -180,13 +155,14 @@ char* d3dMainShader = HLSL (
 		float d;
 		int illum;
 		int hasBumpMap;
-		int hasDispMap;
+
+		int   hasDispMap;
+		float heightScale;
 	};
 
 	struct MVPMatrix {
 		float4x4 model;
-		float4x4 view;
-		float4x4 proj;
+		float4x4 viewProj;
 	};
 
 	struct ShaderSamples {
@@ -209,27 +185,60 @@ char* d3dMainShader = HLSL (
 
 		Material material;
 
-		MVPMatrix mvpTexProj;
+		MVPMatrix mvpShadow;
 		int sharpenAlpha;
+
+		float farTessDistance;
+		float closeTessDistance;
+		float farTessFactor;
+		float closeTessFactor;
 
 		float3 endPad;
 	};
 
-	Texture2D     ambi   : register(t0);
-	Texture2D     tex    : register(t1);
-	Texture2D     bump   : register(t2);
-	Texture2D     rough  : register(t3);
-	Texture2D     height : register(t4);
-	Texture2D     pTex   : register(t5);
-	ShaderVars    vars   : register(b0);
-	SamplerState  samp   : register(s0);
-	SamplerComparisonState sampP : register(s1);
+	Texture2D              ambi   : register(t0);
+	Texture2D              tex    : register(t1);
+	Texture2D              bump   : register(t2);
+	Texture2D              rough  : register(t3);
+	Texture2D              height : register(t4);
+	Texture2D              pTex   : register(t5);
+	ShaderVars             vars   : register(b0);
+	SamplerState           samp   : register(s0);
+	SamplerComparisonState sampP  : register(s1);
 
-	PSInput vertexShader(VSInput input) {
-		PSInput output;
+	struct VSInput {
+		float3 pos       : POSITION;
+		float2 uv        : TEXCOORD;
+		float3 normal    : NORMAL0;
+		float3 tangent   : NORMAL1;
+		float3 bitangent : NORMAL2;
+	};
 
-		float4 posWorldSpace = mul(float4(input.pos, 1), vars.mvp.model);
-		output.pos = mul(mul(posWorldSpace, vars.mvp.view), vars.mvp.proj);
+	// We use VSOutput for every stage to make things easier for us.
+	// The only things that would change between shader stage output 
+	// structs is SV_POSITION and TESS.
+
+	struct VSOutput {
+		float4 svPos : SV_POSITION;
+
+		float3 pos : POSITION;
+		float4 color : COLOR;
+		float2 uv : TEXCOORD0;
+
+		float3 normal : NORMAL0;
+		float3 tangent : NORMAL1;
+		float3 bitangent : NORMAL2;
+
+		float3 look : NORMAL3;
+		float4 shadowPos : POSITION1;
+
+		float tessFactor : TESS;
+	};
+
+	VSOutput vertexShader(VSInput input) {
+		VSOutput output;
+
+		output.pos = mul(float4(input.pos, 1), vars.mvp.model);
 
 		float4 color = float4(pow(vars.color.rgb, 2.2f), vars.color.a);
 		output.color = color;
@@ -237,22 +246,103 @@ char* d3dMainShader = HLSL (
 		output.uv = input.uv;
 
 		output.normal = mul(input.normal, vars.mvp.model);
-		output.look = vars.camPos - posWorldSpace.xyz;
+		output.look = vars.camPos - output.pos.xyz;
 
 		if(vars.material.hasBumpMap) {
 			output.tangent   = mul(input.tangent, vars.mvp.model);
 			output.bitangent = mul(input.bitangent, vars.mvp.model);
 		}
 
-		output.posTexProj = mul(mul(posWorldSpace, vars.mvpTexProj.view), vars.mvpTexProj.proj);
+		if(vars.material.hasDispMap) {
+			float d = distance(output.pos, vars.camPos);
+			float tess = saturate((vars.farTessDistance - d) / (vars.farTessDistance - vars.closeTessDistance));
+			output.tessFactor = vars.farTessFactor + tess*(vars.closeTessFactor - vars.farTessFactor);
 
-		// output.position = output.pos;
+		} else {
+			output.svPos     = mul(float4(output.pos, 1.0f), vars.mvp.viewProj);
+			output.shadowPos = mul(float4(output.pos, 1.0f), vars.mvpShadow.viewProj);
+		}
 
 		return output;
 	}
 
-	float SampleShadowMap(in float2 base_uv, in float u, in float v, in float2 shadowMapSizeInv,
-	                      in uint cascadeIdx,  in float depth, in float2 receiverPlaneDepthBias) {
+	// http://www.richardssoftware.net/2013/09/bump-and-displacement-mapping-with.html
+
+	struct PatchTess {
+		float EdgeTess[3] : SV_TessFactor;
+		float InsideTess  : SV_InsideTessFactor;
+	};
+
+	PatchTess PatchHS(InputPatch<VSOutput,3> patch, uint patchID : SV_PrimitiveID) {
+		PatchTess pt;
+
+		pt.EdgeTess[0] = 0.5f*(patch[1].tessFactor + patch[2].tessFactor);
+		pt.EdgeTess[1] = 0.5f*(patch[2].tessFactor + patch[0].tessFactor);
+		pt.EdgeTess[2] = 0.5f*(patch[0].tessFactor + patch[1].tessFactor);
+		pt.InsideTess  = pt.EdgeTess[0];
+
+		return pt;
+	}
+
+	[domain("tri")]
+	[partitioning("fractional_odd")]
+	[outputtopology("triangle_cw")]
+	[outputcontrolpoints(3)]
+	[patchconstantfunc("PatchHS")]
+	VSOutput hullShader(InputPatch<VSOutput,3> p, uint i : SV_OutputControlPointID, uint patchId : SV_PrimitiveID) {
+		VSOutput output;
+
+		output.pos       = p[i].pos;
+		output.color     = p[i].color;
+		output.uv        = p[i].uv;
+		output.normal    = p[i].normal;
+		output.tangent   = p[i].tangent;
+		output.bitangent = p[i].bitangent;
+		output.look      = p[i].look;
+		output.shadowPos = p[i].shadowPos;
+
+		return output;
+	}
+
+	[domain("tri")]
+	VSOutput domainShader(PatchTess patchTess, float3 bary : SV_DomainLocation, const OutputPatch<VSOutput,3> tri) {
+		VSOutput output;
+
+		output.pos       = bary.x*tri[0].pos       + bary.y*tri[1].pos       + bary.z*tri[2].pos;
+		output.color     = bary.x*tri[0].color     + bary.y*tri[1].color     + bary.z*tri[2].color;
+		output.uv        = bary.x*tri[0].uv        + bary.y*tri[1].uv        + bary.z*tri[2].uv;
+		output.normal    = bary.x*tri[0].normal    + bary.y*tri[1].normal    + bary.z*tri[2].normal;
+		output.tangent   = bary.x*tri[0].tangent   + bary.y*tri[1].tangent   + bary.z*tri[2].tangent;
+		output.bitangent = bary.x*tri[0].bitangent + bary.y*tri[1].bitangent + bary.z*tri[2].bitangent;
+		output.look      = bary.x*tri[0].look      + bary.y*tri[1].look      + bary.z*tri[2].look;
+		output.shadowPos = bary.x*tri[0].shadowPos + bary.y*tri[1].shadowPos + bary.z*tri[2].shadowPos;
+
+		output.normal    = normalize(output.normal);
+		output.tangent   = normalize(output.tangent);
+		output.bitangent = normalize(output.bitangent);
+
+		{
+			// uint mipLevels;
+			// {
+			// 	uint w;
+			// 	uint h;
+			// 	height.GetDimensions(0, w, h, mipLevels);
+			// }
+
+			const float MipInterval = 10.0f;
+			float mipLevel = clamp((distance(output.pos, vars.camPos) - MipInterval) / MipInterval, 0.0f, 8.0f);
+			float h = height.SampleLevel(samp, output.uv, mipLevel).r - 0.5f;
+
+			output.pos += output.normal * h * vars.material.heightScale;
+		}
+
+		output.svPos     = mul(float4(output.pos, 1.0f), vars.mvp.viewProj);
+		output.shadowPos = mul(float4(output.pos, 1.0f), vars.mvpShadow.viewProj);
+
+		return output;
+	}
+
+	float SampleShadowMap(in float2 base_uv, in float u, in float v, in float2 shadowMapSizeInv, in uint cascadeIdx, in float depth, in float2 receiverPlaneDepthBias) {
 
 	    float2 uv = base_uv + float2(u, v) * shadowMapSizeInv;
 
@@ -315,12 +405,12 @@ char* d3dMainShader = HLSL (
 		return sum * 1.0f / 144;
 	}
 
-	float3 calculateLight(PSInput input) {
+	float3 calculateLight(VSOutput input) {
 
 		// Sample shadow.
 		float shadowFactor;
 		{
-			float3 projCoord = input.posTexProj.xyz / input.posTexProj.w;
+			float3 projCoord = input.shadowPos.xyz / input.shadowPos.w;
 
 			if(projCoord.x < -1.0f || projCoord.x > 1.0f || 
 			   projCoord.y < -1.0f || projCoord.y > 1.0f || 
@@ -334,9 +424,9 @@ char* d3dMainShader = HLSL (
 
 			// Calculate bias.
 
-			float bias = 0.00001f;
+			// float bias = 0.00002f;
+			float bias = 0.00005f;
 			float receiverPlaneDepthBias;
-			if(true)
 			{
 				// Constant, slope-scale, normal and receiver plane depth biases.
 
@@ -396,22 +486,22 @@ char* d3dMainShader = HLSL (
 					// shadowFactor /= 16.0f;
 				}
 
-				// Poissong disk 16 samples.
+				// Poisson disk 16 samples.
 				{
-					for(int i = 0; i < vars.samples.count; i++) {
-						// float2 sample = vars.samples.data[i] * 1.5f;
-						float2 sample = vars.samples.data[i] * 1.5f;
-						float2 uvOffset = sample * (1 / vars.shadowMapSize);
+					// for(int i = 0; i < vars.samples.count; i++) {
+					// 	// float2 sample = vars.samples.data[i] * 1.5f;
+					// 	float2 sample = vars.samples.data[i] * 1.5f;
+					// 	float2 uvOffset = sample * (1 / vars.shadowMapSize);
 
-						shadowFactor += pTex.SampleCmpLevelZero(sampP, projCoord.xy + uvOffset, projCoord.z);
+					// 	shadowFactor += pTex.SampleCmpLevelZero(sampP, projCoord.xy + uvOffset, projCoord.z);
 
-					}
-					shadowFactor /= 16.0f;
+					// }
+					// shadowFactor /= 16.0f;
 				}
 
 				// The Witness sampling.
 				{
-					// shadowFactor = SampleShadowMapOptimizedPCF(projCoord, 0, 0, 0, receiverPlaneDepthBias);
+					shadowFactor = SampleShadowMapOptimizedPCF(projCoord, 0, 0, 0, receiverPlaneDepthBias);
 				}
 			}
 
@@ -422,9 +512,6 @@ char* d3dMainShader = HLSL (
 		float3 normal;
 
 		if(vars.material.hasBumpMap) {
-			float3 bumpColor = bump.Sample(samp, input.uv).rgb;
-			float3 bumpNormal = normalize((bumpColor*2)-1);
-
 			// float3x3 tbn = float3x3(normalize(input.bitangent), 
 			//                         normalize(input.tangent), 
 			//                         normalize(input.normal));
@@ -433,7 +520,11 @@ char* d3dMainShader = HLSL (
 			                        -normalize(input.bitangent), 
 			                         normalize(input.normal));
 
+			float3 bumpColor = bump.Sample(samp, input.uv).rgb;
+			float3 bumpNormal = normalize((bumpColor*2)-1);
+
 			normal = mul(bumpNormal, tbn);
+			normal = normalize(normal);
 
 		} else {
 			normal = normalize(input.normal);
@@ -463,17 +554,14 @@ char* d3dMainShader = HLSL (
 		return lightIntensity;
 	}
 
-	float4 pixelShader(PSInput input) : SV_Target {
+	float4 pixelShader(VSOutput input) : SV_Target {
 		float4 output;
 
-		float3 lightIntensity = calculateLight(input);
+		output = input.color * tex.Sample(samp, input.uv) * float4(calculateLight(input), 1);
 
-		output = input.color * 
-		         tex.Sample(samp, input.uv) * 
-		         float4(lightIntensity, 1);
-
-		if(vars.sharpenAlpha) 
+		if(vars.sharpenAlpha) {
 			output.a = (output.a - 0.25f) / max(fwidth(output.a), 0.0001) + 0.5;
+		}
 
 		return output;
 	}
@@ -798,10 +886,14 @@ char* d3dCubeShader = HLSL (
 
 //
 
+#if 0
+
 struct ShadowShaderVars {
 	Mat4 model;
 	Mat4 view;
 	Mat4 proj;
+	int sharpenAlpha;
+	Vec3 pad;
 };
 
 char* d3dShadowShader = HLSL (
@@ -820,6 +912,9 @@ char* d3dShadowShader = HLSL (
 		float4x4 model;
 		float4x4 view;
 		float4x4 proj;
+
+		int sharpenAlpha;
+		float3 pad;
 	};
 
 	ShaderVars vars   : register(b0);
@@ -830,15 +925,163 @@ char* d3dShadowShader = HLSL (
 		PSInput output;
 
 		output.pos = mul(mul(mul(float4(input.pos, 1), vars.model), vars.view), vars.proj);
-
 		output.uv = input.uv;
 
 		return output;
 	}
 
 	void pixelShader(PSInput input) {
-      float4 texColor = tex.Sample(samp, input.uv);
-		clip(texColor.a == 0.0f ? -1:1);
+      float4 output = tex.Sample(samp, input.uv);
+
+      // Copied from main shader.
+      if(vars.sharpenAlpha) 
+      	output.a = (output.a - 0.25f) / max(fwidth(output.a), 0.0001) + 0.5;
+
+		clip(output.a <= 0.5f ? -1:1);
+	}
+);
+
+#endif
+
+struct ShadowShaderVars {
+	Mat4 model;
+	Mat4 viewProj;
+
+	Vec3 camPos;
+	int sharpenAlpha;
+
+	float farTessDistance;
+	float closeTessDistance;
+	float farTessFactor;
+	float closeTessFactor;
+
+	int hasDispMap;
+	float heightScale;
+
+	Vec2 pad;
+};
+
+char* d3dShadowShader = HLSL (
+	struct VSInput {
+		float3 pos    : POSITION;
+		float2 uv     : TEXCOORD;
+		float3 normal : NORMAL0;
+	};
+
+	struct VSOutput {
+		float4 svPos : SV_POSITION;
+		float3 pos   : POSITION;
+		float2 uv    : TEXCOORD0;
+
+		float3 normal    : NORMAL0;
+
+		float tessFactor : TESS;
+	};
+
+	struct ShaderVars {
+		float4x4 model;
+		float4x4 viewProj;
+
+		float3 camPos;
+		int sharpenAlpha;
+
+		float farTessDistance;
+		float closeTessDistance;
+		float farTessFactor;
+		float closeTessFactor;
+
+		int hasDispMap;
+		float heightScale;
+	};
+
+	ShaderVars   vars : register(b0);
+	Texture2D    tex  : register(t0);
+	Texture2D    height : register(t4);
+	SamplerState samp : register(s0);
+
+	VSOutput vertexShader(VSInput input) {
+		VSOutput output;
+
+		output.pos = mul(float4(input.pos, 1), vars.model);
+		output.uv = input.uv;
+		output.normal = mul(input.normal, vars.model);
+
+      // Copied from main shader.
+		if(vars.hasDispMap) {
+			float d = distance(output.pos, vars.camPos);
+			float tess = saturate((vars.farTessDistance - d) / (vars.farTessDistance - vars.closeTessDistance));
+			output.tessFactor = vars.farTessFactor + tess*(vars.closeTessFactor - vars.farTessFactor);
+
+		} else {
+			output.svPos = mul(float4(output.pos, 1.0f), vars.viewProj);
+		}
+
+		return output;
+	}
+
+	struct PatchTess {
+		float EdgeTess[3] : SV_TessFactor;
+		float InsideTess  : SV_InsideTessFactor;
+	};
+
+	PatchTess PatchHS(InputPatch<VSOutput,3> patch, uint patchID : SV_PrimitiveID) {
+		PatchTess pt;
+
+		pt.EdgeTess[0] = 0.5f*(patch[1].tessFactor + patch[2].tessFactor);
+		pt.EdgeTess[1] = 0.5f*(patch[2].tessFactor + patch[0].tessFactor);
+		pt.EdgeTess[2] = 0.5f*(patch[0].tessFactor + patch[1].tessFactor);
+		pt.InsideTess  = pt.EdgeTess[0];
+
+		return pt;
+	}
+
+	[domain("tri")]
+	[partitioning("fractional_odd")]
+	[outputtopology("triangle_cw")]
+	[outputcontrolpoints(3)]
+	[patchconstantfunc("PatchHS")]
+	VSOutput hullShader(InputPatch<VSOutput,3> p, uint i : SV_OutputControlPointID, uint patchId : SV_PrimitiveID) {
+		VSOutput output;
+
+		output.pos    = p[i].pos;
+		output.uv     = p[i].uv;
+		output.normal = p[i].normal;
+
+		return output;
+	}
+
+	[domain("tri")]
+	VSOutput domainShader(PatchTess patchTess, float3 bary : SV_DomainLocation, const OutputPatch<VSOutput,3> tri) {
+		VSOutput output;
+
+		output.pos    = bary.x*tri[0].pos    + bary.y*tri[1].pos    + bary.z*tri[2].pos;
+		output.uv     = bary.x*tri[0].uv     + bary.y*tri[1].uv     + bary.z*tri[2].uv;
+		output.normal = bary.x*tri[0].normal + bary.y*tri[1].normal + bary.z*tri[2].normal;
+
+		output.normal = normalize(output.normal);
+
+		{
+			const float MipInterval = 10.0f;
+			float mipLevel = clamp((distance(output.pos, vars.camPos) - MipInterval) / MipInterval, 0.0f, 8.0f);
+			float h = height.SampleLevel(samp, output.uv, mipLevel).r - 0.5f;
+
+			output.pos += output.normal * h * vars.heightScale;
+		}
+
+		output.svPos = mul(float4(output.pos, 1.0f), vars.viewProj);
+
+		return output;
+	}
+
+	void pixelShader(VSOutput input) {
+      float4 output = tex.Sample(samp, input.uv);
+
+      // Copied from main shader.
+      if(vars.sharpenAlpha) {
+      	output.a = (output.a - 0.25f) / max(fwidth(output.a), 0.0001) + 0.5;
+      }
+
+		clip(output.a <= 0.5f ? -1:1);
 	}
 );
 

@@ -170,19 +170,18 @@ Shader* dxGetShader(int shaderId) {
 	return theGState->shaders + shaderId;
 }
 
-void dxLoadShader(int type, char* shaderCode, char* name, ID3D11VertexShader** vertexShader, ID3D11PixelShader** pixelShader, ID3DBlob** shaderBlob = 0) {
+void dxLoadShader(int type, char* shaderCode, char* name, ID3D11VertexShader** vertexShader, ID3D11HullShader** hullShader, ID3D11DomainShader** domainShader, ID3D11PixelShader** pixelShader, ID3DBlob** shaderBlob = 0) {
 	enum {
 		SHADER_TYPE_VERTEX = 0,
+		SHADER_TYPE_HULL,
+		SHADER_TYPE_DOMAIN,
 		SHADER_TYPE_PIXEL,
 	};
 
-	bool vShader = type == SHADER_TYPE_VERTEX;
-
-	if(vShader) {
-		if(*vertexShader != 0) (*vertexShader)->Release();
-	} else {
-		if(*pixelShader != 0) (*pixelShader)->Release();
-	}
+	     if(type == SHADER_TYPE_VERTEX && *vertexShader) (*vertexShader)->Release();
+	else if(type == SHADER_TYPE_HULL   && *hullShader)   (*hullShader)->Release();
+	else if(type == SHADER_TYPE_DOMAIN && *domainShader) (*domainShader)->Release();
+	else if(type == SHADER_TYPE_PIXEL  && *pixelShader)  (*pixelShader)->Release();
 
 	#if SHADER_DEBUG
 	uint flags1 = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -192,20 +191,32 @@ void dxLoadShader(int type, char* shaderCode, char* name, ID3D11VertexShader** v
 
 	ID3DBlob* blobError;
 
-	char* version[] = {"vs_4_0", "ps_4_0"};
+	char* version[] = {"vs_5_0", "hs_5_0", "ds_5_0", "ps_5_0"};
 
 	ID3DBlob* blob;
 	D3DCompile(shaderCode, strlen(shaderCode), NULL, NULL, NULL, name, version[type], flags1, 0, &blob, &blobError);
 	{
-		if (blobError != nullptr)
-			printf((char*)blobError->GetBufferPointer());
-		if (blobError) blobError->Release();
+		if (blobError != nullptr) {
+			char* errorMessage = (char*)blobError->GetBufferPointer();
+
+			// If we get an "entrypoint not found" message on hull or domain shaders we assume that that's intended.
+			if(strFind(errorMessage, "entrypoint not found") != -1) {
+				     if(type == SHADER_TYPE_HULL)   hullShader = 0;
+				else if(type == SHADER_TYPE_DOMAIN) domainShader = 0;
+
+				return;
+			} else {
+				printf(errorMessage);
+			}
+
+			blobError->Release();
+		}
 	}
 
-	if(vShader) 
-		theGState->d3dDevice->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, vertexShader);
-	else 
-		theGState->d3dDevice->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, pixelShader);
+	     if(type == SHADER_TYPE_VERTEX) theGState->d3dDevice->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, vertexShader);
+	else if(type == SHADER_TYPE_HULL)   theGState->d3dDevice->CreateHullShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, hullShader);
+	else if(type == SHADER_TYPE_DOMAIN) theGState->d3dDevice->CreateDomainShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, domainShader);
+	else if(type == SHADER_TYPE_PIXEL)  theGState->d3dDevice->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, pixelShader);
 
 	if(shaderBlob) *shaderBlob = blob;
 }
@@ -215,8 +226,10 @@ void dxLoadShaders() {
 		Shader* shader = theGState->shaders + i;
 		ShaderInfo* info = shaderInfos + shader->id;
 
-		dxLoadShader(0, info->code, "vertexShader", &shader->vertexShader, 0, &shader->vertexBlob);
-		dxLoadShader(1, info->code, "pixelShader", 0, &shader->pixelShader, 0);
+		dxLoadShader(0, info->code, "vertexShader", &shader->vertexShader, 0, 0, 0, &shader->vertexBlob);
+		dxLoadShader(1, info->code, "hullShader",   0, &shader->hullShader,   0, 0, 0);
+		dxLoadShader(2, info->code, "domainShader", 0, 0, &shader->domainShader, 0, 0);
+		dxLoadShader(3, info->code, "pixelShader",  0, 0, 0, &shader->pixelShader,  0);
 	}
 }
 
@@ -230,9 +243,13 @@ void dxSetShader(int shaderId) {
 
 	{
 		gs->d3ddc->VSSetShader(shader->vertexShader, 0, 0);
+		gs->d3ddc->HSSetShader(shader->hullShader, 0, 0);   // If the shaders are zero they will be unbound intentionally.
+		gs->d3ddc->DSSetShader(shader->domainShader, 0, 0); // If the shaders are zero they will be unbound intentionally.
 		gs->d3ddc->PSSetShader(shader->pixelShader, 0, 0);
 		
 		gs->d3ddc->VSSetConstantBuffers(0, 1, &shader->constantBuffer);
+		if(shader->hullShader) gs->d3ddc->HSSetConstantBuffers(0, 1, &shader->constantBuffer);
+		if(shader->domainShader) gs->d3ddc->DSSetConstantBuffers(0, 1, &shader->constantBuffer);
 		gs->d3ddc->PSSetConstantBuffers(0, 1, &shader->constantBuffer);
 
 		if(shader->inputLayout) {
@@ -1146,57 +1163,10 @@ void dxSetMaterial(Material* m) {
 		if(dxGetShaderVars(Main)->material.hasBumpMap) 
 			theGState->d3ddc->PSSetShaderResources(2, 1, &m->bump.view);
 		theGState->d3ddc->PSSetShaderResources(3, 1, &m->map_Ks.view);
-		if(dxGetShaderVars(Main)->material.hasDispMap) 
-			theGState->d3ddc->PSSetShaderResources(4, 1, &m->disp.view);
-	}
-}
-
-void dxDrawMesh(Mesh* m, Vec3 pos, Vec3 dim, Vec4 color, Quat rot = quat()) {
-	GraphicsState* gs = theGState;
-
-	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
-	gs->d3ddc->PSSetSamplers(1, 1, &gs->samplerCmp);
-
-	dxGetShaderVars(Main)->mvp.model = modelMatrix(pos, dim, rot);
-	dxGetShaderVars(Main)->color = color;
-
-	UINT stride = sizeof(MeshVertex);
-	UINT offset = 0;
-	gs->d3ddc->IASetVertexBuffers( 0, 1, &m->vertexBuffer, &stride, &offset );
-
-	gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	for(int i = 0; i < m->groupCount; i++) {
-		Mesh::Group* g = m->groups + i;
-
-		dxGetShaderVars(Main)->material.smoothing  = g->smoothing;
-		dxSetMaterial(&g->material);
-		dxPushShaderConstants(Shader_Main);
-
-		gs->d3ddc->Draw(g->size, g->offset);
-	}
-}
-
-void dxDrawMeshShadow(Mesh* m, Vec3 pos, Vec3 dim, Vec4 color, Quat rot = quat()) {
-	GraphicsState* gs = theGState;
-
-	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
-
-	dxGetShaderVars(Shadow)->model = modelMatrix(pos, dim, rot);
-	dxPushShaderConstants(Shader_Shadow);
-
-	UINT stride = sizeof(MeshVertex);
-	UINT offset = 0;
-	gs->d3ddc->IASetVertexBuffers( 0, 1, &m->vertexBuffer, &stride, &offset );
-
-	gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	for(int i = 0; i < m->groupCount; i++) {
-		Mesh::Group* g = m->groups + i;
-		
-		gs->d3ddc->PSSetShaderResources(0, 1, &g->material.map_Kd.view);
-
-		gs->d3ddc->Draw(g->size, g->offset);
+		if(dxGetShaderVars(Main)->material.hasDispMap) {
+			theGState->d3ddc->DSSetShaderResources(4, 1, &m->disp.view);
+			dxGetShaderVars(Main)->material.heightScale = m->heightScale;
+		}
 	}
 }
 
@@ -1206,11 +1176,11 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 	Mesh* m = dxGetMesh(obj->name);
 
 	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
+	gs->d3ddc->DSSetSamplers(0, 1, &gs->sampler);
 
 	Mat4 model = modelMatrix(obj->pos, obj->dim, obj->rot);
 	if(shadow) {
 		dxGetShaderVars(Shadow)->model = model;
-
 		dxPushShaderConstants(Shader_Shadow);
 
 	} else {
@@ -1224,18 +1194,46 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 	UINT offset = 0;
 	gs->d3ddc->IASetVertexBuffers( 0, 1, &m->vertexBuffer, &stride, &offset );
 
-	gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	// dxFillWireFrame(true);
 
 	for(int i = 0; i < m->groupCount; i++) {
 		Mesh::Group* g = m->groups + i;
 
 		Material* mat = obj->material ? dxGetMaterial(obj->material) : &g->material;
 
-		if(shadow) {
-			gs->d3ddc->PSSetShaderResources(0, 1, &mat->map_Kd.view);
+		// Doing this for every material is slow.
+		bool hasDisp = mat->disp.file ? true : false;
+		if(!hasDisp) {
+			gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+			gs->d3ddc->HSSetShader(0, 0, 0);
+			gs->d3ddc->DSSetShader(0, 0, 0);
 
 		} else {
-			dxGetShaderVars(Main)->material.smoothing  = g->smoothing;
+			gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+
+			Shader* shader = shadow ? dxGetShader(Shader_Shadow) : dxGetShader(Shader_Main);
+
+			gs->d3ddc->HSSetShader(shader->hullShader, 0, 0);   // If the shaders are zero they will be unbound intentionally.
+			gs->d3ddc->DSSetShader(shader->domainShader, 0, 0); // If the shaders are zero they will be unbound intentionally.
+			
+			if(shader->hullShader) gs->d3ddc->HSSetConstantBuffers(0, 1, &shader->constantBuffer);
+			if(shader->domainShader) gs->d3ddc->DSSetConstantBuffers(0, 1, &shader->constantBuffer);
+		}
+
+		if(shadow) {
+			gs->d3ddc->PSSetShaderResources(0, 1, &mat->map_Kd.view);
+			dxGetShaderVars(Shadow)->hasDispMap = mat->disp.file ? true : false;
+
+			if(dxGetShaderVars(Shadow)->hasDispMap) {
+				dxGetShaderVars(Shadow)->heightScale = mat->heightScale;
+				gs->d3ddc->DSSetShaderResources(4, 1, &mat->disp.view);
+			}
+
+			dxPushShaderConstants(Shader_Shadow);
+
+		} else {
+			dxGetShaderVars(Main)->material.smoothing = g->smoothing;
 
 			dxSetMaterial(mat);
 
@@ -1244,6 +1242,8 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 
 		gs->d3ddc->Draw(g->size, g->offset);
 	}
+
+	dxFillWireFrame(false);
 }
 
 //

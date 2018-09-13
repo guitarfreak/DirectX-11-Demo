@@ -30,6 +30,7 @@ ToDo:
 - DDS file generation automation.
 
 Bugs:
+- Black shadow spot where sun hits material with displacement map.
 
 */
 
@@ -358,7 +359,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->fieldOfView = 60;
 			ad->msaaSamples = 4;
 			ad->resolutionScale = 1;
-			ad->nearPlane = 0.2f;
+			ad->nearPlane = 0.1f;
 			ad->farPlane = 100;
 			ad->dt = 1/(float)ws->frameRate;
 
@@ -1236,6 +1237,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				SkyShaderVars* skyVars = dxGetShaderVars(Sky);
 				MainShaderVars* mainVars = dxGetShaderVars(Main);
 				GradientShaderVars* gradientVars = dxGetShaderVars(Gradient);
+				ShadowShaderVars* shadowVars = dxGetShaderVars(Shadow);
 
 				*primitiveVars = {};
 				primitiveVars->view = ad->view2d;
@@ -1272,8 +1274,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				}
 
 				*mainVars = {};
-				mainVars->mvp.view = ad->view;
-				mainVars->mvp.proj = ad->proj;
+				mainVars->mvp.viewProj = ad->proj * ad->view;
 				mainVars->camPos = ad->activeCam.pos;
 				// mainVars->ambient = vec3(0.005f);
 				// mainVars->ambient = vec3(0.2f);
@@ -1283,10 +1284,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 				// mainVars->ambient = vec3(0.2f);
 
 				mainVars->light.dir = -skyVars->sunDir;
+				// mainVars->light.color = vec3(1.0f);
 				mainVars->light.color = vec3(1.0f);
 				mainVars->lightCount = 1;
 				mainVars->shadowMapSize = vec2(gs->shadowMapSize);
 				mainVars->sharpenAlpha = 0;
+
+				mainVars->farTessDistance = 20.0f;
+				mainVars->closeTessDistance = 1.0f;
+				mainVars->farTessFactor = 1;
+				mainVars->closeTessFactor = 10;
 
 				{
 					Vec2 data[] = {
@@ -1318,6 +1325,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 				*gradientVars = {};
 				gradientVars->view = ad->view2d;
 				gradientVars->proj = ad->ortho;
+
+				*shadowVars = {};
+
+				shadowVars->camPos = ad->activeCam.pos;
+				shadowVars->farTessDistance = 20.0f;
+				shadowVars->closeTessDistance = 1.0f;
+				shadowVars->farTessFactor = 1;
+				shadowVars->closeTessFactor = 10;
 			}
 		}
 	}
@@ -1769,7 +1784,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 					e->acc = vec3(0,0,0);
 					// float speed = !input->keysDown[KEYCODE_T] ? 150 : 1000;
-					float speed = !input->keysDown[KEYCODE_T] ? 50 : 500;
+					float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
 					entityKeyboardAcceleration(ad->cameraEntity, input, speed, 2.0f, true);
 
 					e->vel = e->vel + e->acc*dt;
@@ -1797,7 +1812,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 					track->pos = e->pos;
 
 					dxSetShader(Shader_Main);
-					dxDrawMesh(dxGetMesh("sphere\\sphere.obj"), vec3(0,0,10), vec3(0.25f), vec4(1,1,1,1));
+					// dxDrawMesh(dxGetMesh("sphere\\sphere.obj"), vec3(0,0,10), vec3(0.25f), vec4(1,1,1,1));
 
 				} break;
 
@@ -1837,6 +1852,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		dxSetShader(Shader_Main);
 
+		// {
+		// 	Vec2 p = vec2(2,1);
+		// 	Vec2 d = norm(vec2(-1,-1));
+		// 	float yTo = 0;
+		// 	float dist = (yTo - p.y) * (1.0f/d.y);
+		// 	Vec2 r = p + d*dist;
+		// 	printf("%f %f %f\n", dist, r.x, r.y);
+		// }
+
 		// @ShadowMap.
 		{
 			// Draw normals.
@@ -1862,28 +1886,43 @@ extern "C" APPMAINFUNCTION(appMain) {
 			int objC = 0;
 
 			{
-				Quat rot = quat(ad->time*0.20f, vec3(0,0,1));
-				// Quat rot = quat();
+				Vec3 size = vec3(1);
 				float dist = 1.25f;
-
 				Vec3 startPos = vec3(0,-3.5f,1);
-				Vec3 pos = startPos;
-				int index = 0;
+				Quat rot = quat(ad->time*0.20f, vec3(0,0,1));
 
-				for(int i = 0; i < gs->materialCount; i++) {
-					Material* m = gs->materials + i;
+				{
+					char* materials[] = {"Brick Wall", "Tiles", "Metal Plate", "Metal Weave", "Marble", "Metal Grill"};
+					int matCount = arrayCount(materials);
 
-					if(strFind(m->name, "Matte") != -1) continue;
+					for(int i = 0; i < matCount; i++) {
+						Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
 
-					float p = -dist*(gs->materialCount-2)/2 + (index*dist);
-					index++;
+						float p = -dist*(matCount-1)/2 + (i*dist);
+						
+						bool alpha = false;
+						if(strFind(m->name, "Metal Grill") != -1) alpha = true;
 
-					bool alpha = false;
-					if(strFind(m->name, "Metal Grill") != -1) alpha = true;
+						objA[objC++] = { "cube\\obj.obj",     startPos + vec3(p,0,0),    size, vec4(1,1), quat(), m->name, alpha };
+						objA[objC++] = { "cylinder\\obj.obj", startPos + vec3(p,0,1.1), size, vec4(1,1), rot, m->name, alpha };
+						objA[objC++] = { "sphere\\obj.obj",   startPos + vec3(p,0,2.2f), size, vec4(1,1), rot, m->name, alpha };
+					}
+				}
 
-					objA[objC++] = { "cube\\obj.obj",     pos + vec3(p,0,0), vec3(1), vec4(1,1), quat(), m->name, alpha };
-					objA[objC++] = { "cylinder\\obj.obj", pos + vec3(p,0,1.25), vec3(1), vec4(1,1), rot, m->name, alpha };
-					objA[objC++] = { "sphere\\obj.obj",   pos + vec3(p,0,2.5f), vec3(1), vec4(1,1), rot, m->name, alpha };
+				{
+					char* materials[] = {"Rock", "Canyon Rock", "Stone Wall", "Crystals", "Snow"};
+					float heightScales[] = {0.05f, 0.2f, 0.05f, 0.2f, 0.05f};
+					int matCount = arrayCount(materials);
+
+					for(int i = 0; i < matCount; i++) {
+						Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
+
+						float p = -dist*(matCount-1)/2 + (i*dist);
+						
+						m->heightScale = heightScales[i];
+
+						objA[objC++] = { "sphere\\obj.obj", startPos + vec3(p,0,3.3f), size, vec4(1,1), rot, m->name};
+					}
 				}
 			}
 
@@ -1895,10 +1934,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Quat rot = quat(M_PI_2, vec3(1,0,0));
 			objA[objC++] = {"treeRealistic\\Tree.obj", vec3(3,3,0), vec3(0.8f), vec4(1,1), quat(), 0, true};
 
+			//
+
 			// Setup light view and projection.
 			Mat4 viewLight = {};
 			Mat4 projLight = {};
 			{
+				// Hardcoding values for now.
 				float dist = 8;
 				float size = 15;
 				Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
@@ -1906,109 +1948,102 @@ extern "C" APPMAINFUNCTION(appMain) {
 				projLight = orthoMatrixZ01(size, size, 0, 30);
 			}
 
-			// Render scene shadows.
-			{
-				dxDepthTest(true);
-				dxScissorState(false);
-				dxClearFrameBuffer("Shadow");
-
-				// dxSetBlendState(Blend_State_BlendAlphaCoverage);
-				// defer{dxSetBlendState(Blend_State_Blend);};
-
-				#if 0
-				D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
-				{
-					// gs->rasterizerState.DepthBias = 50000;
-					// gs->rasterizerState.DepthBiasClamp = 0;
-					// gs->rasterizerState.SlopeScaledDepthBias = 2;
-
-					gs->rasterizerState.DepthBias = 0;
-					gs->rasterizerState.DepthBiasClamp = 0;
-					gs->rasterizerState.SlopeScaledDepthBias = 5;
-				}
-				dxSetRasterizer(); 
-				defer{
-					gs->rasterizerState = oldRasterizerState;
-					dxSetRasterizer(); 
-				};
-				#endif
-
-				// gs->rasterizerState.FrontCounterClockwise = true;
-				// dxSetRasterizer(); 
-				// defer{
-				// 	gs->rasterizerState.FrontCounterClockwise = false;
-				// 	dxSetRasterizer(); 
-				// };
-
-				// Remove warning.
-				ID3D11ShaderResourceView* srv = 0;
-				gs->d3ddc->PSSetShaderResources(5, 1, &srv);
-				dxBindFrameBuffer(0, "Shadow"); 
-
-				Vec2i vp = vec2i(theGState->shadowMapSize);
-				dxViewPort(vp);
-
-				dxSetShader(Shader_Shadow);
-				dxGetShaderVars(Shadow)->view = viewLight;
-				dxGetShaderVars(Shadow)->proj = projLight;
-
-				bool alphaMode = false;
-				for(int i = 0; i < objC; i++) {
-					Object* obj = objA + i;
-
-					if(obj->hasAlpha) {
-						if(!alphaMode) {
-							dxCullState(false);
-							dxSetBlendState(Blend_State_BlendAlphaCoverage);
-							alphaMode = true;
-						}
-					} else {
-						if(alphaMode) {
-							dxCullState(true);
-							dxSetBlendState(Blend_State_Blend);
-							alphaMode = false;
-						}
-					}
-
-					dxDrawObject(obj, true);
-				}
-			}
-
 			// Render scene.
-			{
-				dxBindFrameBuffer("3dMsaa", "ds3d");
-				dxSetShader(Shader_Main);
-				dxViewPort(ad->cur3dBufferRes);
+			for(int stage = 0; stage < 2; stage++) {
 
-				FrameBuffer* fb = dxGetFrameBuffer("Shadow");
-				gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
+				// Render shadow maps.
+				if(stage == 0) {
+					dxDepthTest(true);
+					dxScissorState(false);
+					dxClearFrameBuffer("Shadow");
 
-				dxGetShaderVars(Main)->mvpTexProj.view = viewLight;
-				dxGetShaderVars(Main)->mvpTexProj.proj = projLight;
+					// dxSetBlendState(Blend_State_BlendAlphaCoverage);
+					// defer{dxSetBlendState(Blend_State_Blend);};
+
+					#if 0
+					D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
+					{
+						// gs->rasterizerState.DepthBias = 50000;
+						// gs->rasterizerState.DepthBiasClamp = 0;
+						// gs->rasterizerState.SlopeScaledDepthBias = 2;
+
+						gs->rasterizerState.DepthBias = 0;
+						gs->rasterizerState.DepthBiasClamp = 0;
+						gs->rasterizerState.SlopeScaledDepthBias = 5;
+					}
+					dxSetRasterizer(); 
+					defer{
+						gs->rasterizerState = oldRasterizerState;
+						dxSetRasterizer(); 
+					};
+					#endif
+
+					// gs->rasterizerState.FrontCounterClockwise = true;
+					// dxSetRasterizer(); 
+					// defer{
+					// 	gs->rasterizerState.FrontCounterClockwise = false;
+					// 	dxSetRasterizer(); 
+					// };
+
+					// Remove warning.
+					ID3D11ShaderResourceView* srv = 0;
+					gs->d3ddc->PSSetShaderResources(5, 1, &srv);
+					dxBindFrameBuffer(0, "Shadow"); 
+
+					Vec2i vp = vec2i(theGState->shadowMapSize);
+					dxViewPort(vp);
+
+					dxSetShader(Shader_Shadow);
+					dxGetShaderVars(Shadow)->viewProj = projLight * viewLight;
+
+				} else {
+					dxBindFrameBuffer("3dMsaa", "ds3d");
+					dxSetShader(Shader_Main);
+					dxViewPort(ad->cur3dBufferRes);
+
+					FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+					gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
+
+					dxGetShaderVars(Main)->mvpShadow.viewProj = projLight * viewLight;
+				}
 
 				bool alphaMode = false;
+				bool first = true;
 				for(int i = 0; i < objC; i++) {
 					Object* obj = objA + i;
 
 					if(obj->hasAlpha) {
-						if(!alphaMode) {
+						if(!alphaMode || first) {
 							dxCullState(false);
 							dxSetBlendState(Blend_State_BlendAlphaCoverage);
-							dxGetShaderVars(Main)->sharpenAlpha = 1;
+
+							if(stage == 0) {
+								dxGetShaderVars(Shadow)->sharpenAlpha = 1;
+							} else {
+								dxGetShaderVars(Main)->sharpenAlpha = 1;
+							}
 
 							alphaMode = true;
 						}
 					} else {
-						if(alphaMode) {
+						if(alphaMode || first) {
 							dxCullState(true);
 							dxSetBlendState(Blend_State_Blend);
-							dxGetShaderVars(Main)->sharpenAlpha = 0;
+
+							if(stage == 0) {
+								dxGetShaderVars(Shadow)->sharpenAlpha = 0;
+							} else {
+								dxGetShaderVars(Main)->sharpenAlpha = 0;
+							}
 
 							alphaMode = false;
 						}
 					}
 
-					dxDrawObject(obj);
+					first = false;
+
+					bool shadow = stage == 0;
+					dxDrawObject(obj, shadow);
 				}
 			}
 

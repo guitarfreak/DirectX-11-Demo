@@ -2,10 +2,10 @@
 # Material Count: 1
 
 newmtl Base
-Ns 60.274510
+Ns 150.274510
 Ka 1 1 1
 Kd 1 1 1
-Ks 2.800000 2.800000 2.800000
+Ks 0.800000 0.800000 0.800000
 Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
@@ -14,3 +14,4 @@ map_Ka ambient.dds
 map_Kd color.dds
 bump norm.dds
 map_Ns rough.dds
+disp disp.dds

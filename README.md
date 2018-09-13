@@ -1,8 +1,20 @@
 ## DirectX 11 demo app thingy.
 
-![Screenshot1](https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot.png)
+<p float="right">
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot.png">
+  		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot.png" width="49%" />
+  	</a>
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot2.png">
+		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot2.png" width="49%" />
+  	</a>
+</p>
 
 Not much there yet. In active development.
+
+* Directional lighting.
+* Basic shadow mapping. (Poisson disk sampling.)
+* Normal mapping.
+* Displacement mapping with tesselation.
 
 #### Controls
 

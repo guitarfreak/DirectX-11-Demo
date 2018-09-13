@@ -60,6 +60,8 @@ struct Shader {
 
 	ID3DBlob* vertexBlob;
 	ID3D11VertexShader* vertexShader;
+	ID3D11HullShader* hullShader;
+	ID3D11DomainShader* domainShader;
 	ID3D11PixelShader* pixelShader;
 	ID3D11PixelShader* pixelShader2;
 	ID3D11Buffer* constantBuffer;
@@ -113,6 +115,8 @@ struct Material {
 	Texture map_Ks;
 	Texture bump;
 	Texture disp;
+
+	float heightScale;
 };
 
 struct Mesh {
