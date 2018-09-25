@@ -81,6 +81,8 @@ struct MeshVertex {
 	Vec3 normal;
 	Vec3 tangent;
 	Vec3 bitangent;
+	Vec4 blendWeights;
+	int blendIndices[4];
 };
 
 D3D11_INPUT_ELEMENT_DESC primitiveInputLayout[] = {
@@ -90,11 +92,13 @@ D3D11_INPUT_ELEMENT_DESC primitiveInputLayout[] = {
 };
 
 D3D11_INPUT_ELEMENT_DESC mainShaderInputLayout[] = {
-	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	{ "NORMAL",   1, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	{ "NORMAL",   2, DXGI_FORMAT_R32G32B32_FLOAT, 0, 44, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "POSITION",     0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "TEXCOORD",     0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "NORMAL",       0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "NORMAL",       1, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "NORMAL",       2, DXGI_FORMAT_R32G32B32_FLOAT, 0, 44, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "BLENDWEIGHT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 56, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	{ "BLENDINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT,  0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 };
 
 struct Material {
@@ -119,6 +123,18 @@ struct Material {
 	float heightScale;
 };
 
+struct Object {
+	// Mesh* m;
+	char* name;
+	Vec3 pos;
+	Vec3 dim;
+	Vec4 color;
+	Quat rot;
+
+	char* material;
+	bool hasAlpha;
+};
+
 struct Mesh {
 	struct Group {
 		char* name;
@@ -139,21 +155,25 @@ struct Mesh {
 	ID3D11Buffer* vertexBuffer;
 	int size;
 
-	// DArray<MeshVertex> vertices;
+	DArray<MeshVertex> vertices;
 
 	bool swapWinding;
 
+	//
+
+	AnimationPlayer animPlayer;
+
+	Bone* bones;
+	int boneCount;
+	BoneNode boneTree;
+
+	XForm* basePose;
+	Vec3* basePosePoints;
+
+	Animation animations[10];
+	int animationCount;
+
+	//
+
 	AssetInfo assetInfo[2];
-};
-
-struct Object {
-	// Mesh* m;
-	char* name;
-	Vec3 pos;
-	Vec3 dim;
-	Vec4 color;
-	Quat rot;
-
-	char* material;
-	bool hasAlpha;
 };

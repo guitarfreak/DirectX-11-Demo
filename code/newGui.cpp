@@ -1901,7 +1901,6 @@ float sliderGetMod(NewGui* gui, int type, SliderSettings* settings, int mod) {
 	
 	if(type == SLIDER_TYPE_INT) {
 		int mod = settings->mouseWheelModInt * modifier;
-		clampMin(&mod, 1);
 		return mod;
 
 	} else {

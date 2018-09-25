@@ -1,26 +1,18 @@
 /*
 
 ToDo:
-- For shipping mode, pack all data into one file and 
+- For shipping mode, pack all data into one file
 - Fix linewidth everywhere.
 - Make true fullscreen work.
 - Audio debug screen.
 - Clean up obj loader.
-- input layout change component sizes to be more reasonable.
-- Save objects to point upwards z as default and not y.
-- Tree mipmap alpha problem.
+- Input layout change component sizes to be more reasonable.
 - Mark objects with alpha in them.
-- Stream vorbis files.
 
-- Draw little island with ground/heightmap, shore, ocean, horizon and sky.
-- draw ocean.
-- draw horizon.
-- Animations.
+- Draw little island with ground/heightmap, shore, ocean, horizon.
 
 - Movement a la CS.
 - Collision GJK.
-
-- Sound, orientation, distance.
 
 - Interaction.
 
@@ -28,6 +20,8 @@ ToDo:
 - Hot reloading for all assets.
 
 - DDS file generation automation.
+
+- Animation doesn't use scaling yet.
 
 Bugs:
 - Black shadow spot where sun hits material with displacement map.
@@ -75,12 +69,12 @@ struct AudioState;
 struct MemoryBlock;
 struct DebugState;
 struct Timer;
-ThreadQueue*     theThreadQueue;
-GraphicsState*  theGState;
-AudioState*      theAudioState;
-MemoryBlock*     theMemory;
-DebugState*      theDebugState;
-Timer*           theTimer;
+ThreadQueue*   theThreadQueue;
+GraphicsState* theGState;
+AudioState*    theAudioState;
+MemoryBlock*   theMemory;
+DebugState*    theDebugState;
+Timer*         theTimer;
 
 // Internal.
 
@@ -104,6 +98,7 @@ Timer*           theTimer;
 #include "platformWin32.cpp"
 #include "input.cpp"
 
+#include "animation.h"
 #include "rendering.h"
 #include "font.h"
 
@@ -111,6 +106,7 @@ Timer*           theTimer;
 
 #include "shader.cpp"
 #include "objLoader.cpp"
+#include "animation.cpp"
 #include "rendering.cpp"
 #include "font.cpp"
 #include "newGui.cpp"
@@ -208,6 +204,14 @@ struct AppData {
 
 	//
 
+	bool showSkeleton;
+	Mat4 figureModel;
+	Mesh* figureMesh;
+	int figureAnimation;
+	float figureSpeed;
+
+	//
+
 	bool firstWalk;
 	float footstepSoundValue;
 	int lastFootstepSoundId;
@@ -233,7 +237,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		GetSystemInfo(&info);
 
 		char* baseAddress = (char*)gigaBytes(8);
-	    VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
+		VirtualAlloc(baseAddress, gigaBytes(40), MEM_RESERVE, PAGE_READWRITE);
 
 		ExtendibleMemoryArray* pMemory = &appMemory->extendibleMemoryArrays[appMemory->extendibleMemoryArrayCount++];
 		initExtendibleMemoryArray(pMemory, megaBytes(512), info.dwAllocationGranularity, baseAddress);
@@ -558,27 +562,16 @@ extern "C" APPMAINFUNCTION(appMain) {
 					recursiveFolderSearchStart(&fd, App_Mesh_Folder);
 					while(recursiveFolderSearchNext(&fd)) {
 
-						// if(strFind(fd.fileName, ".obj") == -1 && 
-						   // strFind(fd.fileName, ".mtl") == -1) continue;
+						// if(strFind(fd.fileName, ".obj") == -1) continue;
 
-						if(strFind(fd.fileName, ".obj") == -1) continue;
+						if(strFind(fd.fileName, ".obj")  == -1 &&
+						   strFind(fd.fileName, ".mesh") == -1) continue;
 
-						if(counter == 0) m = {};
+						m.name = getPStringCpy(fd.fileName);
+						m.file = getPStringCpy(fd.filePath);
 
-						if(strFind(fd.fileName, ".mtl") != -1) {
-							m.mtlFile = getPStringCpy(fd.filePath);
-						} else {
-							m.name = getPStringCpy(fd.fileName);
-							m.file = getPStringCpy(fd.filePath);
-						}
-
-						// if(counter == 0) counter++;
-						// else 
 						{
-							// counter = 0;
-
 							m.swapWinding = true;
-							// m.swapWinding = false;
 
 							dxLoadMesh(&m, &parser);
 
@@ -593,7 +586,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				{
 					gs->primitiveVertexBufferMaxCount = 1000;
-					 
+
 					D3D11_BUFFER_DESC bd;
 					bd.Usage = D3D11_USAGE_DYNAMIC;
 					bd.ByteWidth = sizeof(PrimitiveVertex) * gs->primitiveVertexBufferMaxCount;
@@ -696,23 +689,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 				d3dDevice->CreateBlendState(&blendDesc, &gs->blendStates[Blend_State_NoBlend]);
 
 				gs->blendStates[Blend_State_Blend] = dxCreateBlendState(
-					D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
+				                                                        D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
 
 				gs->blendStates[Blend_State_Blend] = dxCreateBlendState(
-					D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
+				                                                        D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
 
 				gs->blendStates[Blend_State_DrawOverlay] = dxCreateBlendState(
-					D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
-					D3D11_BLEND_ONE,       D3D11_BLEND_ONE,           D3D11_BLEND_OP_ADD);
+				                                                              D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+				                                                              D3D11_BLEND_ONE,       D3D11_BLEND_ONE,           D3D11_BLEND_OP_ADD);
 
 				gs->blendStates[Blend_State_BlitOverlay] = dxCreateBlendState(
-					D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
+				                                                              D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
 
 				// gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
 				// 	D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, true);
 
 				gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
-					D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, true, false);
+				                                                                     D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, true, false);
 			}
 
 			// @FrameBuffers.
@@ -1013,15 +1006,15 @@ extern "C" APPMAINFUNCTION(appMain) {
 		if(mouseInClientArea(windowHandle)) updateCursorIcon(ws);
 	}
 
-    if((input->keysPressed[KEYCODE_F11] || input->altEnter) && !sd->maximized) {
+	if((input->keysPressed[KEYCODE_F11] || input->altEnter) && !sd->maximized) {
 		// bool goFullscreen = !ws->fullscreen;
 
  		// gs->swapChain->SetFullscreenState(goFullscreen, 0);
  		// ws->fullscreen = !ws->fullscreen;
 
-    	if(ws->fullscreen) setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
-    	else setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
-    }
+		if(ws->fullscreen) setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
+		else setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
+	}
 
 
 	if(ds->input->resize || init) {
@@ -1474,35 +1467,35 @@ extern "C" APPMAINFUNCTION(appMain) {
 			p.y = sr.c().y + ((optionCount-1)*optionOffset)/2;
 
 
-			// List settings.
+				// List settings.
 
 			GameSettings* settings = &ad->settings;
 
 
 			p.x = leftX;
 			menuOption(menu, "Fullscreen", p, vec2i(-1,0));
-			
+
 			bool tempBool = ws->fullscreen;
 			if(menuOptionBool(menu, vec2(rightX, p.y), &tempBool)) {
 				if(ws->fullscreen) setWindowMode(windowHandle, ws, WINDOW_MODE_WINDOWED);
 				else setWindowMode(windowHandle, ws, WINDOW_MODE_FULLBORDERLESS);
 			}
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "VSync", p, vec2i(-1,0));
 
 			menuOptionBool(menu, vec2(rightX, p.y), &ws->vsync);
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "Max FPS", p, vec2i(-1,0));
 
 			menuOptionSliderInt(menu, vec2(rightX, p.y), &ad->frameRateCap, ws->frameRate, ad->maxFrameRate, 1);
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "Resolution Scale", p, vec2i(-1,0));
@@ -1511,40 +1504,40 @@ extern "C" APPMAINFUNCTION(appMain) {
 				ad->updateFrameBuffers = true;
 			}
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "Volume", p, vec2i(-1,0));
 
 			menuOptionSliderFloat(menu, vec2(rightX, p.y), &ad->audioState.masterVolume, 0.0f, 1, 0.1f, 1);
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "Mouse Sensitivity", p, vec2i(-1,0));
 
 			menuOptionSliderFloat(menu, vec2(rightX, p.y), &ad->mouseSensitivity, 0.01f, 2, 0.01f, 2);
 
-			//
+				//
 
 			p.y -= optionOffset; p.x = leftX;
 			menuOption(menu, "Field of View", p, vec2i(-1,0));
 
 			menuOptionSliderInt(menu, vec2(rightX, p.y), &ad->fieldOfView, 20, 90, 1);
 
-			//
+				//
 
 			p.y -= optionOffset;
 
-			//
+				//
 
 			p.y -= optionOffset;
 
 			p.x = rWidth * 0.5f;
 			p.y -= optionOffset;
 			if(menuOption(menu, "Back", p, vec2i(0,0)) || 
-			      input->keysPressed[KEYCODE_ESCAPE] ||
-			      input->keysPressed[KEYCODE_BACKSPACE]) {
+			   input->keysPressed[KEYCODE_ESCAPE] ||
+			   input->keysPressed[KEYCODE_BACKSPACE]) {
 				playSound("menuPop");
 
 				menu->screen = MENU_SCREEN_MAIN;
@@ -1557,7 +1550,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(ad->gameMode == GAME_MODE_LOAD) {
 		for(int i = 0; i < ad->entityList.size; i++) ad->entityList.e[i].init = false;
 
-		// Init player.
+			// Init player.
 		{
 			float v = randomFloat(0,M_2PI);
 			Vec3 startRot = vec3(v,0,0);
@@ -1565,18 +1558,18 @@ extern "C" APPMAINFUNCTION(appMain) {
 			Entity player = {};
 			Vec3 playerDim = vec3(0.8f, 0.8f, 1.8f);
 			float camOff = playerDim.z*0.5f - playerDim.x*0.25f;
-			// initEntity(&player, ET_Player, vec3(0.5f,0.5f,40), playerDim);
+				// initEntity(&player, ET_Player, vec3(0.5f,0.5f,40), playerDim);
 			initEntity(&player, ET_Player, vec3(20,20,40), playerDim, vec2i(0,0));
 			player.camOff = vec3(0,0,camOff);
 			player.rot = startRot;
 			player.onGround = false;
 			strCpy(player.name, "Player");
 			ad->footstepSoundValue = 0;
-			
+
 			ad->player = addEntity(&ad->entityList, &player);
 		}
 
-		// Debug cam.
+			// Debug cam.
 		{
 			Entity freeCam = {};
 			initEntity(&freeCam, ET_Camera, vec3(-4,5,3), vec3(0,0,0), vec2i(0,0));
@@ -1590,488 +1583,531 @@ extern "C" APPMAINFUNCTION(appMain) {
 	} else if(ad->gameMode == GAME_MODE_MAIN) {
 		TIMER_BLOCK_NAMED("Main Mode");
 
-	if(input->keysPressed[KEYCODE_ESCAPE]) {
-		ad->gameMode = GAME_MODE_MENU;
-		ad->menu.gameRunning = true;
-		ad->menu.activeId = 0;
-	}
+		if(input->keysPressed[KEYCODE_ESCAPE]) {
+			ad->gameMode = GAME_MODE_MENU;
+			ad->menu.gameRunning = true;
+			ad->menu.activeId = 0;
+		}
 
-	{
-		Entity* player = ad->player;
-		Entity* camera = ad->cameraEntity;
+		{
+			Entity* player = ad->player;
+			Entity* camera = ad->cameraEntity;
 
-		// if(input->keysPressed[KEYCODE_F4]) {
-		// 	if(ad->playerMode) {
-		// 		camera->pos = player->pos + player->camOff;
-		// 		camera->dir = player->dir;
-		// 		camera->rot = player->rot;
-		// 		camera->rotAngle = player->rotAngle;
-		// 	}
-		// 	ad->playerMode = !ad->playerMode;
-		// }
+			// if(input->keysPressed[KEYCODE_F4]) {
+			// 	if(ad->playerMode) {
+			// 		camera->pos = player->pos + player->camOff;
+			// 		camera->dir = player->dir;
+			// 		camera->rot = player->rot;
+			// 		camera->rotAngle = player->rotAngle;
+			// 	}
+			// 	ad->playerMode = !ad->playerMode;
+			// }
 
-		if(ad->playerMode) camera->vel = vec3(0,0,0);
-		else player->vel = vec3(0,0,0);
+			if(ad->playerMode) camera->vel = vec3(0,0,0);
+			else player->vel = vec3(0,0,0);
 
-		// if(!ad->playerMode && input->keysPressed[KEYCODE_SPACE]) {
-		// 	player->pos = camera->pos;
-		// 	player->dir = camera->dir;
-		// 	player->rot = camera->rot;
-		// 	player->rotAngle = camera->rotAngle;
-		// 	player->vel = camera->vel;
-		// 	player->chunk = camera->chunk;
-		// 	ad->playerMode = true;
-		// 	input->keysPressed[KEYCODE_SPACE] = false;
-		// 	input->keysDown[KEYCODE_SPACE] = false;
-		// }
-	}
+			// if(!ad->playerMode && input->keysPressed[KEYCODE_SPACE]) {
+			// 	player->pos = camera->pos;
+			// 	player->dir = camera->dir;
+			// 	player->rot = camera->rot;
+			// 	player->rotAngle = camera->rotAngle;
+			// 	player->vel = camera->vel;
+			// 	player->chunk = camera->chunk;
+			// 	ad->playerMode = true;
+			// 	input->keysPressed[KEYCODE_SPACE] = false;
+			// 	input->keysDown[KEYCODE_SPACE] = false;
+			// }
+		}
 
-	{
-		dxViewPort(ad->cur3dBufferRes);
+		{
+			dxViewPort(ad->cur3dBufferRes);
 
-		// @RedrawCubeMap.
-		// @Sky.
-		bool cachedSky = true;
-		if(cachedSky) {
-			if(ad->redrawSkyBox || reload) {
-				ad->redrawSkyBox = false;
+			// @RedrawCubeMap.
+			// @Sky.
+			bool cachedSky = true;
+			if(cachedSky) {
+				if(ad->redrawSkyBox || reload) {
+					ad->redrawSkyBox = false;
 
+					dxDepthTest(false); defer{dxDepthTest(true);};
+					dxScissorState(false); defer{dxScissorState(true);};
+
+					dxSetShader(Shader_Sky);
+
+					dxViewPort(vec2i(gs->cubeMapSize)); defer{dxViewPort(ad->cur3dBufferRes);};
+
+					gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+					SkyShaderVars* skyVars = dxGetShaderVars(Sky);
+
+					Mat4 proj = projMatrixZ01(M_PI_2, 1, 0.1f, 2);
+					Mat4 projInv = projMatrixZ01Inv(proj);
+					skyVars->projInv = projInv;
+
+					Vec3 dirs[6][3] = { 
+						{ { 1, 0, 0}, { 0, 0, 1}, { 0,-1, 0} },
+						{ {-1, 0, 0}, { 0, 0, 1}, { 0, 1, 0} },
+						{ { 0, 0, 1}, { 0,-1, 0}, { 1, 0, 0} },
+						{ { 0, 0,-1}, { 0, 1, 0}, { 1, 0, 0} },
+						{ { 0, 1, 0}, { 0, 0, 1}, { 1, 0, 0} },
+						{ { 0,-1, 0}, { 0, 0, 1}, {-1, 0, 0} },
+					};
+					for(int i = 0; i < 6; i++) {
+						D3D11_RENDER_TARGET_VIEW_DESC desc = {};
+						desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+						desc.Texture2DArray.MipSlice = 0;
+						desc.Texture2DArray.ArraySize = 1;
+						desc.Texture2DArray.FirstArraySlice = i;
+
+						ID3D11RenderTargetView* view; defer{view->Release();};
+						gs->d3dDevice->CreateRenderTargetView(gs->cubeMapTexture, &desc, &view);
+
+						gs->d3ddc->OMSetRenderTargets(1, &view, 0);
+
+						skyVars->viewInv = viewMatrixInv(vec3(0.0f), -dirs[i][0], dirs[i][1], dirs[i][2]);
+						dxPushShaderConstants(Shader_Sky);
+
+						gs->d3ddc->Draw(4, 0);
+					}
+				}
+
+			} else {
 				dxDepthTest(false); defer{dxDepthTest(true);};
 				dxScissorState(false); defer{dxScissorState(true);};
 
+				dxBindFrameBuffer("Sky");
 				dxSetShader(Shader_Sky);
 
-				dxViewPort(vec2i(gs->cubeMapSize)); defer{dxViewPort(ad->cur3dBufferRes);};
-
+				dxPushShaderConstants(Shader_Sky);
 				gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-				SkyShaderVars* skyVars = dxGetShaderVars(Sky);
+				gs->d3ddc->Draw(4, 0);
+			}
 
-				Mat4 proj = projMatrixZ01(M_PI_2, 1, 0.1f, 2);
-				Mat4 projInv = projMatrixZ01Inv(proj);
-				skyVars->projInv = projInv;
+			dxBindFrameBuffer("3dMsaa", "ds3d");
 
-				Vec3 dirs[6][3] = { 
-					{ { 1, 0, 0}, { 0, 0, 1}, { 0,-1, 0} },
-					{ {-1, 0, 0}, { 0, 0, 1}, { 0, 1, 0} },
-					{ { 0, 0, 1}, { 0,-1, 0}, { 1, 0, 0} },
-					{ { 0, 0,-1}, { 0, 1, 0}, { 1, 0, 0} },
-					{ { 0, 1, 0}, { 0, 0, 1}, { 1, 0, 0} },
-					{ { 0,-1, 0}, { 0, 0, 1}, {-1, 0, 0} },
-				};
-				for(int i = 0; i < 6; i++) {
-					D3D11_RENDER_TARGET_VIEW_DESC desc = {};
-					desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
-					desc.Texture2DArray.MipSlice = 0;
-					desc.Texture2DArray.ArraySize = 1;
-					desc.Texture2DArray.FirstArraySlice = i;
+			// @RenderCubeMap.
+			if(cachedSky) 
+			{
+				GraphicsState* gs = theGState;
+				Shader* shader = gs->shaders + Shader_Cube;
 
-					ID3D11RenderTargetView* view; defer{view->Release();};
-					gs->d3dDevice->CreateRenderTargetView(gs->cubeMapTexture, &desc, &view);
+				dxSetShader(Shader_Cube);
 
-					gs->d3ddc->OMSetRenderTargets(1, &view, 0);
+				Mesh* m = dxGetMesh("cube\\obj.obj");
+				dxSetMesh(m);
 
-					skyVars->viewInv = viewMatrixInv(vec3(0.0f), -dirs[i][0], dirs[i][1], dirs[i][2]);
-					dxPushShaderConstants(Shader_Sky);
+				gs->d3ddc->PSSetShaderResources(0, 1, &gs->cubeMapView);
+				gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
 
-					gs->d3ddc->Draw(4, 0);
+				{
+					Vec3 skyBoxRot = ad->cameraEntity->rot;
+					Camera skyBoxCam = getCamData(vec3(0,0,0), skyBoxRot, vec3(0,0,0), vec3(0,1,0), vec3(0,0,1));
+
+					Mat4 view = viewMatrix(skyBoxCam.pos, -skyBoxCam.look, skyBoxCam.up, skyBoxCam.right);
+					Mat4 proj = projMatrix(degreeToRadian(ad->fieldOfView), ad->aspectRatio, 0.0f, 2);
+
+					dxGetShaderVars(Cube)->view = view;
+					dxGetShaderVars(Cube)->proj = proj;
+				}
+
+				dxCullState(false); defer{dxCullState(true);};
+				dxDepthTest(false); defer{dxDepthTest(true);};
+
+				dxSetShaderAndPushConstants(Shader_Cube);
+				gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				gs->d3ddc->Draw(m->size, 0);
+
+			} else {
+				dxDepthTest(false); defer{dxDepthTest(true);};
+
+				dxGetShaderVars(Primitive)->view = ad->view2d;
+				dxGetShaderVars(Primitive)->proj = orthoMatrixZ01(0, 0, 1, 1, 10, -10);
+				dxPushShaderConstants(Shader_Primitive);
+
+				dxDrawRect(rectTLDim(0,1,1,1), vec4(1), dxGetFrameBuffer("Sky")->shaderResourceView);	
+			}
+
+			dxGetShaderVars(Primitive)->view = ad->view;
+			dxGetShaderVars(Primitive)->proj = ad->proj;
+			dxPushShaderConstants(Shader_Primitive);
+		}
+
+		{
+			// if(input->keysPressed[KEYCODE_R]) {
+			// 	Entity e = {};
+
+			// 	e.init = true;
+			// 	e.type = ET_Sound;
+			// 	e.pos = vec3(0,0,10);
+
+			// 	e.trackIndex = playSound("ping");
+
+			// 	ad->entityList.e[2] = e;
+			// }
+
+			// if(input->keysPressed[KEYCODE_SPACE]) {
+			// 	Entity e = {};
+
+			// 	e.init = true;
+			// 	e.type = ET_Sound;
+			// 	e.pos = vec3(0,0,10);
+
+			// 	e.trackIndex = playSound("music");
+
+			// 	ad->entityList.e[3] = e;
+			// }
+		}
+
+		// @Entities.
+		{
+			TIMER_BLOCK_NAMED("Upd Entities");
+
+			for(int i = 0; i < ad->entityList.size; i++) {
+				Entity* e = &ad->entityList.e[i];
+				if(!e->init) continue;
+
+				float dt = ad->dt;
+
+				switch(e->type) {
+
+					case ET_Camera: {
+						if(ad->playerMode) continue;
+
+						if((!ad->fpsMode && input->mouseButtonDown[1]) || ad->fpsMode)
+							entityMouseLook(ad->cameraEntity, input, ad->mouseSensitivity);
+
+						e->acc = vec3(0,0,0);
+						// float speed = !input->keysDown[KEYCODE_T] ? 150 : 1000;
+						float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
+						entityKeyboardAcceleration(ad->cameraEntity, input, speed, 2.0f, true);
+
+						e->vel = e->vel + e->acc*dt;
+						float friction = 0.01f;
+						e->vel = e->vel * pow(friction,dt);
+
+						if(e->vel != vec3(0,0,0)) {
+							e->pos = e->pos - 0.5f*e->acc*dt*dt + e->vel*dt;
+						}
+
+						ad->activeCam = getCamData(ad->cameraEntity->pos, ad->cameraEntity->rot, ad->cameraEntity->camOff);
+
+					} break;
+
+					case ET_Sound: {
+
+						Track* track = theAudioState->tracks + e->trackIndex;
+
+						if(!track->used) {
+							e->init = false;
+							break;
+						}
+
+						track->isSpatial = true;
+						track->pos = e->pos;
+
+						dxSetShader(Shader_Main);
+						// dxDrawMesh(dxGetMesh("sphere\\sphere.obj"), vec3(0,0,10), vec3(0.25f), vec4(1,1,1,1));
+
+					} break;
+
 				}
 			}
-
-		} else {
-			dxDepthTest(false); defer{dxDepthTest(true);};
-			dxScissorState(false); defer{dxScissorState(true);};
-
-			dxBindFrameBuffer("Sky");
-			dxSetShader(Shader_Sky);
-
-			dxPushShaderConstants(Shader_Sky);
-			gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-			gs->d3ddc->Draw(4, 0);
 		}
 
-		dxBindFrameBuffer("3dMsaa", "ds3d");
-
-		// @RenderCubeMap.
-		if(cachedSky) 
+		// @Animation.
 		{
-			GraphicsState* gs = theGState;
-			Shader* shader = gs->shaders + Shader_Cube;
+			Mesh* mesh = dxGetMesh("figure\\figure.mesh");
+			AnimationPlayer* player = &mesh->animPlayer;
 
-			dxSetShader(Shader_Cube);
+			if(!player->init) {
+				player->init = true;
 
-			Mesh* m = dxGetMesh("cube\\obj.obj");
-			dxSetMesh(m);
+				player->mesh = mesh;
 
-			gs->d3ddc->PSSetShaderResources(0, 1, &gs->cubeMapView);
-			gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
+				player->time = 0;
 
+				player->speed = 1;
+				player->fps = 30;
+				player->noInterp = false;
+				player->noLocomotion = false;
+				player->loop = false;
+
+				player->setAnim("idle.anim");
+				player->noLocomotion = false;
+
+				ad->figureAnimation = 0;
+				ad->figureMesh = mesh;
+				ad->figureSpeed = 1;
+			}
+
+			player->animation = &player->mesh->animations[ad->figureAnimation];
+			player->update(ad->dt * ad->figureSpeed);
+		}
+
+		// @Rendering.
+
+		// @3d.
+		{
+			// @Grid.
 			{
-				Vec3 skyBoxRot = ad->cameraEntity->rot;
-				Camera skyBoxCam = getCamData(vec3(0,0,0), skyBoxRot, vec3(0,0,0), vec3(0,1,0), vec3(0,0,1));
+				dxSetShader(Shader_Primitive);
 
-				Mat4 view = viewMatrix(skyBoxCam.pos, -skyBoxCam.look, skyBoxCam.up, skyBoxCam.right);
-				Mat4 proj = projMatrix(degreeToRadian(ad->fieldOfView), ad->aspectRatio, 0.0f, 2);
+				float zOff = -0.1f;
 
-				dxGetShaderVars(Cube)->view = view;
-				dxGetShaderVars(Cube)->proj = proj;
+				Vec4 lineColor = vec4(0.3f,1);
+				float size = roundf(2);
+				float count = roundf(40 / size);
+				float dim = size*count;
+				Vec3 start = vec3(-dim/2, -dim/2, zOff);
+
+				for(int i = 0; i < count+1; i++) {
+					Vec3 p = start + vec3(1,0,0) * i*size;
+					dxDrawLine(p, p + vec3(0,dim,0), lineColor);
+				}
+
+				for(int i = 0; i < count+1; i++) {
+					Vec3 p = start + vec3(0,1,0) * i*size;
+					dxDrawLine(p, p + vec3(dim,0,0), lineColor);
+				}
+
+				dxDrawLine(vec3(-dim/2,0,zOff), vec3(dim/2,0,zOff), vec4(0.5f,0,0,1));
+				dxDrawLine(vec3(0,-dim/2,zOff), vec3(0,dim/2,zOff), vec4(0,0.5f,0,1));
 			}
 
-			dxCullState(false); defer{dxCullState(true);};
-			dxDepthTest(false); defer{dxDepthTest(true);};
+			dxSetShader(Shader_Main);
 
-			dxSetShaderAndPushConstants(Shader_Cube);
-			gs->d3ddc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			gs->d3ddc->Draw(m->size, 0);
+			// @ShadowMap.
+			{
+				// Draw normals.
+				#if 0
+				{
+					// Draw debug normals.
+					// dxSetShader(Shader_Primitive);
+					// dxBeginPrimitiveColored(vec4(1,1), D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+					// for(int i = 0; i < m->vertices.count; i++) {
+					// 	MeshVertex v = m->vertices[i];
+						
+					// 	dxPushLine(v.pos, v.pos + v.normal*0.1f, vec4(0,0,1,1));
+					// 	dxPushLine(v.pos, v.pos + v.tangent*0.1f, vec4(0,1,0,1));
+					// 	dxPushLine(v.pos, v.pos + v.bitangent*0.1f, vec4(1,0,0,1));
+					// }
+					// dxEndPrimitive();
+				}
+				#endif
 
-		} else {
-			dxDepthTest(false); defer{dxDepthTest(true);};
+				// Setup objects.
 
-			dxGetShaderVars(Primitive)->view = ad->view2d;
-			dxGetShaderVars(Primitive)->proj = orthoMatrixZ01(0, 0, 1, 1, 10, -10);
-			dxPushShaderConstants(Shader_Primitive);
+				Object objA[50];
+				int objC = 0;
 
-			dxDrawRect(rectTLDim(0,1,1,1), vec4(1), dxGetFrameBuffer("Sky")->shaderResourceView);	
-		}
+				{
+					Vec3 size = vec3(1);
+					float dist = 1.25f;
+					Vec3 startPos = vec3(0,-3.5f,1);
+					Quat rot = quat(ad->time*0.20f, vec3(0,0,1));
 
-		dxGetShaderVars(Primitive)->view = ad->view;
-		dxGetShaderVars(Primitive)->proj = ad->proj;
-		dxPushShaderConstants(Shader_Primitive);
-	}
+					{
+						char* materials[] = {"Brick Wall", "Tiles", "Metal Plate", "Metal Weave", "Marble", "Metal Grill"};
+						int matCount = arrayCount(materials);
 
-	{
-		// if(input->keysPressed[KEYCODE_R]) {
-		// 	Entity e = {};
+						for(int i = 0; i < matCount; i++) {
+							Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
 
-		// 	e.init = true;
-		// 	e.type = ET_Sound;
-		// 	e.pos = vec3(0,0,10);
+							float p = -dist*(matCount-1)/2 + (i*dist);
+							
+							bool alpha = false;
+							if(strFind(m->name, "Metal Grill") != -1) alpha = true;
 
-		// 	e.trackIndex = playSound("ping");
-
-		// 	ad->entityList.e[2] = e;
-		// }
-
-		// if(input->keysPressed[KEYCODE_SPACE]) {
-		// 	Entity e = {};
-
-		// 	e.init = true;
-		// 	e.type = ET_Sound;
-		// 	e.pos = vec3(0,0,10);
-
-		// 	e.trackIndex = playSound("music");
-
-		// 	ad->entityList.e[3] = e;
-		// }
-	}
-
-	// @Entities.
-	{
-		TIMER_BLOCK_NAMED("Upd Entities");
-
-		for(int i = 0; i < ad->entityList.size; i++) {
-			Entity* e = &ad->entityList.e[i];
-			if(!e->init) continue;
-
-			float dt = ad->dt;
-
-			switch(e->type) {
-
-				case ET_Camera: {
-					if(ad->playerMode) continue;
-
-					if((!ad->fpsMode && input->mouseButtonDown[1]) || ad->fpsMode)
-						entityMouseLook(ad->cameraEntity, input, ad->mouseSensitivity);
-
-					e->acc = vec3(0,0,0);
-					// float speed = !input->keysDown[KEYCODE_T] ? 150 : 1000;
-					float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
-					entityKeyboardAcceleration(ad->cameraEntity, input, speed, 2.0f, true);
-
-					e->vel = e->vel + e->acc*dt;
-					float friction = 0.01f;
-					e->vel = e->vel * pow(friction,dt);
-
-					if(e->vel != vec3(0,0,0)) {
-						e->pos = e->pos - 0.5f*e->acc*dt*dt + e->vel*dt;
+							objA[objC++] = { "cube\\obj.obj",     startPos + vec3(p,0,0),    size, vec4(1,1), quat(), m->name, alpha };
+							objA[objC++] = { "cylinder\\obj.obj", startPos + vec3(p,0,1.1), size, vec4(1,1), rot, m->name, alpha };
+							objA[objC++] = { "sphere\\obj.obj",   startPos + vec3(p,0,2.2f), size, vec4(1,1), rot, m->name, alpha };
+						}
 					}
 
-					ad->activeCam = getCamData(ad->cameraEntity->pos, ad->cameraEntity->rot, ad->cameraEntity->camOff);
+					{
+						char* materials[] = {"Rock", "Canyon Rock", "Stone Wall", "Crystals", "Snow"};
+						float heightScales[] = {0.05f, 0.2f, 0.05f, 0.2f, 0.05f};
+						int matCount = arrayCount(materials);
 
-				} break;
+						for(int i = 0; i < matCount; i++) {
+							Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
 
-				case ET_Sound: {
+							float p = -dist*(matCount-1)/2 + (i*dist);
+							
+							m->heightScale = heightScales[i];
 
-					Track* track = theAudioState->tracks + e->trackIndex;
+							objA[objC++] = { "sphere\\obj.obj", startPos + vec3(p,0,3.3f), size, vec4(1,1), rot, m->name};
+						}
+					}
+				}
 
-					if(!track->used) {
-						e->init = false;
-						break;
+				char* mat = "Matte\\mat.mtl";
+
+				objA[objC++] = {"cube\\obj.obj", vec3(0,0,-0.05f + 0.0001f), vec3(10,10,0.1f), vec4(1,1), quat(), mat};
+				objA[objC++] = {"cube\\obj.obj", vec3(-3,4,0.5f), vec3(1,1,1), hslToRgbf(0,0.5f,0.5f, 1), quat(-0.6f, vec3(0,0,1)), mat};
+
+				Quat rot = quat(M_PI_2, vec3(1,0,0));
+				objA[objC++] = {"treeRealistic\\Tree.obj", vec3(3,3,0), vec3(0.8f), vec4(1,1), quat(), 0, true};
+
+				{
+					mat = "Figure\\material.mtl";
+
+					Vec3 pos = vec3(-4,0,0);
+					Vec3 scale = vec3(0.6f);
+					Quat rot = quat(degreeToRadian(135), vec3(0,0,1));
+
+					ad->figureModel = modelMatrix(pos, scale, rot);
+
+					objA[objC++] = {"figure\\figure.mesh", pos, scale, vec4(1,1), rot, mat};
+				}
+
+				//
+
+				// Setup light view and projection.
+				Mat4 viewLight = {};
+				Mat4 projLight = {};
+				{
+					// Hardcoding values for now.
+					float dist = 8;
+					float size = 15;
+					Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
+					viewLight = viewMatrix(sunDir * dist, sunDir);
+					projLight = orthoMatrixZ01(size, size, 0, 30);
+				}
+
+				// Render scene.
+				for(int stage = 0; stage < 2; stage++) {
+
+					// Render shadow maps.
+					if(stage == 0) {
+						dxDepthTest(true);
+						dxScissorState(false);
+						dxClearFrameBuffer("Shadow");
+
+						// dxSetBlendState(Blend_State_BlendAlphaCoverage);
+						// defer{dxSetBlendState(Blend_State_Blend);};
+
+						#if 0
+						D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
+						{
+							// gs->rasterizerState.DepthBias = 50000;
+							// gs->rasterizerState.DepthBiasClamp = 0;
+							// gs->rasterizerState.SlopeScaledDepthBias = 2;
+
+							gs->rasterizerState.DepthBias = 0;
+							gs->rasterizerState.DepthBiasClamp = 0;
+							gs->rasterizerState.SlopeScaledDepthBias = 5;
+						}
+						dxSetRasterizer(); 
+						defer{
+							gs->rasterizerState = oldRasterizerState;
+							dxSetRasterizer(); 
+						};
+						#endif
+
+						// gs->rasterizerState.FrontCounterClockwise = true;
+						// dxSetRasterizer(); 
+						// defer{
+						// 	gs->rasterizerState.FrontCounterClockwise = false;
+						// 	dxSetRasterizer(); 
+						// };
+
+						// Remove warning.
+						ID3D11ShaderResourceView* srv = 0;
+						gs->d3ddc->PSSetShaderResources(5, 1, &srv);
+						dxBindFrameBuffer(0, "Shadow"); 
+
+						Vec2i vp = vec2i(theGState->shadowMapSize);
+						dxViewPort(vp);
+
+						dxSetShader(Shader_Shadow);
+						dxGetShaderVars(Shadow)->viewProj = projLight * viewLight;
+
+					} else {
+						dxBindFrameBuffer("3dMsaa", "ds3d");
+						dxSetShader(Shader_Main);
+						dxViewPort(ad->cur3dBufferRes);
+
+						FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+						gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
+
+						dxGetShaderVars(Main)->mvpShadow.viewProj = projLight * viewLight;
 					}
 
-					track->isSpatial = true;
-					track->pos = e->pos;
+					bool alphaMode = false;
+					bool first = true;
+					for(int i = 0; i < objC; i++) {
+						Object* obj = objA + i;
 
-					dxSetShader(Shader_Main);
-					// dxDrawMesh(dxGetMesh("sphere\\sphere.obj"), vec3(0,0,10), vec3(0.25f), vec4(1,1,1,1));
+						if(obj->hasAlpha) {
+							if(!alphaMode || first) {
+								dxCullState(false);
+								dxSetBlendState(Blend_State_BlendAlphaCoverage);
 
-				} break;
+								if(stage == 0) {
+									dxGetShaderVars(Shadow)->sharpenAlpha = 1;
+								} else {
+									dxGetShaderVars(Main)->sharpenAlpha = 1;
+								}
 
+								alphaMode = true;
+							}
+						} else {
+							if(alphaMode || first) {
+								dxCullState(true);
+								dxSetBlendState(Blend_State_Blend);
+
+								if(stage == 0) {
+									dxGetShaderVars(Shadow)->sharpenAlpha = 0;
+								} else {
+									dxGetShaderVars(Main)->sharpenAlpha = 0;
+								}
+
+								alphaMode = false;
+							}
+						}
+
+						first = false;
+
+						bool shadow = stage == 0;
+						dxDrawObject(obj, shadow);
+					}
+				}
+
+				dxCullState(true);
+				dxSetBlendState(Blend_State_Blend);
 			}
 		}
-	}
 
-	// @Rendering.
-
-	// @3d.
-	{
-		// @Grid.
-		{
+		if(ad->showSkeleton) {
 			dxSetShader(Shader_Primitive);
 
-			float zOff = -0.1f;
+			dxDepthTest(false);
+			defer{dxDepthTest(true);};
 
-			Vec4 lineColor = vec4(0.3f,1);
-			float size = roundf(2);
-			float count = roundf(40 / size);
-			float dim = size*count;
-			Vec3 start = vec3(-dim/2, -dim/2, zOff);
-
-			for(int i = 0; i < count+1; i++) {
-				Vec3 p = start + vec3(1,0,0) * i*size;
-				dxDrawLine(p, p + vec3(0,dim,0), lineColor);
-			}
-
-			for(int i = 0; i < count+1; i++) {
-				Vec3 p = start + vec3(0,1,0) * i*size;
-				dxDrawLine(p, p + vec3(dim,0,0), lineColor);
-			}
-
-			dxDrawLine(vec3(-dim/2,0,zOff), vec3(dim/2,0,zOff), vec4(0.5f,0,0,1));
-			dxDrawLine(vec3(0,-dim/2,zOff), vec3(0,dim/2,zOff), vec4(0,0.5f,0,1));
+			Mesh* mesh = ad->figureMesh;
+			drawSkeleton(mesh->animPlayer.bones, ad->figureModel, &mesh->boneTree);
 		}
 
-		dxSetShader(Shader_Main);
-
-		// {
-		// 	Vec2 p = vec2(2,1);
-		// 	Vec2 d = norm(vec2(-1,-1));
-		// 	float yTo = 0;
-		// 	float dist = (yTo - p.y) * (1.0f/d.y);
-		// 	Vec2 r = p + d*dist;
-		// 	printf("%f %f %f\n", dist, r.x, r.y);
-		// }
-
-		// @ShadowMap.
 		{
-			// Draw normals.
-			#if 0
-			{
-				// Draw debug normals.
-				// dxSetShader(Shader_Primitive);
-				// dxBeginPrimitiveColored(vec4(1,1), D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-				// for(int i = 0; i < m->vertices.count; i++) {
-				// 	MeshVertex v = m->vertices[i];
-					
-				// 	dxPushLine(v.pos, v.pos + v.normal*0.1f, vec4(0,0,1,1));
-				// 	dxPushLine(v.pos, v.pos + v.tangent*0.1f, vec4(0,1,0,1));
-				// 	dxPushLine(v.pos, v.pos + v.bitangent*0.1f, vec4(1,0,0,1));
-				// }
-				// dxEndPrimitive();
-			}
-			#endif
+			dxResolveFrameBuffer("3dMsaa", "3dNoMsaa");
+			dxViewPort(ws->currentRes);
+			dxBindFrameBuffer("2dMsaa", "ds");
 
-			// Setup objects.
+			dxGetShaderVars(Primitive)->view = ad->view2d;
+			dxGetShaderVars(Primitive)->proj = ad->ortho;
+			dxSetShaderAndPushConstants(Shader_Primitive);
 
-			Object objA[50];
-			int objC = 0;
-
-			{
-				Vec3 size = vec3(1);
-				float dist = 1.25f;
-				Vec3 startPos = vec3(0,-3.5f,1);
-				Quat rot = quat(ad->time*0.20f, vec3(0,0,1));
-
-				{
-					char* materials[] = {"Brick Wall", "Tiles", "Metal Plate", "Metal Weave", "Marble", "Metal Grill"};
-					int matCount = arrayCount(materials);
-
-					for(int i = 0; i < matCount; i++) {
-						Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
-
-						float p = -dist*(matCount-1)/2 + (i*dist);
-						
-						bool alpha = false;
-						if(strFind(m->name, "Metal Grill") != -1) alpha = true;
-
-						objA[objC++] = { "cube\\obj.obj",     startPos + vec3(p,0,0),    size, vec4(1,1), quat(), m->name, alpha };
-						objA[objC++] = { "cylinder\\obj.obj", startPos + vec3(p,0,1.1), size, vec4(1,1), rot, m->name, alpha };
-						objA[objC++] = { "sphere\\obj.obj",   startPos + vec3(p,0,2.2f), size, vec4(1,1), rot, m->name, alpha };
-					}
-				}
-
-				{
-					char* materials[] = {"Rock", "Canyon Rock", "Stone Wall", "Crystals", "Snow"};
-					float heightScales[] = {0.05f, 0.2f, 0.05f, 0.2f, 0.05f};
-					int matCount = arrayCount(materials);
-
-					for(int i = 0; i < matCount; i++) {
-						Material* m = dxGetMaterial(fillString("%s%s", materials[i], "\\material.mtl"));
-
-						float p = -dist*(matCount-1)/2 + (i*dist);
-						
-						m->heightScale = heightScales[i];
-
-						objA[objC++] = { "sphere\\obj.obj", startPos + vec3(p,0,3.3f), size, vec4(1,1), rot, m->name};
-					}
-				}
-			}
-
-			char* mat = "Matte\\mat.mtl";
-
-			objA[objC++] = {"cube\\obj.obj", vec3(0,0,-0.05f + 0.0001f), vec3(10,10,0.1f), vec4(1,1), quat(), mat};
-			objA[objC++] = {"cube\\obj.obj", vec3(-3,2,0.5f), vec3(1,1,1), hslToRgbf(0,0.5f,0.5f, 1), quat(-0.6f, vec3(0,0,1)), mat};
-
-			Quat rot = quat(M_PI_2, vec3(1,0,0));
-			objA[objC++] = {"treeRealistic\\Tree.obj", vec3(3,3,0), vec3(0.8f), vec4(1,1), quat(), 0, true};
-
-			//
-
-			// Setup light view and projection.
-			Mat4 viewLight = {};
-			Mat4 projLight = {};
-			{
-				// Hardcoding values for now.
-				float dist = 8;
-				float size = 15;
-				Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
-				viewLight = viewMatrix(sunDir * dist, sunDir);
-				projLight = orthoMatrixZ01(size, size, 0, 30);
-			}
-
-			// Render scene.
-			for(int stage = 0; stage < 2; stage++) {
-
-				// Render shadow maps.
-				if(stage == 0) {
-					dxDepthTest(true);
-					dxScissorState(false);
-					dxClearFrameBuffer("Shadow");
-
-					// dxSetBlendState(Blend_State_BlendAlphaCoverage);
-					// defer{dxSetBlendState(Blend_State_Blend);};
-
-					#if 0
-					D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
-					{
-						// gs->rasterizerState.DepthBias = 50000;
-						// gs->rasterizerState.DepthBiasClamp = 0;
-						// gs->rasterizerState.SlopeScaledDepthBias = 2;
-
-						gs->rasterizerState.DepthBias = 0;
-						gs->rasterizerState.DepthBiasClamp = 0;
-						gs->rasterizerState.SlopeScaledDepthBias = 5;
-					}
-					dxSetRasterizer(); 
-					defer{
-						gs->rasterizerState = oldRasterizerState;
-						dxSetRasterizer(); 
-					};
-					#endif
-
-					// gs->rasterizerState.FrontCounterClockwise = true;
-					// dxSetRasterizer(); 
-					// defer{
-					// 	gs->rasterizerState.FrontCounterClockwise = false;
-					// 	dxSetRasterizer(); 
-					// };
-
-					// Remove warning.
-					ID3D11ShaderResourceView* srv = 0;
-					gs->d3ddc->PSSetShaderResources(5, 1, &srv);
-					dxBindFrameBuffer(0, "Shadow"); 
-
-					Vec2i vp = vec2i(theGState->shadowMapSize);
-					dxViewPort(vp);
-
-					dxSetShader(Shader_Shadow);
-					dxGetShaderVars(Shadow)->viewProj = projLight * viewLight;
-
-				} else {
-					dxBindFrameBuffer("3dMsaa", "ds3d");
-					dxSetShader(Shader_Main);
-					dxViewPort(ad->cur3dBufferRes);
-
-					FrameBuffer* fb = dxGetFrameBuffer("Shadow");
-					gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
-
-					dxGetShaderVars(Main)->mvpShadow.viewProj = projLight * viewLight;
-				}
-
-				bool alphaMode = false;
-				bool first = true;
-				for(int i = 0; i < objC; i++) {
-					Object* obj = objA + i;
-
-					if(obj->hasAlpha) {
-						if(!alphaMode || first) {
-							dxCullState(false);
-							dxSetBlendState(Blend_State_BlendAlphaCoverage);
-
-							if(stage == 0) {
-								dxGetShaderVars(Shadow)->sharpenAlpha = 1;
-							} else {
-								dxGetShaderVars(Main)->sharpenAlpha = 1;
-							}
-
-							alphaMode = true;
-						}
-					} else {
-						if(alphaMode || first) {
-							dxCullState(true);
-							dxSetBlendState(Blend_State_Blend);
-
-							if(stage == 0) {
-								dxGetShaderVars(Shadow)->sharpenAlpha = 0;
-							} else {
-								dxGetShaderVars(Main)->sharpenAlpha = 0;
-							}
-
-							alphaMode = false;
-						}
-					}
-
-					first = false;
-
-					bool shadow = stage == 0;
-					dxDrawObject(obj, shadow);
-				}
-			}
-
-			dxCullState(true);
-			dxSetBlendState(Blend_State_Blend);
+			dxDepthTest(false);
+			dxDrawRect(getScreenRect(ws), vec4(1), dxGetFrameBuffer("3dNoMsaa")->shaderResourceView);
+			dxDepthTest(true);
 		}
-	}
 
-	{
-		dxResolveFrameBuffer("3dMsaa", "3dNoMsaa");
-		dxViewPort(ws->currentRes);
-		dxBindFrameBuffer("2dMsaa", "ds");
-
-		dxGetShaderVars(Primitive)->view = ad->view2d;
-		dxGetShaderVars(Primitive)->proj = ad->ortho;
-		dxSetShaderAndPushConstants(Shader_Primitive);
-
-		dxDepthTest(false);
-		dxDrawRect(getScreenRect(ws), vec4(1), dxGetFrameBuffer("3dNoMsaa")->shaderResourceView);
-		dxDepthTest(true);
-	}
-
-	// @2d.
-	{
-		FrameBuffer* fb = dxGetFrameBuffer("Shadow");
-		Rect sr = getScreenRect(ws);
-		// dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
-	}
+		// @2d.
+		{
+			FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+			Rect sr = getScreenRect(ws);
+			// dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
+		}
 
 	}
 
@@ -2088,9 +2124,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	endOfMainLabel:
 
-
-
-	// @Blit.
+		// @Blit.
 	{
 		{
 			TIMER_BLOCK_NAMED("Blit");
@@ -2117,7 +2151,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			FrameBuffer* fb = dxGetFrameBuffer("DebugNoMsaa");
 			dxDrawRect(rectTLDim(0,0,fb->dim.w,fb->dim.h), vec4(1,ds->guiAlpha), fb->shaderResourceView);		
 
-			//
+				//
 
 			dxSetBlendState(Blend_State_NoBlend);
 			dxDepthTest(false);
@@ -2149,7 +2183,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 				sd->vsyncTempTurnOff = false;
 			}
 
-			// Sleep until monitor refresh.
+				// Sleep until monitor refresh.
 			{
 				double frameTime = ds->swapTimer.update();
 				int sleepTimeMS = 0;
@@ -2178,8 +2212,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	// We have to resize the debug framebuffer here or it will get destroyed 
-	// too soon and not show up when resizing the window.
+		// We have to resize the debug framebuffer here or it will get destroyed 
+		// too soon and not show up when resizing the window.
 	if(ad->updateDebugFrameBuffer) {
 		ad->updateDebugFrameBuffer = false;
 
@@ -2191,7 +2225,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue, __COUNTER__, mouseInClientArea(windowHandle));
 
-	// Save game settings.
+		// Save game settings.
 	if(*isRunning == false) {
 		GameSettings settings = {};
 		settings.fullscreen = ws->fullscreen;
@@ -2208,7 +2242,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-	// @AppSessionWrite
+		// @AppSessionWrite
 	if(*isRunning == false) {
 		Rect windowRect = getWindowWindowRect(sd->windowHandle);
 		if(ws->fullscreen) windowRect = ws->previousWindowRect;

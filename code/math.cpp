@@ -1025,10 +1025,10 @@ inline Vec4 operator*(Mat4 m, Vec4 v) {
 	return result;
 }
 
-inline Vec3 operator*(Mat4 m, Vec3 v) {
-	Vec4 result = m*vec4(v,0);
-	return result.xyz;
-}
+// inline Vec3 operator*(Mat4 m, Vec3 v) {
+// 	Vec4 result = m*vec4(v,0);
+// 	return result.xyz;
+// }
 
 inline void rowToColumn(Mat4* m) {
 	for(int x = 1; x < 4; x++) {
@@ -1461,6 +1461,27 @@ void quatToEulerAngles(Quat q, float* pitch, float* roll, float* yaw) {
 	float siny = +2.0 * (q.w * q.z + q.x * q.y);
 	float cosy = +1.0 - 2.0 * (q.y * q.y + q.z * q.z);  
 	*yaw = atan2(siny, cosy);
+}
+
+Quat orientationToQuat(Vec3 orientation) {
+	Quat q = quat(orientation.z, vec3(0,0,1)) *
+	         quat(orientation.y, vec3(0,1,0)) *
+	         quat(orientation.x, vec3(1,0,0));
+
+	return q;
+}
+
+Quat quatLerp(Quat q1, Quat q2, float t) {
+	Quat q;
+
+	float tm = 1 - t;
+	q.x = tm*q1.x + t*q2.x;
+	q.y = tm*q1.y + t*q2.y;
+	q.z = tm*q1.z + t*q2.z;
+	q.w = tm*q1.w + t*q2.w;
+
+	q = quatNorm(q);
+	return q;
 }
 
 //

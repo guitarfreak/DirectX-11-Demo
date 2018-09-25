@@ -131,7 +131,10 @@ struct MainShaderVars {
 	float farTessFactor;
 	float closeTessFactor;
 
-	Vec3 endPad;
+	int boneCount;
+	Vec2 _pad2;
+
+	Mat4 boneMatrices[100];
 };
 
 char* d3dMainShader = HLSL (
@@ -193,7 +196,9 @@ char* d3dMainShader = HLSL (
 		float farTessFactor;
 		float closeTessFactor;
 
-		float3 endPad;
+		// Move these into seperate buffer.
+		int boneCount;
+		float4x4 boneMatrices[100];
 	};
 
 	Texture2D              ambi   : register(t0);
@@ -212,6 +217,8 @@ char* d3dMainShader = HLSL (
 		float3 normal    : NORMAL0;
 		float3 tangent   : NORMAL1;
 		float3 bitangent : NORMAL2;
+		float4 blendWeights : BLENDWEIGHT;
+		int4   blendIndices : BLENDINDICES;
 	};
 
 	// We use VSOutput for every stage to make things easier for us.
@@ -238,19 +245,42 @@ char* d3dMainShader = HLSL (
 	VSOutput vertexShader(VSInput input) {
 		VSOutput output;
 
-		output.pos = mul(float4(input.pos, 1), vars.mvp.model);
+		float4 pos;
+		float3 normal;
+		float3 tangent;
+		float3 bitangent;
+
+		if(vars.boneCount) {
+			for(int i = 0; i < vars.boneCount; i++) {
+				float weight = input.blendWeights[i];
+				int index = input.blendIndices[i];
+
+				pos       += weight * mul(float4(input.pos, 1.0f), vars.boneMatrices[index]);
+				normal    += weight * mul(input.normal, vars.boneMatrices[index]);
+				tangent   += weight * mul(input.tangent, vars.boneMatrices[index]);
+				bitangent += weight * mul(input.bitangent, vars.boneMatrices[index]);
+			}
+
+		} else {
+			pos = float4(input.pos, 1);
+			normal = input.normal;
+			tangent = input.tangent;
+			bitangent = input.bitangent;
+		}
+
+		output.pos = mul(float4(pos.xyz, 1), vars.mvp.model);
 
 		float4 color = float4(pow(vars.color.rgb, 2.2f), vars.color.a);
 		output.color = color;
 		output.color.a *= vars.material.d;
 		output.uv = input.uv;
 
-		output.normal = mul(input.normal, vars.mvp.model);
+		output.normal = mul(normal, vars.mvp.model);
 		output.look = vars.camPos - output.pos.xyz;
 
 		if(vars.material.hasBumpMap) {
-			output.tangent   = mul(input.tangent, vars.mvp.model);
-			output.bitangent = mul(input.bitangent, vars.mvp.model);
+			output.tangent   = mul(tangent, vars.mvp.model);
+			output.bitangent = mul(bitangent, vars.mvp.model);
 		}
 
 		if(vars.material.hasDispMap) {
@@ -886,63 +916,6 @@ char* d3dCubeShader = HLSL (
 
 //
 
-#if 0
-
-struct ShadowShaderVars {
-	Mat4 model;
-	Mat4 view;
-	Mat4 proj;
-	int sharpenAlpha;
-	Vec3 pad;
-};
-
-char* d3dShadowShader = HLSL (
-	struct VSInput {
-		float3 pos : POSITION;
-		float2 uv  : TEXCOORD;
-	};
-
-	struct PSInput {
-		float4 pos : SV_POSITION;
-		float4 color : COLOR;
-		float2 uv : TEXCOORD0;
-	};
-
-	struct ShaderVars {
-		float4x4 model;
-		float4x4 view;
-		float4x4 proj;
-
-		int sharpenAlpha;
-		float3 pad;
-	};
-
-	ShaderVars vars   : register(b0);
-	Texture2D  tex    : register(t0);
-	SamplerState samp : register(s0);
-
-	PSInput vertexShader(VSInput input) {
-		PSInput output;
-
-		output.pos = mul(mul(mul(float4(input.pos, 1), vars.model), vars.view), vars.proj);
-		output.uv = input.uv;
-
-		return output;
-	}
-
-	void pixelShader(PSInput input) {
-      float4 output = tex.Sample(samp, input.uv);
-
-      // Copied from main shader.
-      if(vars.sharpenAlpha) 
-      	output.a = (output.a - 0.25f) / max(fwidth(output.a), 0.0001) + 0.5;
-
-		clip(output.a <= 0.5f ? -1:1);
-	}
-);
-
-#endif
-
 struct ShadowShaderVars {
 	Mat4 model;
 	Mat4 viewProj;
@@ -958,7 +931,9 @@ struct ShadowShaderVars {
 	int hasDispMap;
 	float heightScale;
 
-	Vec2 pad;
+	int boneCount;
+	float _pad;
+	Mat4 boneMatrices[100];
 };
 
 char* d3dShadowShader = HLSL (
@@ -966,6 +941,11 @@ char* d3dShadowShader = HLSL (
 		float3 pos    : POSITION;
 		float2 uv     : TEXCOORD;
 		float3 normal : NORMAL0;
+
+		float3 tangent   : NORMAL1;
+		float3 bitangent : NORMAL2;
+		float4 blendWeights : BLENDWEIGHT;
+		int4   blendIndices : BLENDINDICES;
 	};
 
 	struct VSOutput {
@@ -992,6 +972,10 @@ char* d3dShadowShader = HLSL (
 
 		int hasDispMap;
 		float heightScale;
+
+		// Move these into seperate buffer.
+		int boneCount;
+		float4x4 boneMatrices[100];
 	};
 
 	ShaderVars   vars : register(b0);
@@ -1002,9 +986,26 @@ char* d3dShadowShader = HLSL (
 	VSOutput vertexShader(VSInput input) {
 		VSOutput output;
 
-		output.pos = mul(float4(input.pos, 1), vars.model);
+		float4 pos;
+		float3 normal;
+
+		if(vars.boneCount) {
+			for(int i = 0; i < vars.boneCount; i++) {
+				float weight = input.blendWeights[i];
+				int index = input.blendIndices[i];
+
+				pos    += weight * mul(float4(input.pos, 1.0f), vars.boneMatrices[index]);
+				normal += weight * mul(input.normal, vars.boneMatrices[index]);
+			}
+
+		} else {
+			pos = float4(input.pos, 1);
+			normal = input.normal;
+		}
+
+		output.pos = mul(float4(pos.xyz, 1), vars.model);
 		output.uv = input.uv;
-		output.normal = mul(input.normal, vars.model);
+		output.normal = mul(normal, vars.model);
 
       // Copied from main shader.
 		if(vars.hasDispMap) {

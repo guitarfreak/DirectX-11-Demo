@@ -43,6 +43,38 @@ struct ObjLoader {
 		Vec3 bitangent;
 	};
 
+	struct Bone {
+		int depth;
+		char* name;
+	};
+
+	struct SkinInfo {
+		int indices[4];
+		Vec4 weights;
+	};
+
+	struct XForm {
+		Vec3 translation;
+		Vec3 rotation;
+		Vec3 scale;
+	};
+
+	struct Animation {
+		char* name;
+
+		int startTime;
+		int endTime;
+		float speed;
+		float fps;
+		int playbackMode;
+
+		Bone* bones;
+		int boneCount;
+
+		XForm** frames;
+		int frameCount;
+	};
+
 	DArray<Vec3> vertexArray;
 	DArray<TangentBitangent> tangentArray;
 	DArray<Vec2> uvArray;
@@ -52,10 +84,17 @@ struct ObjLoader {
 	MeshVertex* tempVerts;
 	int* tempIndices;
 
+	DArray<SkinInfo> skinArray;
+	DArray<Bone> boneArray;
+	DArray<XForm> poseArray;
+	Animation animations[10];
+	int animationCount;
+
 	DArray<int> indexBuffer;
 	DArray<MeshVertex> vertexBuffer;
 
-
+	int vertexIndex;
+	int normalIndex;
 
 	void parseMtl(char* folder, char* fileName) {
 		char* objFolder = getTStringCpy(fileName, strFindBackwards(fileName, '\\'));
@@ -463,6 +502,455 @@ struct ObjLoader {
 			}
 
 			lineCount++;
+		}
+	}
+
+	void parseCustom(char* folder, char* fileName, bool swapTriangleWinding) {
+		*this = {};
+
+		if(vertexArray.data != 0) clear();
+
+		char* fName = fillString("%s%s", folder, fileName);
+		char* file = readFileToBufferZeroTerminated(fName);
+		defer{::free(file);};
+
+		int lineCount = 0;
+		tempVerts = getTArray(MeshVertex, 100); // Oughta be enough.
+		tempIndices = getTArray(int, 100);
+
+		addObjectIfChange();
+
+		char* buf = file;
+
+		//
+
+		{
+			int boneCount;
+
+			// Bones.
+			{
+				buf += strLen("Bones: ");
+				boneCount = strToInt(buf); buf += strFind(buf, '\n');
+
+				for(int i = 0; i < boneCount; i++) {
+					int depth = strToInt(buf); buf += strFind(buf, ' ');
+					char* name = getTStringCpy(buf, endOfLine(buf)); buf += strFind(buf, '\n');
+
+					Bone bone = {depth, name};
+					boneArray.push(bone);
+				}
+			}
+
+			// Pose.
+			{
+				buf += strLen("Pose: "); buf += strFind(buf, '\n');
+
+				for(int i = 0; i < boneCount; i++) {
+					Vec3 translation;
+					translation.x = strToFloat(buf); buf += strFind(buf, ' ');
+					translation.y = strToFloat(buf); buf += strFind(buf, ' ');
+					translation.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+					Vec3 rotation;
+					rotation.x = strToFloat(buf); buf += strFind(buf, ' ');
+					rotation.y = strToFloat(buf); buf += strFind(buf, ' ');
+					rotation.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+					Vec3 scale;
+					scale.x = strToFloat(buf); buf += strFind(buf, ' ');
+					scale.y = strToFloat(buf); buf += strFind(buf, ' ');
+					scale.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+					XForm form = {translation, rotation, scale};
+					poseArray.push(form);
+
+					buf += strFind(buf, '\n');
+				}
+			}
+		}
+
+		buf += strLen("Count: ");
+		int objectCount = strToInt(buf);
+		while(charIsDigitOrMinus(buf[0])) buf++;
+
+		vertexIndex = 0;
+		normalIndex = 0;
+
+		for(int objectIndex = 0; objectIndex < objectCount; objectIndex++) {
+
+			int vertCount;
+			int normalCount;
+
+			// Verts.
+			{
+				buf += strLen("Verts: ");
+				vertCount = strToInt(buf);
+				buf += strFind(buf, '\n');
+
+				for(int i = 0; i < vertCount; i++) {
+					Vec3 v;
+					v.x = strToFloat(buf); buf += strFind(buf, ' ');
+					v.y = strToFloat(buf); buf += strFind(buf, ' ');
+					v.z = strToFloat(buf);
+
+					// TEMP!!!!
+					v /= 100.0f;
+
+					vertexArray.push(v);
+
+					buf += strFind(buf, '\n');
+				}
+			}
+
+			// Normals.
+			{
+				buf += strLen("Normals: ");
+				normalCount = strToInt(buf);
+				buf += strFind(buf, '\n');
+
+				for(int i = 0; i < normalCount; i++) {
+					Vec3 v;
+					v.x = strToFloat(buf); buf += strFind(buf, ' ');
+					v.y = strToFloat(buf); buf += strFind(buf, ' ');
+					v.z = strToFloat(buf);
+
+					normalArray.push(v);
+
+					buf += strFind(buf, '\n');
+				}
+			}
+
+			// Skin.
+			{
+				buf += strLen("Skin: ");
+				int skinCount = strToInt(buf);
+				buf += strFind(buf, '\n');
+
+				for(int i = 0; i < skinCount; i++) {
+					SkinInfo skinInfo = {};
+					int index = 0;
+
+					while(true) {
+						int nameSize = strFind(buf, ' ');
+
+						// Slow, we check every bone name for every vertex.
+						// Should make a hashtable but it's probably fine.
+
+						int boneIndex = -1;
+						for(int i = 0; i < boneArray.count; i++) {
+							if(strCompare(buf, nameSize-1, boneArray[i].name, strLen(boneArray[i].name))) {
+								boneIndex = i;
+								break;
+							}
+						}
+
+						skinInfo.indices[index++] = boneIndex;
+
+						buf += nameSize;
+
+						if(buf[0] == '\n') {
+							buf++;
+							break;
+						}
+					}
+
+					for(int i = 0; i < index; i++) {
+						skinInfo.weights.e[i] = strToFloat(buf); buf += strFind(buf, ' ');
+					}
+
+					skinArray.push(skinInfo);
+
+					buf += strFind(buf, '\n');
+				}
+			}
+
+			// Name.
+			{
+				buf += strLen("Node: ");
+				int end = strFind(buf, '\n');
+
+				buf += end;
+
+				addObjectIfChange();
+			}
+
+			// Faces.
+			{
+				buf += strLen("Faces: ");
+				int faceCount = strToInt(buf);
+				buf += strFind(buf, '\n');
+
+				for(int i = 0; i < faceCount; i++) {
+					int count = 0;
+
+					while(true) {
+						buf = eatWhitespace(buf);
+						if(!charIsDigitOrMinus(buf[0])) break;
+
+						Vec3i index = {0,0,0};
+
+						index.x = strToInt(buf);
+
+						while(charIsDigitOrMinus(buf[0])) buf++;
+
+						if(buf[0] == '/') {
+							buf++;
+
+							if(buf[0] != '/') {
+								index.y = strToInt(buf);
+								while(charIsDigitOrMinus(buf[0])) buf++;
+							}
+
+							if(buf[0] == '/') {
+								buf++;
+								index.z = strToInt(buf);
+								while(charIsDigitOrMinus(buf[0])) buf++;
+							}
+						}
+
+						if(index.y == 0) index.y = index.x;
+						if(index.z == 0) index.z = index.x;
+
+						{
+							if(index.x < 0) index.x = vertexArray.count + index.x + 1;
+							tempVerts[count].pos = vertexArray[vertexIndex + index.x-1];
+							tempVerts[count].blendWeights = skinArray[vertexIndex + index.x-1].weights;
+							for(int i = 0; i < 4; i++)
+								tempVerts[count].blendIndices[i] = skinArray[vertexIndex + index.x-1].indices[i];
+
+							tempIndices[count] = index.x-1;
+
+							if(index.y < 0) index.y = uvArray.count + index.y + 1;
+							if(uvArray.count >= index.y)
+								tempVerts[count].uv = uvArray[index.y-1];
+
+							if(index.z < 0) index.z = normalArray.count + index.z + 1;
+							if(normalArray.count >= index.z)
+								tempVerts[count].normal = normalArray[normalIndex + index.z-1];
+						}
+
+						count++;
+					}
+
+					if(!swapTriangleWinding) {
+						for(int i = 1; i < count-1; i++) {
+							vertexBuffer.push(tempVerts[0]);
+							vertexBuffer.push(tempVerts[i]);
+							vertexBuffer.push(tempVerts[i+1]);
+
+							indexBuffer.push(tempIndices[0]);
+							indexBuffer.push(tempIndices[i]);
+							indexBuffer.push(tempIndices[i+1]);
+						}
+
+					} else {
+						for(int i = 1; i < count-1; i++) {
+							vertexBuffer.push(tempVerts[0]);
+							vertexBuffer.push(tempVerts[i+1]);
+							vertexBuffer.push(tempVerts[i]);
+
+							indexBuffer.push(tempIndices[0]);
+							indexBuffer.push(tempIndices[i+1]);
+							indexBuffer.push(tempIndices[i]);
+						}
+					}
+
+					buf += strFind(buf, '\n');
+				}
+			}
+
+			vertexIndex += vertCount;
+			normalIndex += normalCount;
+		}
+
+		{
+			// Set object sizes.
+			for(int i = 0; i < objectArray.count; i++) {
+				Object* o = &objectArray[i];
+				if(i == objectArray.count-1) {
+					o->size = vertexBuffer.count - o->offset;
+				} else {
+					o->size = objectArray[i+1].offset - o->offset;
+				}
+			}
+
+			// Calculate tangents/bitangents.
+			// If smoothShading is enabled we average them.
+
+			tangentArray.reserve(vertexBuffer.count);
+			tangentArray.clear();
+
+			for(int i = 0; i < objectArray.count; i++) {
+				Object* o = &objectArray[i];
+				int start = o->offset;
+				int count = o->size;
+
+				bool smoothing = o->smoothing;
+
+				tangentArray.clear();
+				memset(tangentArray.data, 0, sizeof(TangentBitangent) * vertexBuffer.count);
+
+				int end = start + count;
+				for(int i = start; i < end; i += 3) {
+					Vec3 v0 = vertexBuffer[i  ].pos;
+					Vec3 v1 = vertexBuffer[i+1].pos;
+					Vec3 v2 = vertexBuffer[i+2].pos;
+
+					Vec2 uv0 = vertexBuffer[i  ].uv;
+					Vec2 uv1 = vertexBuffer[i+1].uv;
+					Vec2 uv2 = vertexBuffer[i+2].uv;
+
+					Vec3 deltaPos1 = v1 - v0;
+					Vec3 deltaPos2 = v2 - v0;
+
+					Vec2 deltaUV1 = uv1 - uv0;
+					Vec2 deltaUV2 = uv2 - uv0;
+
+					float r = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV1.y * deltaUV2.x);
+					Vec3 tangent   = (deltaPos1  * deltaUV2.y - deltaPos2  * deltaUV1.y) * r;
+					Vec3 bitangent = (deltaPos2  * deltaUV1.x - deltaPos1  * deltaUV2.x) * r;
+
+
+					Vec3 n0 = vertexBuffer[i  ].normal;
+					Vec3 n1 = vertexBuffer[i+1].normal;
+					Vec3 n2 = vertexBuffer[i+2].normal;
+
+					Vec3 t0 = norm(tangent - n0 * dot(n0, tangent));
+					Vec3 t1 = norm(tangent - n1 * dot(n1, tangent));
+					Vec3 t2 = norm(tangent - n2 * dot(n2, tangent));
+
+					if(dot(cross(n0, t0), bitangent) < 0.0f) t0 *= -1.0f;
+					if(dot(cross(n1, t1), bitangent) < 0.0f) t1 *= -1.0f;
+					if(dot(cross(n2, t2), bitangent) < 0.0f) t2 *= -1.0f;
+
+					if(smoothing) {
+						tangentArray[indexBuffer[i  ]].tangent += t0;
+						tangentArray[indexBuffer[i+1]].tangent += t1;
+						tangentArray[indexBuffer[i+2]].tangent += t2;
+
+						tangentArray[indexBuffer[i  ]].bitangent += bitangent;
+						tangentArray[indexBuffer[i+1]].bitangent += bitangent;
+						tangentArray[indexBuffer[i+2]].bitangent += bitangent;
+
+					} else {
+						vertexBuffer[i  ].tangent = t0;
+						vertexBuffer[i+1].tangent = t1;
+						vertexBuffer[i+2].tangent = t2;
+
+						vertexBuffer[i  ].bitangent = bitangent;
+						vertexBuffer[i+1].bitangent = bitangent;
+						vertexBuffer[i+2].bitangent = bitangent;
+					}
+				}
+
+				if(smoothing) {
+					for(int i = start; i < end; i++) {
+						int index = indexBuffer[i];
+						TangentBitangent tb = tangentArray[index];
+						vertexBuffer[i].tangent = tb.tangent;
+						vertexBuffer[i].bitangent = tb.bitangent;
+					}
+				}
+			}
+		}
+
+		// Search the folder for animations.
+		// "..\data\Meshes\figure\custom.mesh"
+
+		// Get folder from file path.
+		int pos = strFindBackwards(fName, '\\');
+		char* folderPath = getTStringCpy(fName, pos);
+
+		FolderSearchData fd;
+		folderSearchStart(&fd, fillString("%s*", folderPath));
+		while(folderSearchNextFile(&fd)) {
+
+			if(strFind(fd.fileName, ".anim") == -1) continue;
+
+			parseCustomAnim(folderPath, fd.fileName);
+		}
+	}
+
+	void parseCustomAnim(char* folder, char* fileName) {
+		char* fName = fillString("%s%s", folder, fileName);
+		char* file = readFileToBufferZeroTerminated(fName);
+		defer{::free(file);};
+
+		int lineCount = 0;
+
+		char* buf = file;
+
+		//
+
+		Animation* anim = &animations[animationCount++];
+
+		anim->name = getTStringCpy(fileName);
+
+		buf += strLen("StartTime: ");
+		anim->startTime = strToInt(buf); buf += strFind(buf, '\n');
+		buf += strLen("EndTime: ");
+		anim->endTime = strToInt(buf); buf += strFind(buf, '\n');
+		buf += strLen("Speed: ");
+		anim->speed = strToFloat(buf); buf += strFind(buf, '\n');
+		buf += strLen("Fps: ");
+		anim->fps = strToFloat(buf); buf += strFind(buf, '\n');
+		buf += strLen("Loop: ");
+		// anim->playbackMode = strToInt(buf); 
+		buf += strFind(buf, '\n');
+
+		buf += strFind(buf, '\n');
+
+		int boneCount = 0;
+
+		// Bones.
+		{
+			buf += strLen("Bones: ");
+			boneCount = strToInt(buf); buf += strFind(buf, '\n');
+
+			anim->bones = getTArray(Bone, boneCount);
+			anim->boneCount = boneCount;
+
+			for(int i = 0; i < boneCount; i++) {
+				int depth = strToInt(buf); buf += strFind(buf, ' ');
+				char* name = getTStringCpy(buf, endOfLine(buf)); buf += strFind(buf, '\n');
+
+				Bone bone = {depth, name};
+				anim->bones[i] = bone;
+			}
+		}
+
+		buf += strLen("Frames: ");
+		anim->frameCount = strToInt(buf); buf += strFind(buf, '\n');
+
+		anim->frames = getTArray(XForm*, anim->frameCount);
+
+		for(int frameIndex = 0; frameIndex < anim->frameCount; frameIndex++) {
+			anim->frames[frameIndex] = getTArray(XForm, boneCount);
+
+			// Frame pose.
+			buf += strLen("Frame: "); buf += strFind(buf, '\n');
+
+			for(int i = 0; i < boneCount; i++) {
+				Vec3 translation;
+				translation.x = strToFloat(buf); buf += strFind(buf, ' ');
+				translation.y = strToFloat(buf); buf += strFind(buf, ' ');
+				translation.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+				Vec3 rotation;
+				rotation.x = strToFloat(buf); buf += strFind(buf, ' ');
+				rotation.y = strToFloat(buf); buf += strFind(buf, ' ');
+				rotation.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+				Vec3 scale;
+				scale.x = strToFloat(buf); buf += strFind(buf, ' ');
+				scale.y = strToFloat(buf); buf += strFind(buf, ' ');
+				scale.z = strToFloat(buf); buf += strFind(buf, '\n');
+
+				XForm form = {translation, rotation, scale};
+				anim->frames[frameIndex][i] = form;
+
+				buf += strFind(buf, '\n');
+			}
 		}
 	}
 

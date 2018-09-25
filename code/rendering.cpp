@@ -777,7 +777,15 @@ void dxLoadMaterial(Material* m, ObjLoader::ObjectMaterial* objM, char* folder) 
 void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 	GraphicsState* gs = theGState;
 
-	parser->parse(App_Mesh_Folder, m->name, m->swapWinding);
+	if(strFind(m->name, ".mesh") != -1) {
+		parser->parseCustom(App_Mesh_Folder, m->name, m->swapWinding);
+	} else {
+		parser->parse(App_Mesh_Folder, m->name, m->swapWinding);
+	}
+
+	if(strFind(m->name, "cube") != -1) {
+		m->vertices = parser->vertexBuffer;
+	}
 
 	int size = parser->vertexBuffer.count;
 	int sizeInBytes = size * sizeof(MeshVertex);
@@ -803,6 +811,7 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 	m->size = size;
 
 	m->groupCount = parser->objectArray.count;
+	m->groupCount = parser->objectArray.count;
 	m->groups = getPArray(Mesh::Group, m->groupCount);
 
 	for(int i = 0; i < parser->objectArray.count; i++) {
@@ -821,6 +830,74 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 			ObjLoader::ObjectMaterial* objM = parser->materialArray + mId;
 
 			dxLoadMaterial(m, objM, App_Mesh_Folder);
+		}
+	}
+
+	if(parser->boneArray.count) {
+		m->boneCount = parser->boneArray.count;
+		m->bones = getPArray(Bone, m->boneCount);
+		for(int i = 0; i < m->boneCount; i++) {
+			m->bones[i].name = getPStringCpy(parser->boneArray[i].name);
+			m->bones[i].depth = parser->boneArray[i].depth;
+			m->bones[i].index = i;
+		}
+
+		// m->orientations = getPArray(Vec3, m->boneCount);
+		// for(int i = 0; i < m->boneCount; i++) {
+		// 	m->orientations[i] = parser->orientationArray[i];
+		// }
+
+		m->basePose = getPArray(XForm, m->boneCount);
+		for(int i = 0; i < m->boneCount; i++) {
+			m->basePose[i].translation = parser->poseArray[i].translation;
+			m->basePose[i].rotation = orientationToQuat(parser->poseArray[i].rotation);
+			m->basePose[i].scale = parser->poseArray[i].scale;
+
+			// Temp.
+			m->basePose[i].translation /= m->basePose[i].scale;
+		}
+
+		buildBoneTree(m->bones, m->boneCount, &m->boneTree);
+
+		{
+			m->basePosePoints = getPArray(Vec3, m->boneCount);
+			getPointsFromSkeleton(m, &m->boneTree);
+		}
+
+		m->animationCount = parser->animationCount;
+		for(int animIndex = 0; animIndex < m->animationCount; animIndex++) {
+			ObjLoader::Animation* pAnim = &parser->animations[animIndex];
+			Animation* anim = &m->animations[animIndex];
+
+			anim->name = getPStringCpy(pAnim->name);
+			anim->startTime = pAnim->startTime;
+			anim->endTime = pAnim->endTime;
+			anim->speed = pAnim->speed;
+			anim->fps = pAnim->fps;
+			anim->playbackMode = pAnim->playbackMode;
+
+			anim->boneCount = pAnim->boneCount;
+			anim->bones = getPArray(Bone, anim->boneCount);
+			for(int i = 0; i < anim->boneCount; i++) {
+				anim->bones[i].index = i;
+				anim->bones[i].name = getPStringCpy(pAnim->bones[i].name);
+				anim->bones[i].depth = pAnim->bones[i].depth;
+			}
+
+			anim->frameCount = pAnim->frameCount;
+			anim->frames = getPArray(XForm*, anim->frameCount);
+			for(int frameIndex = 0; frameIndex < anim->frameCount; frameIndex++) {
+				anim->frames[frameIndex] = getPArray(XForm, anim->boneCount);
+
+				for(int i = 0; i < anim->boneCount; i++) {
+					anim->frames[frameIndex][i].translation = pAnim->frames[frameIndex][i].translation;
+					anim->frames[frameIndex][i].rotation = orientationToQuat(pAnim->frames[frameIndex][i].rotation);
+					anim->frames[frameIndex][i].scale = pAnim->frames[frameIndex][i].scale;
+
+					// Temp.
+					anim->frames[frameIndex][i].translation /= anim->frames[frameIndex][i].scale;
+				}
+			}
 		}
 	}
 }
@@ -1142,6 +1219,19 @@ void dxDrawLine(Vec3 a, Vec3 b, Vec4 color) {
 	dxEndPrimitive(2);
 }
 
+void dxDrawCube(Vec3 point, Vec3 scale, Vec4 color) {
+	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	Mesh* m = dxGetMesh("cube\\obj.obj");
+
+	int c = 0;
+	for(int i = 0; i < m->vertices.count; i++) {
+		v[c++] = pVertex( m->vertices[i].pos * scale + point );
+	}
+
+	dxEndPrimitive(c);
+}
+
 // @MainShader
 
 void dxSetMaterial(Material* m) {
@@ -1188,6 +1278,28 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 
 		dxGetShaderVars(Main)->mvp.model = model;
 		dxGetShaderVars(Main)->color = obj->color;
+	}
+
+	{
+		int* shaderBoneCount = shadow ? &dxGetShaderVars(Shadow)->boneCount : 
+		                          &dxGetShaderVars(Main)->boneCount;
+		Mat4* shaderBoneMatrices = shadow ? dxGetShaderVars(Shadow)->boneMatrices : 
+		                              dxGetShaderVars(Main)->boneMatrices;
+
+		{
+			if(m->animPlayer.init) {
+				int boneCount = m->animPlayer.animation->boneCount;
+				*shaderBoneCount = boneCount;
+				if(boneCount) {
+					for(int i = 0; i < boneCount; i++) {
+						shaderBoneMatrices[i] = m->animPlayer.mats[i];
+					}
+				}
+
+			} else {
+				*shaderBoneCount = 0;
+			}
+		}
 	}
 
 	UINT stride = sizeof(MeshVertex);
@@ -1244,6 +1356,25 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 	}
 
 	dxFillWireFrame(false);
+}
+
+void drawSkeleton(XForm* bones, Mat4 model, BoneNode* node, Quat q = quat(), Vec3 p = vec3(0.0f), int depth = 0) {
+
+	XForm form = bones[node->data->index];
+
+	Vec3 oldP = p;
+	p = p + (q * form.translation);
+	q = q * form.rotation;
+
+	if(depth > 1) {
+		dxDrawLine((model * vec4(oldP,1)).xyz, (model * vec4(p,1)).xyz, vec4(0.26f,1.00f,0.64f,1));
+	}
+
+	// dxDrawCube(model * p, vec3(0.05f), vec4(0,0,1,1));
+
+	for(int i = 0; i < node->childCount; i++) {
+		drawSkeleton(bones, model, node->children + i, q, p, depth+1);
+	}
 }
 
 //

@@ -1,0 +1,9 @@
+newmtl initialShadingGroup
+illum 2
+Ns 10
+Kd 0.1 0.1 0.1
+Ka 0.1 0.1 0.1
+Ks 0.1 0.1 0.1
+Tf 1.00 1.00 1.00
+Ni 1.00
+d 1

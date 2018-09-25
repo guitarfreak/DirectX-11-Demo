@@ -709,7 +709,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						TextBoxSettings tbsActive = tbs;
 						tbsActive.boxSettings.borderColor = gui->boxSettings.borderColor;
 
-						char* labels[] = {"InputRecording", "Introspection", "Sun"};
+						char* labels[] = {"InputRecording", "Introspection", "Sun", "Animation"};
 						for(int i = 0; i < arrayCount(labels); i++) {
 							bool active = ds->menuPanelActiveSection == i;
 
@@ -1157,6 +1157,44 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								ad->redrawSkyBox = true;
 							}
 						}
+
+					} break;
+
+					// @Animation.
+					case 3: {
+						Mesh* mesh = ad->figureMesh;
+						AnimationPlayer* player = &mesh->animPlayer;
+
+						int li = 0;
+						char* labels[] = { "Animation", "Speed", "ShowSkeleton", "NoLocomotion", "NoInterp"};
+
+						float labelMaxWidth = getTextMaxWidth(labels, arrayCount(labels), font) + padding.x;
+
+						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						qr = quickRow(r, pad.x, labelMaxWidth, 100, 0.0f);
+						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+						newGuiQuickSlider(gui, quickRowNext(&qr), &ad->figureAnimation, 0, mesh->animationCount-1);
+						newGuiQuickText(gui, quickRowNext(&qr), mesh->animations[ad->figureAnimation].name, vec2i(-1,0));
+
+						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
+						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+						newGuiQuickSlider(gui, quickRowNext(&qr), &ad->figureSpeed, 0, 2);
+
+						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
+						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->showSkeleton);
+
+						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
+						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->figureMesh->animPlayer.noLocomotion);
+
+						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
+						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->figureMesh->animPlayer.noInterp);
 
 					} break;
 
