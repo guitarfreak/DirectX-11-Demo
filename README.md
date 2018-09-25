@@ -15,6 +15,7 @@ Not much there yet. In active development.
 * Basic shadow mapping. (Poisson disk sampling.)
 * Normal mapping.
 * Displacement mapping with tesselation.
+* Skeletal animation.
 
 #### Controls
 
