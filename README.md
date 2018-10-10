@@ -8,7 +8,6 @@
 		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot2.png" width="49%" />
   	</a>
 </p>
-
 <p float="right">
 	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png">
   		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png" width="49%" />
