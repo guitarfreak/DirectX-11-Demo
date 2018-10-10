@@ -9,6 +9,15 @@
   	</a>
 </p>
 
+<p float="right">
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png">
+  		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png" width="49%" />
+  	</a>
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot4.png">
+		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot4.png" width="49%" />
+  	</a>
+</p>
+
 Not much there yet. In active development.
 
 * Directional lighting.
@@ -16,6 +25,7 @@ Not much there yet. In active development.
 * Normal mapping.
 * Displacement mapping with tesselation.
 * Skeletal animation.
+* Particle system.
 
 #### Controls
 
