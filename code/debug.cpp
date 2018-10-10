@@ -1,425 +1,100 @@
 
-#define FRAME_BUFFER_SIZE 120
-#define DEBUG_NOTE_LENGTH 50
-#define DEBUG_NOTE_DURATION 3
+struct QLayout {
+	Vec2 pos;
+	Vec2 dim;
+	Vec2 pad;
 
-//
-
-struct TimerInterval {
-	f64 totalTime = 0;
-	int count = 0;
-	f64 stamp = 0;
-
-	f64 resultTime;
-
-	bool update(f64 dt, f64 time, float intervalSeconds = 1) {
-		totalTime += dt;
-		count++;
-		stamp += time;
-
-		if(totalTime >= intervalSeconds) {
-			resultTime = stamp/count;
-
-			totalTime = 0;
-			count = 0;
-			stamp = 0;
-
-			return true;
-		}
-
-		return false;
-	}
+	Rect getRect();
+	QuickRow row(float* cols, int count);
+	QuickRow row(float s0, float s1 = -1, float s2 = -1, float s3 = -1, float s4 = -1);
+	void seperator(float height, Vec4 cDark, Vec4 cBright);
 };
 
-// @AssetHotloading.
+QLayout qLayout(Vec2 pos, Vec2 dim, Vec2 pad) {
+	return {pos, dim, pad};
+}
 
-void initWatchFolders(SystemData* sd, char** folders, int folderCount) {
-	for(int i = 0; i < folderCount; i++) {
-		char* folder = folders[i];
-		HANDLE fileChangeHandle = FindFirstChangeNotification(folder, true, FILE_NOTIFY_CHANGE_LAST_WRITE);
-		if(fileChangeHandle == INVALID_HANDLE_VALUE) {
-			printf("Could not set folder change notification.\n");
-		}
-		sd->folderHandles[i] = fileChangeHandle;
+Rect QLayout::getRect() {
+	Rect r = rectTLDim(pos, vec2(dim.w, dim.h)); 
+	pos.y -= dim.h + pad.y;
+
+	return r;
+}
+
+QuickRow QLayout::row(float* cols, int count) {
+	return quickRow(getRect(), pad.x, cols, count);
+}
+
+QuickRow QLayout::row(float s0, float s1, float s2, float s3, float s4) {
+	return quickRow(getRect(), pad.x, s0, s1, s2, s3, s4);
+}
+
+void QLayout::seperator(float height, Vec4 cDark, Vec4 cBright) {
+	pos.y -= height/2;
+	pfDrawLineH(pos+vec2(0,0.5f), pos+vec2(dim.w,0)+vec2(0,0.5f), cDark);
+	pfDrawLineH(pos+vec2(0,-0.5f), pos+vec2(dim.w,0)+vec2(0,-0.5f), cBright);
+	pos.y -= height/2+pad.y;
+}
+
+template <class T> 
+void drawProbabilityGraph(Gui* gui, Rect r, ValueRange<T> vr) {
+	r = round(r);
+	Vec4 color = vec4(hslToRgbf(0.5f,0.6f,0.3f),1);
+
+	int sampleCount = 1000;
+
+	const int valueCount = 10;
+	int values[valueCount] = {};
+	for(int i = 0; i < sampleCount; i++) {
+		int index = vr.getSample()*(arrayCount(values));
+		index = min((int)index, (int)arrayCount(values)-1);
+		values[index]++;
 	}
-	sd->folderHandleCount = folderCount;
-}
 
-void reloadChangedFiles(SystemData* sd) {
-	// Todo: Get ReadDirectoryChangesW to work instead of FindNextChangeNotification.
-	// Right now we check every single file in the folder for change.
+	float normalize = 0;
+	for(int i = 0; i < arrayCount(values); i++) normalize = max((float)values[i], normalize);
 
-	GraphicsState* gs = theGState;
+	gui->scissorPush(r);
+	defer { gui->scissorPop(); };
 
-	DWORD fileStatus = WaitForMultipleObjects(sd->folderHandleCount, &sd->folderHandles[0], false, 0);
-	if(between(fileStatus, WAIT_OBJECT_0, WAIT_OBJECT_0 + sd->folderHandleCount)) {
+	Vec2 points[valueCount] = {};
+	Vec2 lp = {};
+	for(int i = 0; i < arrayCount(values); i++) {
+		float x = r.left   + r.w() * ((float)i / (arrayCount(values)-1));
+		float y = r.bottom + r.h() * (values[i] / normalize);
+		Vec2 p = vec2(x,y);
 
-		// Note: WAIT_OBJECT_0 is defined as 0, so we can use it as an index.
-		int folderIndex = fileStatus;
-
-		FindNextChangeNotification(sd->folderHandles[folderIndex]);
-
-		if(folderIndex == 0) {
-			for(int i = 0; i < gs->textureCount; i++) {
-				Texture* tex = gs->textures + i;
-
-				FILETIME newWriteTime = getLastWriteTime(tex->file);
-				if(CompareFileTime(&tex->assetInfo.lastWriteTime, &newWriteTime) != 0) {
-
-					dxLoadAndCreateTexture(tex);
-
-					tex->assetInfo.lastWriteTime = newWriteTime;
-				}
-			}
-		} else if(folderIndex == 1) {
-
-			for(int i = 0; i < gs->meshCount; i++) {
-				Mesh* m = gs->meshes + i;
-
-				char* files[] = {m->file, m->mtlFile};
-				for(int j = 0; j < arrayCount(m->assetInfo); j++) {
-					FILETIME newWriteTime = getLastWriteTime(files[j]);
-
-					if(CompareFileTime(&m->assetInfo[j].lastWriteTime, &newWriteTime) != 0) {
-
-						ObjLoader parser;
-						dxLoadMesh(m, &parser);
-						parser.free();
-
-						m->assetInfo[j].lastWriteTime = newWriteTime;
-					}
-				}
-			}
-		}
+		points[i] = p;
 	}
-}
 
-//
+	{
+		dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+		defer { dxEndPrimitive(); };
 
-enum {
-	REC_STATE_INACTIVE = 0,
-	REC_STATE_RECORDING,
-	REC_STATE_PLAYING,
-};
+		for(int i = 0; i < arrayCount(values); i++) {
+			Vec2 p = points[i];
 
-struct StateRecording {
-	Input* inputArray;
-	int capacity;
-	int recordIndex;
-
-	int state;
-
-	char* snapshotMemory[8];
-	int snapshotCount;
-	int snapshotMemoryIndex;
-
-	int playbackIndex;
-	bool playbackPaused;
-	bool justPaused;
-
-	bool activeBreakPoint;
-	int breakPointIndex;
-
-	ExtendibleMemoryArray* memory;
-	bool reloadMemory;
-
-	//
-
-	void init(int capacity, ExtendibleMemoryArray* memory);
-	void update(Input* mainInput);
-	void updateReloadMemory();
-	void startRecording();
-	void startPlayback();
-	void playbackBreak();
-	void playbackStep();
-	void stop();
-};
-
-void StateRecording::init(int capacity, ExtendibleMemoryArray* memory) {
-	*this = {};
-
-	this->capacity = capacity;
-	this->memory = memory;
-
-	inputArray = getPArrayDebug(Input, capacity);
-}
-
-void StateRecording::update(Input* mainInput) {
-	if(state == REC_STATE_RECORDING) {
-		inputArray[recordIndex++] = *mainInput;
-
-		if(recordIndex >= capacity) state = REC_STATE_INACTIVE;
-
-	} else if(state == REC_STATE_PLAYING && !playbackPaused) {
-		*mainInput = inputArray[playbackIndex];
-		playbackIndex = (playbackIndex+1)%recordIndex;
-
-		if(playbackIndex == 0) reloadMemory = true;
-
-		if(activeBreakPoint && breakPointIndex == playbackIndex) {
-			playbackPaused = true;
-			activeBreakPoint = false;
-			justPaused = true;
+			dxPushVertex( pVertex(vec2(p.x, r.bottom)) );
+			dxPushVertex( pVertex(p) );
 		}
 	}
 
-	// If pause, jump to end of main. (Before blitting.)
-}
+	{
+		dxBeginPrimitiveColored(vec4(0.9f,1), D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP);
+		defer { dxEndPrimitive(); };
 
-void StateRecording::updateReloadMemory() {
-	if(reloadMemory) {
-		threadQueueComplete(theThreadQueue);
-
-		memory->index = snapshotCount-1;
-		memory->arrays[memory->index].index = snapshotMemoryIndex;
-
-		for(int i = 0; i < snapshotCount; i++) {
-			memcpy(memory->arrays[i].data, snapshotMemory[i], memory->slotSize);
-		}
-
-		reloadMemory = false;
-	}
-}
-
-void StateRecording::startRecording() {
-	if(state != REC_STATE_INACTIVE || !threadQueueFinished(theThreadQueue)) return;
-
-	snapshotCount = memory->index+1;
-	snapshotMemoryIndex = memory->arrays[memory->index].index;
-	for(int i = 0; i < snapshotCount; i++) {
-		if(snapshotMemory[i] == 0) 
-			snapshotMemory[i] = (char*)malloc(memory->slotSize);
-
-		memcpy(snapshotMemory[i], memory->arrays[i].data, memory->slotSize);
-	}
-
-	state = REC_STATE_RECORDING;
-	recordIndex = 0;
-}
-
-void StateRecording::startPlayback() {
-	if(state == REC_STATE_INACTIVE && !threadQueueFinished(theThreadQueue)) return;
-
-	playbackIndex = 0;
-
-	memory->index = snapshotCount-1;
-	memory->arrays[memory->index].index = snapshotMemoryIndex;
-
-	for(int i = 0; i < snapshotCount; i++) {
-		memcpy(memory->arrays[i].data, snapshotMemory[i], memory->slotSize);
-	}
-
-	state = REC_STATE_PLAYING;
-}
-
-void StateRecording::playbackBreak() {
-	if(state != REC_STATE_PLAYING) return;
-
-	activeBreakPoint = true;
-}
-
-void StateRecording::playbackStep() {
-	if(state != REC_STATE_PLAYING) return; 
-
-	activeBreakPoint = true;
-
-	playbackPaused = false;
-	breakPointIndex = (playbackIndex + 1)%recordIndex;
-}
-
-void StateRecording::stop() { 
-	state = REC_STATE_INACTIVE; 
-
-	activeBreakPoint = false;
-	playbackPaused = false;
-	playbackIndex = 0;
-};
-
-//
-
-struct Timings {
-	u64 cycles;
-	int hits;
-	u64 cyclesOverHits;
-};
-
-struct GraphSlot {
-	char threadIndex;
-	char timerIndex;
-	char stackIndex;
-	u64 cycles;
-	uint size;
-};
-
-struct Profiler {
-	Timer* timer;
-	// Stats for one frame.
-	Timings timings[FRAME_BUFFER_SIZE][TIMER_INFO_SIZE];
-	// Averages over multiple frames.
-	Statistic statistics[FRAME_BUFFER_SIZE][TIMER_INFO_SIZE];
-
-	int frameIndex;
-	int currentFrameIndex;
-	int lastFrameIndex;
-
-	GraphSlot* slotBuffer;
-	int slotBufferIndex;
-	int slotBufferMax;
-	int slotBufferCount;
-
-	// Helpers for building slotBuffer and timings
-	// over multiple frames.
-	GraphSlot tempSlots[16][8]; // threads, stackIndex
-	int tempSlotCount[16];
-
-	bool noCollating;
-
-	//
-
-	void init(int frameSlotCount, int totalSlotBufferCount);
-	void setPlay();
-	void setPause();
-	void update(int timerInfoCount, ThreadQueue* threadQueue);
-};
-
-void Profiler::init(int frameSlotCount, int totalSlotBufferCount) {
-	timer = getPStructDebug(Timer);
-	timer->init(frameSlotCount);
-
-	slotBufferMax = totalSlotBufferCount;
-	slotBufferIndex = 0;
-	slotBufferCount = 0;
-	slotBuffer = getPArrayDebug(GraphSlot, slotBufferMax);
-}
-
-void Profiler::setPlay() {
-	frameIndex = lastFrameIndex;
-}
-
-void Profiler::setPause() {
-	lastFrameIndex = frameIndex;
-	frameIndex = mod(frameIndex-1, arrayCount(timings));
-}
-
-void Profiler::update(int timerInfoCount, ThreadQueue* threadQueue) {
-	timer->timerInfoCount = timerInfoCount;
-	timer->update();
-
-	currentFrameIndex = frameIndex;
-
-	if(!noCollating) {
-		frameIndex = (frameIndex + 1)%FRAME_BUFFER_SIZE;
-
-		Timings* currentTimings = timings[currentFrameIndex];
-		Statistic* currentStatistics = statistics[currentFrameIndex];
-
-		zeroMemory(currentTimings, timer->timerInfoCount*sizeof(Timings));
-		zeroMemory(currentStatistics, timer->timerInfoCount*sizeof(Statistic));
-
-		// Collate timing buffer.
-		// We take the timer slots that the app emits every frame and transform/extract 
-		// information from them.
-
-		if(timer->lastBufferIndex == 0) {
-			for(int i = 0; i < arrayCount(tempSlots); i++) {
-				tempSlotCount[i] = 0;
-				memset(tempSlots + i, 0, sizeof(GraphSlot) * arrayCount(tempSlots[0]));
-			}
-		}
-
-		for(int i = timer->lastBufferIndex; i < timer->bufferIndex; ++i) {
-			TimerSlot* slot = timer->timerBuffer + i;
-			
-			int threadIndex = threadIdToIndex(threadQueue, slot->threadId);
-
-			if(slot->type == TIMER_TYPE_BEGIN) {
-				int index = tempSlotCount[threadIndex];
-
-				GraphSlot graphSlot;
-				graphSlot.threadIndex = threadIndex;
-				graphSlot.timerIndex = slot->timerIndex;
-				graphSlot.stackIndex = index;
-				graphSlot.cycles = slot->cycles;
-				tempSlots[threadIndex][index] = graphSlot;
-
-				// tempSlotCount[threadIndex]++;
-
-				tempSlotCount[threadIndex] = min(tempSlotCount[threadIndex]+1, (int)arrayCount(tempSlots[0]));
-
-			} else {
-				tempSlotCount[threadIndex] = max(tempSlotCount[threadIndex]-1, 0);
-				// tempSlotCount[threadIndex]--;
-
-				int index = tempSlotCount[threadIndex];
-				if(index < 0) index = 0; // @Hack, to keep things running.
-
-				tempSlots[threadIndex][index].size = slot->cycles - tempSlots[threadIndex][index].cycles;
-
-				slotBuffer[slotBufferIndex] = tempSlots[threadIndex][index];
-				slotBufferIndex = (slotBufferIndex+1)%slotBufferMax;
-				slotBufferCount = clampMax(slotBufferCount + 1, slotBufferMax);
-
-				Timings* timing = currentTimings + tempSlots[threadIndex][index].timerIndex;
-				timing->cycles += tempSlots[threadIndex][index].size;
-				timing->hits++;
-			}
-		}
-
-		for(int i = 0; i < timer->timerInfoCount; i++) {
-			Timings* t = currentTimings + i;
-			t->cyclesOverHits = t->hits > 0 ? (u64)(t->cycles/t->hits) : 0; 
-		}
-
-		for(int timerIndex = 0; timerIndex < timer->timerInfoCount; timerIndex++) {
-			Statistic* stat = currentStatistics + timerIndex;
-			stat->begin();
-
-			for(int i = 0; i < arrayCount(timings); i++) {
-				Timings* t = &timings[i][timerIndex];
-				if(t->hits == 0) continue;
-
-				stat->update(t->cyclesOverHits);
-			}
-
-			stat->end();
-			if(stat->count == 0) stat->avg = 0;
+		for(int i = 0; i < arrayCount(values); i++) {
+			dxPushVertex( pVertex(points[i]) );
 		}
 	}
-
-	timer->lastBufferIndex = timer->bufferIndex;
-
-	if(threadQueueFinished(threadQueue)) {
-		timer->bufferIndex = 0;
-		timer->lastBufferIndex = 0;
-	}
-
-	assert(timer->bufferIndex < timer->bufferSize);
-}
-
-//
-
-struct DebugSessionSettings {
-	Rect menuPanel;
-	int menuPanelActiveSection;
-	Rect profilerPanel;
-	int profilerPanelActiveSection;
-	int panelHierarchy[2];
-};
-
-void debugWriteSessionSettings(DebugSessionSettings* at) {
-	writeDataToFile((char*)at, sizeof(DebugSessionSettings), Gui_Session_File);
-}
-
-void debugReadSessionSettings(DebugSessionSettings* at) {
-	readDataFromFile((char*)at, Gui_Session_File);
 }
 
 //
 
 struct DebugState {
-	MSTimer swapTimer;
-	MSTimer frameTimer;
-	MSTimer debugTimer;
+	Timer swapTimer;
+	Timer frameTimer;
+	Timer debugTimer;
 
 	f64 dt;
 	f64 time;
@@ -451,7 +126,7 @@ struct DebugState {
 	int fontHeightScaled;
 	float fontScale;
 
-	NewGui gui;
+	Gui gui;
 	float guiAlpha;
 
 	int panelGotActiveIndex;
@@ -482,7 +157,9 @@ struct DebugState {
 
 //
 
-void addDebugNote(char* string, float duration = DEBUG_NOTE_DURATION) {
+#define DEBUG_NOTE_LENGTH 50
+
+void addDebugNote(char* string, float duration = 3.0f) {
 	DebugState* ds = theDebugState;
 
 	assert(strLen(string) < DEBUG_NOTE_LENGTH);
@@ -537,7 +214,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 	if(init) {
 		if(!fileExists(Gui_Session_File)) {
 			DebugSessionSettings settings;
-			settings.menuPanel = rectTLDim(0, 0, ds->fontHeight*18, ds->fontHeight*25);
+			settings.menuPanel = rectTLDim(0, 0, ds->fontHeight*25, ds->fontHeight*30);
 			settings.menuPanelActiveSection = 0;
 			settings.profilerPanel = rectCenDim(vec2(ws->currentRes)/2 * vec2(1,-1), vec2(ds->fontHeight*40, ds->fontHeight*29));
 
@@ -574,10 +251,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 	//
 
-	NewGui* gui = &ds->gui;
+	Gui* gui = &ds->gui;
 
-	newGuiDefaultSettings(gui, font);
-	newGuiBegin(gui, input, ws, ds->dt, mouseInClient);
+	gui->defaultSettings(font);
+	gui->begin(input, ws, ds->dt, mouseInClient);
 
 	// @Panels.
 	{
@@ -596,7 +273,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						moveArray(ds->panelHierarchy + i, ds->panelHierarchy + i+1, int, panelCount-1-i);
 						ds->panelHierarchy[panelCount-1] = panelIndex;
 
-						newGuiClearHot(gui);
+						gui->clearHot();
 						break;
 					}
 				}
@@ -631,29 +308,29 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				float panelMargin = roundf(fontHeight*0.3f);
 				float panelBorder = roundf(fontHeight*0.5f);
 
-				newGuiSetHotAllMouseOver(gui, *panelRect, gui->zLevel);
+				gui->setHotAllMouseOver(*panelRect, gui->zLevel);
 
 				Rect clampRect = rectTLDim(0,0,ws->currentRes.w,ws->currentRes.h);
 				GuiWindowSettings windowSettings = {panelBorder, panelBorder*3, vec2(fontHeight*10,fontHeight*2.5), 
 					                                vec2(0,0), clampRect, true, true, true, false};
-				newGuiWindowUpdate(gui, panelRect, windowSettings);
+				guiWindow(gui, panelRect, windowSettings);
 
 				Rect rPanel = *panelRect;
 
 				//
 
 				// @color
-				// gui->boxSettings.color = cProfilerPanel;
-				// gui->textBoxSettings.boxSettings.color = cProfilerPanel;
-				newGuiQuickBox(gui, rPanel);
+				// gui->sBox.color = cProfilerPanel;
+				// gui->sTextBox.boxSettings.color = cProfilerPanel;
+				gui->qBox(rPanel);
 
 				Rect pri = rPanel.expand(-vec2(panelBorder*2));
-				newGuiScissorPush(gui, pri);
-				defer { newGuiScissorPop(gui); };
+				gui->scissorPush(pri);
+				defer { gui->scissorPop(); };
 
 				//
 
-				Font* font = gui->textSettings.font;
+				Font* font = gui->sText.font;
 
 				float textPad = font->height * 1.5f;
 
@@ -671,7 +348,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				float headerHeight = eh * 1.2f;
 				float separatorHeight = font->height * 0.3f;
 
-				Vec4 bcLinear = gammaToLinear(gui->boxSettings.color);
+				Vec4 bcLinear = gammaToLinear(gui->sBox.color);
 				Vec4 cSeparatorDark = linearToGamma(bcLinear - vec4(0.1f,0));
 				Vec4 cSeparatorBright = linearToGamma(bcLinear + vec4(0.1f,0));
 
@@ -681,21 +358,21 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 				// Header.
 				{
-					TextSettings headerTextSettings = textSettings(gui->textSettings.font, gui->textSettings.color, TEXTSHADOW_MODE_SHADOW, 1.0f, gui->boxSettings.borderColor);
+					TextSettings headerTextSettings = textSettings(gui->sText.font, gui->sText.color, TEXTSHADOW_MODE_SHADOW, 1.0f, gui->sBox.borderColor);
 					TextBoxSettings headerSettings = textBoxSettings(headerTextSettings, boxSettings());
 
 					r = rectTLDim(p, vec2(ew, headerHeight)); p.y -= headerHeight+pad.y;
-					newGuiQuickTextBox(gui, r, panelTitle, vec2i(0,0), &headerSettings);
+					gui->qTextBox(r, panelTitle, vec2i(0,0), &headerSettings);
 				}
 
 				// Close button.
 				{
-					TextBoxSettings tbs = gui->textBoxSettings; 
+					TextBoxSettings tbs = gui->sTextBox; 
 					tbs.boxSettings.borderColor = vec4(0);
 					Rect rClose = r.rSetL(r.h());
-					if(newGuiQuickButton(gui, rClose, "", &tbs)) *panelActive = false;
+					if(gui->qButton(rClose, "", &tbs)) *panelActive = false;
 
-					Vec4 c = gui->textSettings.color;
+					Vec4 c = gui->sText.color;
 					rClose = round(rClose);
 					rClose = rectCenDim(rClose.c(), vec2(font->height * 0.5f));
 					dxDrawCross(rClose.c(), rClose.w(), rClose.w()*0.3f, c);
@@ -705,11 +382,11 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(panelIndex == 0)
 				{
 					{
-						TextBoxSettings tbs = textBoxSettings(gui->textSettings, boxSettings(gui->boxSettings.color));
+						TextBoxSettings tbs = textBoxSettings(gui->sText, boxSettings(gui->sBox.color));
 						TextBoxSettings tbsActive = tbs;
-						tbsActive.boxSettings.borderColor = gui->boxSettings.borderColor;
+						tbsActive.boxSettings.borderColor = gui->sBox.borderColor;
 
-						char* labels[] = {"InputRecording", "Introspection", "Sun", "Animation"};
+						char* labels[] = {"InputRecording", "Introspection", "Sun", "Animation", "Particles"};
 						for(int i = 0; i < arrayCount(labels); i++) {
 							bool active = ds->menuPanelActiveSection == i;
 
@@ -718,18 +395,18 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 							r = rectTLDim(p, vec2(labelWidth, eh)); p.x += labelWidth;
 
-							if(active) gui->setInactive = true;
+							if(active) gui->setInactiveX = true;
 
 							TextBoxSettings* settings = active ? &tbsActive : &tbs;
-							if(newGuiQuickPButton(gui, r, text, settings)) ds->menuPanelActiveSection = i;
+							if(gui->qPButton(r, text, settings)) ds->menuPanelActiveSection = i;
 						}
 						p.y -= eh+pad.y;
 						p.x = pri.left;
 
 						{
 							p.y -= separatorHeight/2;
-							guiDrawLineH(p+vec2(0,0.5f), p+vec2(ew,0)+vec2(0,0.5f), cSeparatorDark);
-							guiDrawLineH(p+vec2(0,-0.5f), p+vec2(ew,0)+vec2(0,-0.5f), cSeparatorBright);
+							pfDrawLineH(p+vec2(0,0.5f), p+vec2(ew,0)+vec2(0,0.5f), cSeparatorDark);
+							pfDrawLineH(p+vec2(0,-0.5f), p+vec2(ew,0)+vec2(0,-0.5f), cSeparatorBright);
 							p.y -= separatorHeight/2+pad.y;
 						}
 					}
@@ -742,22 +419,36 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					case 0: {
 						StateRecording* rec = &ds->recState;
 
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
 						// rec, stop rec, play, not play, pause, resume, step, set breakpoint
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						newGuiQuickText(gui, r, fillString("Active Threads: %b.", !threadQueueFinished(threadQueue)), vec2i(-1,0));
-
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						newGuiQuickText(gui, r, fillString("Recorded Frames: %i of %i..", rec->recordIndex, rec->capacity), vec2i(-1,0));
+						gui->qText(ql.getRect(), fillString("Active Threads: %b.", !threadQueueFinished(threadQueue)), vec2i(-1,0));
+						gui->qText(ql.getRect(), fillString("Recorded Frames: %i of %i..", rec->recordIndex, rec->capacity), vec2i(-1,0));
 
 						// rec, stop, pause, play
 						{
-							float h = eh*1.5f;
-							float w = h;
-							r = rectTLDim(p, vec2(ew, h)); p.y -= h+pad.y;
-							
-							float cols[] = {0, w,w,w,w, w, 0};
-							qr = quickRow(r, pad.x, cols, arrayCount(cols));
+							ql.dim.h = eh*1.5f;
+
+							float h = ql.dim.h;
+							float cols[] = {0, h,h,h,h,h, 0};
+							qr = ql.row(cols, arrayCount(cols));
 
 							bool recordInactive = rec->state == REC_STATE_PLAYING;
 							bool stopInactive = rec->state == REC_STATE_INACTIVE;
@@ -765,27 +456,27 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 							//
 
-							quickRowNext(&qr);
+							qr.next();
 
-							Vec4 c = gui->editSettings.textBoxSettings.boxSettings.color;
+							Vec4 c = gui->sEdit.textBoxSettings.boxSettings.color;
 							Vec4 recColor = c;
 							if(rec->state == REC_STATE_RECORDING) recColor = vec4(0.5f,0,0,1);
 
-							if(recordInactive) gui->setInactive = true;
-							r = round(quickRowNext(&qr));
-							bool record = newGuiQuickButton(gui, r, "", vec2i(0,0));
+							if(recordInactive) gui->setInactiveX = true;
+							r = round(qr.next());
+							bool record = gui->qButton(r, "", vec2i(0,0));
 							r = round(r.expand(-h*0.5f));
 							dxDrawRect(r, recColor, dxGetTexture("misc\\circle.dds")->view);
 
-							if(stopInactive) gui->setInactive = true;
-							r = round(quickRowNext(&qr));
-							bool stop = newGuiQuickButton(gui, r, "", vec2i(0,0));
+							if(stopInactive) gui->setInactiveX = true;
+							r = round(qr.next());
+							bool stop = gui->qButton(r, "", vec2i(0,0));
 							r = round(r.expand(-h*0.5f));
 							dxDrawRect(r, c);
 
-							if(pausePlayInactive) gui->setInactive = true;
-							r = round(quickRowNext(&qr));
-							bool pausePlay = newGuiQuickButton(gui, r, "", vec2i(0,0));
+							if(pausePlayInactive) gui->setInactiveX = true;
+							r = round(qr.next());
+							bool pausePlay = gui->qButton(r, "", vec2i(0,0));
 							r = round(r.expand(-h*0.5f));
 							if(rec->state == REC_STATE_PLAYING && !rec->playbackPaused) {
 								dxDrawRect(round(r.rSetR(r.w()/3)), c);
@@ -795,29 +486,30 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								dxDrawTriangle(r.bl(), r.tl(), r.r(), c);
 							}
 
-							if(pausePlayInactive) gui->setInactive = true;
-							r = round(quickRowNext(&qr));
-							bool step = newGuiQuickButton(gui, r, "", vec2i(0,0));
+							if(pausePlayInactive) gui->setInactiveX = true;
+							r = round(qr.next());
+							bool step = gui->qButton(r, "", vec2i(0,0));
 							r = round(r.expand(-h*0.5f));
 							dxDrawTriangle(r.bl(), r.tl(), r.c(), c);
 							dxDrawTriangle(r.b(), r.t(), r.r(), c);
 
-							if(pausePlayInactive) gui->setInactive = true;
-							newGuiQuickCheckBox(gui, quickRowNext(&qr), &rec->activeBreakPoint);
+							if(pausePlayInactive) gui->setInactiveX = true;
+							gui->qCheckBox(qr.next(), &rec->activeBreakPoint);
 
-							quickRowNext(&qr);
+							qr.next();
 
 							//
 
+							ql.dim.h = eh;
 							if(rec->recordIndex > 0 && rec->state != REC_STATE_RECORDING) {
-								r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+								r = ql.getRect();
 								int playbackIndex = rec->playbackIndex;
-								if(newGuiQuickSlider(gui, r, &playbackIndex, 0, rec->recordIndex - 1)) {
+								if(gui->qSlider(r, &playbackIndex, 0, rec->recordIndex - 1)) {
 									rec->breakPointIndex = playbackIndex;
 									rec->activeBreakPoint = true;
 								}
 
-								SliderSettings ss = gui->sliderSettings;
+								SliderSettings ss = gui->sSlider;
 								ss.textBoxSettings.textSettings.color = vec4(0,0);
 								ss.textBoxSettings.boxSettings.color = vec4(0,0);
 								ss.textBoxSettings.boxSettings.borderColor = vec4(0,0);
@@ -825,8 +517,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								ss.borderColor = vec4(0,0);
 
 								if(rec->activeBreakPoint) {
-									gui->setInactive = true;
-									newGuiQuickSlider(gui, r, &rec->breakPointIndex, 0, rec->recordIndex - 1, &ss);
+									gui->setInactiveX = true;
+									gui->qSlider(r, &rec->breakPointIndex, 0, rec->recordIndex - 1, &ss);
 								}
 							}
 
@@ -860,10 +552,29 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					// @Introspection
 					case 1: {
 
-						Vec4 cGrid = gui->editSettings.textBoxSettings.boxSettings.color;
+						Vec4 cGrid = gui->sEdit.textBoxSettings.boxSettings.color;
 
 						eh = roundInt(font->height*1.2f);
 						pad.y = roundInt(font->height*0.2f);
+
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						p.y += yOffset;
+						ew -= wOffset;
+						float startY = p.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - p.y - pad.y; };
 
 						float buttonWidth = eh;
 						int padding = eh/2;
@@ -879,7 +590,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 						float currentOffset = 0;
 
-						TextEditSettings tes = gui->editSettings;
+						TextEditSettings tes = gui->sEdit;
 						tes.textBoxSettings.boxSettings.borderSize = 0;
 						tes.textBoxSettings.boxSettings.borderColor.a = 0;
 						tes.textBoxSettings.boxSettings.color.a = 0;
@@ -922,7 +633,11 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						// TypeTraverse info;
 						// info.start(getType(Entity), (char*)ad->player, "player");
 
+						p.y -= 1;
+						defer { p.y -= 2; };
+
 						while(info.next()) {
+
 							Rect r;
 							QuickRow qr;
 							r = rectTLDim(p, vec2(ew, eh)); 
@@ -930,11 +645,11 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							qr = quickRow(r, pad.x, cols, arrayCount(cols));
 
 							Rect rSeperators[2];
-							Rect rMember   = quickRowNext(&qr);
-							rSeperators[0] = quickRowNext(&qr);
-							Rect rValue    = quickRowNext(&qr);
-							rSeperators[1] = quickRowNext(&qr);
-							Rect rType     = quickRowNext(&qr);
+							Rect rMember   = qr.next();
+							rSeperators[0] = qr.next();
+							Rect rValue    = qr.next();
+							rSeperators[1] = qr.next();
+							Rect rType     = qr.next();
 
 							// Ugh.
 							if(info.action == TRAVERSETYPE_PUSH || info.action == TRAVERSETYPE_PRIMITIVE) {
@@ -949,7 +664,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								rType.right -= 1;
 
 								if(info.first) {
-									float yt = y + eh+pad.y;
+									float yt = y + eh + pad.y;
 									dxDrawLine(vec2(x[0],yt), vec2(x[arrayCount(x)-1],yt), cGrid);
 								}
 
@@ -985,9 +700,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 									}
 
 									{
-										TextBoxSettings tbs = gui->textBoxSettings; 
+										TextBoxSettings tbs = gui->sTextBox; 
 										tbs.boxSettings.borderColor = vec4(0);
-										if(newGuiQuickButton(gui, rButton, "", &tbs)) {
+										if(gui->qButton(rButton, "", &tbs)) {
 											if(!expanded) {
 												ds->expansionArray[ds->expansionCount++] = currentIndex;
 
@@ -996,7 +711,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 											}
 										}
 
-										dxDrawTriangle(rButton.c(), rButton.w()/4, gui->textSettings.color, expanded ? vec2(0,-1) : vec2(1,0));
+										dxDrawTriangle(rButton.c(), rButton.w()/4, gui->sText.color, expanded ? vec2(0,-1) : vec2(1,0));
 									}
 								}
 
@@ -1045,9 +760,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 									if(expanded) info.loadState();
 								}
 
-								newGuiQuickText(gui, r, memberLabel, vec2i(-1,0));
-								newGuiQuickText(gui, rValue, getTStringCpyDebug(str), vec2i(-1,0));
-								newGuiQuickText(gui, rType, typeLabel, vec2i(-1,0));
+								gui->qText(r, memberLabel, vec2i(-1,0));
+								gui->qText(rValue, getTStringCpyDebug(str), vec2i(-1,0));
+								gui->qText(rType, typeLabel, vec2i(-1,0));
 
 								if(expanded) {
 									currentOffset += padding;
@@ -1057,26 +772,26 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 								r = rMember;
 								r = r.addL(currentOffset + buttonWidth + pad.x);
-								newGuiQuickText(gui, r, info.memberName, vec2i(-1,0));
+								gui->qText(r, info.memberName, vec2i(-1,0));
 
 								r = rValue;
 								char* data = info.data;
 								switch(info.memberType) {
-									case TYPE_int:   newGuiQuickTextEdit(gui, r, (int*)data, &tes); break;
-									case TYPE_float: newGuiQuickTextEdit(gui, r, (float*)data, &tes); break;
+									case TYPE_int:   gui->qTextEdit(r, (int*)data, &tes); break;
+									case TYPE_float: gui->qTextEdit(r, (float*)data, &tes); break;
 									case TYPE_bool:  {
-										TextBoxSettings tbs = gui->textBoxSettings; 
+										TextBoxSettings tbs = gui->sTextBox; 
 										tbs.boxSettings.borderColor = vec4(0);
 										tbs.sideAlignPadding = 0;
 
 										bool* b = (bool*)data;
 										char* label = fillString("%bU", *b);
 										float w = getTextDim(label, font).w;
-										if(newGuiQuickButton(gui, r.rSetR(w), label, vec2i(-1,0), &tbs)) *b = !(*b);
+										if(gui->qButton(r.rSetR(w), label, vec2i(-1,0), &tbs)) *b = !(*b);
 									} break;
 									case TYPE_char:  {
 										char* temp = getTStringCpyDebug((char*)data, 1);
-										newGuiQuickTextEdit(gui, r, temp, 1, &tes);
+										gui->qTextEdit(r, temp, 1, &tes);
 										data[0] = temp[0];
 									} break;
 									case TYPE_uchar: {
@@ -1084,27 +799,45 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 										char* temp = getTStringDebug(2);
 										temp[0] = c;
 										temp[1] = '\0';
-										newGuiQuickText(gui, r, temp); break;
+										gui->qText(r, temp); break;
 									}
 									default: break;
 								};
 
 								char* typeLabel = info.typeName;
-								newGuiQuickText(gui, rType, typeLabel, vec2i(-1,0));
+								gui->qText(rType, typeLabel, vec2i(-1,0));
 
 							} else if(info.action == TRAVERSETYPE_POP) {
 								currentOffset -= padding;
 							}
 						}
+
 					} break;
 
 					// @Sun
 					case 2: {
 						SkyShaderVars* skyVars = dxGetShaderVars(Sky);
 
-						int li = 0;
-						char* labels[] = { "spotBrightness", "mieBrightness", "mieDistribution", "mieStrength", "mieCollectionPower", "rayleighBrightness", "rayleighStrength", "rayleighCollectionPower", "scatterStrength", "surfaceHeight", "intensity", "stepCount", "horizonOffset", "sunOffset" };
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
 
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
+						int li = 0;
+						char* labels[] = { "SpotBrightness", "MieBrightness", "MieDistribution", "MieStrength", "MieCollectionPower", "RayleighBrightness", "RayleighStrength", "RayleighCollectionPower", "ScatterStrength", "SurfaceHeight", "Intensity", "StepCount", "HorizonOffset", "SunOffset", };
 						float labelMaxWidth = getTextMaxWidth(labels, arrayCount(labels), font) + padding.x;
 
 						int types[] = {0,0,0,0,0,0,0,0,0,0,0,1,0,0}; // 0 float, 1 int
@@ -1114,48 +847,36 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							&skyVars->spotBrightness, &skyVars->mieBrightness, &skyVars->mieDistribution, &skyVars->mieStrength, &skyVars->mieCollectionPower, &skyVars->rayleighBrightness, &skyVars->rayleighStrength, &skyVars->rayleighCollectionPower, &skyVars->scatterStrength, &skyVars->surfaceHeight, &skyVars->intensity, &skyVars->stepCount, &skyVars->horizonOffset, &skyVars->sunOffset,
 						};
 
-						gui->sliderSettings.notifyWhenActive = true;
-						defer{gui->sliderSettings.notifyWhenActive = false;};
+						gui->sSlider.notifyWhenActive = true;
+						defer{gui->sSlider.notifyWhenActive = false;};
 
-						char* label = "sunDir";
-						for(int i = 0; i < 2; i++) {
-							r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-							qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
+						{
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f);
+							gui->qText(qr.next(), "SunDir", vec2i(-1,0));
 
-							if(i == 0) {
-								newGuiQuickText(gui, quickRowNext(&qr), label, vec2i(-1,0));
-							} else {
-								quickRowNext(&qr);
-							}
-
-							Vec2 range = i == 0 ? vec2(0, M_2PI) : vec2(-M_PI_2 + 0.0001f, M_PI_2 - 0.0001f);
-							if(newGuiQuickSlider(gui, quickRowNext(&qr), ad->sunAngles.e + i, range.x, range.y)) {
-								ad->redrawSkyBox = true;
-							}
+							float angleH = radianToDegree(ad->sunAngles.x);
+							float angleV = radianToDegree(ad->sunAngles.y);
+							if(gui->qSlider(qr.next(), &angleH, 0,  360)) ad->redrawSkyBox = true;
+						   if(gui->qSlider(qr.next(), &angleV, -90, 90)) ad->redrawSkyBox = true;
+							ad->sunAngles.x = degreeToRadian(angleH);
+							ad->sunAngles.y = degreeToRadian(angleV);
 						}
 
 						for(int i = 0; i < arrayCount(labels); i++) {
-							r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-							qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
-							newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
+							qr = ql.row(labelMaxWidth, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
 
 							void* ptr = ptrs[i];
 							Vec2 range = ranges[i];
 
 							bool active = false;
 							if(types[i] == 0) {
-								if(newGuiQuickSlider(gui, quickRowNext(&qr), (float*)ptr, range.x, range.y)) {
-									active = true;
-								}
+								if(gui->qSlider(qr.next(), (float*)ptr, range.x, range.y)) active = true;
 							} else {
-								if(newGuiQuickSlider(gui, quickRowNext(&qr), (int*)ptr, (int)range.x, (int)range.y)) {
-									active = true;
-								}
+								if(gui->qSlider(qr.next(), (int*)ptr, (int)range.x, (int)range.y)) active = true;
 							}
 
-							if(active) {
-								ad->redrawSkyBox = true;
-							}
+							if(active) ad->redrawSkyBox = true;
 						}
 
 					} break;
@@ -1165,36 +886,398 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						Mesh* mesh = ad->figureMesh;
 						AnimationPlayer* player = &mesh->animPlayer;
 
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
 						int li = 0;
 						char* labels[] = { "Animation", "Speed", "ShowSkeleton", "NoLocomotion", "NoInterp"};
-
 						float labelMaxWidth = getTextMaxWidth(labels, arrayCount(labels), font) + padding.x;
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, labelMaxWidth, 100, 0.0f);
-						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
-						newGuiQuickSlider(gui, quickRowNext(&qr), &ad->figureAnimation, 0, mesh->animationCount-1);
-						newGuiQuickText(gui, quickRowNext(&qr), mesh->animations[ad->figureAnimation].name, vec2i(-1,0));
+						qr = ql.row(labelMaxWidth, 0.0f);
+						gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+						auto getName = [](void* a) { return ((Animation*)a)->name; };
+						gui->qComboBox(qr.next(), &ad->figureAnimation, mesh->animations, sizeof(mesh->animations[0]), mesh->animationCount, getName);
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
-						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
-						newGuiQuickSlider(gui, quickRowNext(&qr), &ad->figureSpeed, 0, 2);
+						qr = ql.row(labelMaxWidth, 0.0f);
+						gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+						gui->qSlider(qr.next(), &ad->figureSpeed, 0, 2);
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
-						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
-						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->showSkeleton);
+						qr = ql.row(labelMaxWidth, 0.0f);
+						gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+						gui->qCheckBox(qr.next(), &ad->showSkeleton);
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
-						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
-						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->figureMesh->animPlayer.noLocomotion);
+						qr = ql.row(labelMaxWidth, 0.0f);
+						gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+						gui->qCheckBox(qr.next(), &ad->figureMesh->animPlayer.noLocomotion);
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, labelMaxWidth, 0.0f);
-						newGuiQuickText(gui, quickRowNext(&qr), labels[li++], vec2i(-1,0));
-						newGuiQuickCheckBox(gui, quickRowNext(&qr), &ad->figureMesh->animPlayer.noInterp);
+						qr = ql.row(labelMaxWidth, 0.0f);
+						gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+						gui->qCheckBox(qr.next(), &ad->figureMesh->animPlayer.noInterp);
+
+					} break;
+
+					// @Particles.
+					case 4: {
+						static int selectedGroup = 0;
+						static int selectedEmitter = 0;
+
+						static float scrollHeight = 0;
+						float yOffset, wOffset;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
+						{
+							int li = 0;
+							char* labels[] = {"Group", "Position", "Emitter", "Position"};
+							float labelMaxWidth = getTextMaxWidth(labels, arrayCount(labels), font) + padding.x;
+
+							{
+								qr = ql.row(0.0f, 0.0f);
+								char* saveFile = "C:\\Projects\\NoIdea\\data\\particles.tmp";
+								if(gui->qButton(qr.next(), "Save")) {
+									writeDataToFile((char*)ad->groups, arrayCount(ad->groups) * sizeof(ParticleGroup) + sizeof(int), saveFile);
+								}
+
+								if(gui->qButton(qr.next(), "Load")) {
+									readDataFromFile((char*)ad->groups, saveFile);
+
+									for(int i = 0; i < ad->groupCount; i++) {
+										ParticleGroup* g = &ad->groups[i];
+									
+										for(int i = 0; i < g->emitterCount; i++) {
+											ParticleEmitter* e = &g->emitters[i];
+											if(e->initialized) {
+												e->particles = getPArray(Particle, e->particleSize);
+											}
+										}
+									}
+								}
+
+								qr = ql.row(labelMaxWidth, 0.0f, eh, eh);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &selectedGroup, 0, ad->groupCount-1);
+
+								if(gui->qButton(qr.next(), "-")) ad->groupCount = max(ad->groupCount-1, 1);
+								if(gui->qButton(qr.next(), "+")) {
+									ad->groupCount = min((int)ad->groupCount + 1, (int)arrayCount(ad->groups));
+
+									ParticleGroup* g = &ad->groups[ad->groupCount-1];
+									if(g->emitterCount == 0) {
+										g->init(xForm());
+										ParticleEmitter e;
+										e.init(2000);
+										g->add(&e);
+									}
+								}
+
+								ParticleGroup* g = &ad->groups[selectedGroup];
+								
+								qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &g->xForm.trans.x, -20, 20);
+								gui->qSlider(qr.next(), &g->xForm.trans.y, -20, 20);
+								gui->qSlider(qr.next(), &g->xForm.trans.z, -20, 20);
+							}
+
+							ql.seperator(separatorHeight, cSeparatorDark, cSeparatorBright);
+
+							{
+								ParticleGroup* g = &ad->groups[selectedGroup];
+
+								qr = ql.row(labelMaxWidth, 0.0f, eh, eh);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &selectedEmitter, 0, g->emitterCount-1);
+
+								if(gui->qButton(qr.next(), "-")) g->emitterCount = max(g->emitterCount-1, 1);
+								if(gui->qButton(qr.next(), "+")) {
+									g->emitterCount = min((int)g->emitterCount + 1, (int)arrayCount(g->emitters));
+
+									ParticleEmitter* e = &g->emitters[g->emitterCount-1];
+									if(!e->initialized) {
+										e->init(2000);
+									}
+								}
+
+								ParticleEmitter* e = &ad->groups[selectedGroup].emitters[selectedEmitter];
+
+								qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &e->xForm.trans.x, -5, 5);
+								gui->qSlider(qr.next(), &e->xForm.trans.y, -5, 5);
+								gui->qSlider(qr.next(), &e->xForm.trans.z, -5, 5);
+							}
+						}
+
+						ql.seperator(separatorHeight, cSeparatorDark, cSeparatorBright);
+
+						{
+							ParticleSettings* s = &ad->groups[selectedGroup].emitters[selectedEmitter].settings;
+
+							int li = 0;
+							char* labels[] = {"SpriteIndex", "Region", "SpawnRate", "LifeTime", "Delay", "LifeTimeP", "Fade", "Size", "VelSize", "AngleV", "AngleH", "Speed", "Gravity", "Drag", "VelStretch", "VelRot", "RandRot", "ColorLerpT", "ColorHSL", "Color2HSL", "Color3HSL", "Alpha", "Brightness"};
+
+							float labelMaxWidth = getTextMaxWidth(labels, arrayCount(labels), font) + padding.x;
+
+							qr = ql.row(labelMaxWidth, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qSlider(qr.next(), &s->spriteIndex, 0, dxGetTexture("misc\\particles.dds")->spriteCount-1);
+
+							{
+								char* enumStrings[] = {"Sphere", "Cylinder", "Box"};
+
+								qr = ql.row(labelMaxWidth, 0.0f);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qComboBox(qr.next(), &s->region.type, enumStrings, arrayCount(enumStrings));
+							}
+
+							if(s->region.type == ParticleSettings::REGION_SPHERE) {
+								char* l1 = "R:";
+
+								qr = ql.row(labelMaxWidth, getTextDim(l1, font).w, 0.0f, 0.0f);
+								qr.next();
+								gui->qText(qr.next(), l1);
+								gui->qTextEdit(qr.next(), &s->region.radiusMin);
+								gui->qTextEdit(qr.next(), &s->region.radius);
+
+							} else if(s->region.type == ParticleSettings::REGION_CYLINDER) {
+								char* l1 = "R:";
+								char* l2 = "H:";
+
+								float cols[] = {labelMaxWidth, getTextDim(l1, font).w, 0.0f, 0.0f, getTextDim(l2, font).w, 0.0f};
+								qr = ql.row(cols, arrayCount(cols));
+
+								qr.next();
+								gui->qText(qr.next(), l1);
+								gui->qTextEdit(qr.next(), &s->region.radiusMin);
+								gui->qTextEdit(qr.next(), &s->region.radius);
+								gui->qText(qr.next(), l2);
+								gui->qTextEdit(qr.next(), &s->region.height);
+
+							} else if(s->region.type == ParticleSettings::REGION_BOX) {
+								char* ls[] = {"X:", "Y:", "Z:"};
+								int li = 0;
+
+								float cols[] = {labelMaxWidth, getTextDim(ls[li++], font).w, 0.0f, getTextDim(ls[li++], font).w, 0.0f, getTextDim(ls[li++], font).w, 0.0f};
+								qr = ql.row(cols, arrayCount(cols));
+								li = 0;
+
+								qr.next();
+								gui->qText(qr.next(), ls[li++]);
+								gui->qTextEdit(qr.next(), &s->region.dim.x);
+
+								gui->qText(qr.next(), ls[li++]);
+								gui->qTextEdit(qr.next(), &s->region.dim.y);
+
+								gui->qText(qr.next(), ls[li++]);
+								gui->qTextEdit(qr.next(), &s->region.dim.z);
+							}
+
+							//
+
+							qr = ql.row(labelMaxWidth, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qSlider(qr.next(), &s->spawnRate, 0, 2000);
+
+							qr = ql.row(labelMaxWidth, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->lifeTime);
+
+							{
+								char* l[] = {"Pre:", "Post:"};
+								float cols[] = {labelMaxWidth, getTextDim(l[0], font).w, 0.0f, getTextDim(l[1], font).w, 0.0f};
+								qr = ql.row(cols, arrayCount(cols));
+
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qText(qr.next(), l[0], vec2i(-1,0));
+								gui->qTextEdit(qr.next(), &s->startTime);
+								gui->qText(qr.next(), l[1], vec2i(-1,0));
+								gui->qTextEdit(qr.next(), &s->restTime);
+							}
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->lifeTimeP.min);
+							gui->qTextEdit(qr.next(), &s->lifeTimeP.max);
+							gui->qComboBox(qr.next(), &s->lifeTimeP.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->lifeTimeP);
+
+							{
+								char* l[] = {"In:", "Out:"};
+								float cols[] = {labelMaxWidth, getTextDim(l[0], font).w, 0.0f, getTextDim(l[1], font).w, 0.0f};
+								qr = ql.row(cols, arrayCount(cols));
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qText(qr.next(), l[0], vec2i(-1,0));
+								gui->qTextEdit(qr.next(), &s->fadeInTime);
+								gui->qText(qr.next(), l[1], vec2i(-1,0));
+								gui->qTextEdit(qr.next(), &s->fadeOutTime);
+							}
+
+							ql.seperator(separatorHeight, cSeparatorDark, cSeparatorBright);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->size.min);
+							gui->qTextEdit(qr.next(), &s->size.max);
+							gui->qComboBox(qr.next(), &s->size.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->size);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->velSize.min);
+							gui->qTextEdit(qr.next(), &s->velSize.max);
+							gui->qComboBox(qr.next(), &s->velSize.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->velSize);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qSlider(qr.next(), &s->angleV.min, -90, 90);
+							gui->qSlider(qr.next(), &s->angleV.max, -90, 90);
+							gui->qComboBox(qr.next(), &s->angleV.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->angleV);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->angleH.min);
+							gui->qTextEdit(qr.next(), &s->angleH.max);
+							gui->qComboBox(qr.next(), &s->angleH.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->angleH);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->speed.min);
+							gui->qTextEdit(qr.next(), &s->speed.max);
+							gui->qComboBox(qr.next(), &s->speed.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->speed);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->gravity.x);
+							gui->qTextEdit(qr.next(), &s->gravity.y);
+							gui->qTextEdit(qr.next(), &s->gravity.z);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->drag.min);
+							gui->qTextEdit(qr.next(), &s->drag.max);
+							gui->qComboBox(qr.next(), &s->drag.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->drag);
+
+							qr = ql.row(labelMaxWidth, eh, 0.0f);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qCheckBox(qr.next(), &s->velocityStretch);
+							gui->qTextEdit(qr.next(), &s->velocityStretchMod);
+
+							qr = ql.row(labelMaxWidth, 0.0f, 0.0f, 0.0f, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qTextEdit(qr.next(), &s->velRot.min);
+							gui->qTextEdit(qr.next(), &s->velRot.max);
+							gui->qComboBox(qr.next(), &s->velRot.functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+							drawProbabilityGraph(gui, qr.next(), s->velRot);
+
+							qr = ql.row(labelMaxWidth, eh);
+							gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+							gui->qCheckBox(qr.next(), &s->randomRotation);
+
+							ql.seperator(separatorHeight, cSeparatorDark, cSeparatorBright);
+
+							{
+								qr = ql.row(labelMaxWidth, (ew - labelMaxWidth)*(2/3.0f)-pad.x-eh, 0.0f, eh);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &s->colorT, 0.0, 1.0f);
+								gui->qComboBox(qr.next(), &s->color[0].functionType, FunctionTypeStrings, arrayCount(FunctionTypeStrings));
+								drawProbabilityGraph(gui, qr.next(), s->color[0]);
+
+								Vec3 csMin[3];
+								Vec3 csMax[3];
+								for(int i = 0; i < 3; i++) {
+									csMin[i] = rgbToHslf(s->color[i].min.rgb);
+									csMax[i] = rgbToHslf(s->color[i].max.rgb);
+								}
+
+								for(int i = 0; i < 3; i++) {
+									bool inactive = (s->colorT == 0.0f && i > 0) || 
+									                (s->colorT == 1.0f && i == 2);
+									if(inactive) gui->setInactive(true);
+									defer{ if(inactive) gui->setActive(); };
+
+									for(int ci = 0; ci < 2; ci++) {
+										float cols[] = {labelMaxWidth, 0.0f, 0.0f, 0.0f, 0.0f, eh+eh/2};
+										qr = ql.row(cols, arrayCount(cols));
+
+										Vec3* cs;
+										float* a;
+
+										if(ci == 0) {
+											cs = &csMin[i];
+											a = &s->color[i].min.a;
+
+											gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+										} else {
+											cs = &csMax[i];
+											a = &s->color[i].max.a;
+
+											qr.next();
+										}
+
+										gui->qSlider(qr.next(), &cs->r, 0.0, 0.999f);
+										gui->qSlider(qr.next(), &cs->g, 0.001, 1.0f);
+										gui->qSlider(qr.next(), &cs->b, 0.001, 0.999);
+										gui->qSlider(qr.next(), a, 0.0, 1.0f);
+										{
+											Rect r = round(qr.next());
+											Rect rl = r.rSetR(r.h()+1);
+											Rect rr = r.addL(r.h());
+
+											BoxSettings bs = gui->sBox;
+											bs.color = vec4(hslToRgbf(*cs), 1);
+											gui->qBox(rl, &bs);
+											bs.color = vec4(*a, 1);
+											gui->qBox(rr, &bs);
+										}
+									}
+								}
+
+								for(int i = 0; i < 3; i++) {
+									s->color[i].min.rgb = hslToRgbf(csMin[i]);
+									s->color[i].max.rgb = hslToRgbf(csMax[i]);
+								}
+
+								qr = ql.row(labelMaxWidth, 0.0f);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &s->alpha, 0.0, 1.0f);
+
+								qr = ql.row(labelMaxWidth, 0.0f);
+								gui->qText(qr.next(), labels[li++], vec2i(-1,0));
+								gui->qSlider(qr.next(), &s->brightness, 0.0, 5.0f);
+							}
+						}
 
 					} break;
 
@@ -1205,9 +1288,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 				if(panelIndex == 1)
 				{
 					{
-						TextBoxSettings tbs = textBoxSettings(gui->textSettings, boxSettings(gui->boxSettings.color));
+						TextBoxSettings tbs = textBoxSettings(gui->sText, boxSettings(gui->sBox.color));
 						TextBoxSettings tbsActive = tbs;
-						tbsActive.boxSettings.borderColor = gui->boxSettings.borderColor;
+						tbsActive.boxSettings.borderColor = gui->sBox.borderColor;
 
 						char* labels[] = {"Stats", "Graph"};
 						for(int i = 0; i < arrayCount(labels); i++) {
@@ -1218,10 +1301,10 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 							r = rectTLDim(p, vec2(labelWidth, eh)); p.x += labelWidth;
 
-							if(active) gui->setInactive = true;
+							if(active) gui->setInactiveX = true;
 
 							TextBoxSettings* settings = active ? &tbsActive : &tbs;
-							if(newGuiQuickPButton(gui, r, text, settings)) ds->profilerPanelActiveSection = i;
+							if(gui->qPButton(r, text, settings)) ds->profilerPanelActiveSection = i;
 						}
 
 						{
@@ -1229,9 +1312,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							r = rectTLDim(p, vec2(pri.right - p.x,eh));
 							qr = quickRow(r, pad.x, 0, getTextDim(label, font).w + textPad/2, 1.01f);
 
-							quickRowNext(&qr);
-							newGuiQuickText(gui, quickRowNext(&qr), label, vec2i(1,0));
-							quickRowNext(&qr);
+							qr.next();
+							gui->qText(qr.next(), label, vec2i(1,0));
+							qr.next();
 						}
 
 						p.y -= eh+pad.y;
@@ -1244,7 +1327,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
 							qr = quickRow(r, pad.x, getTextDim(labels[1], font).w + textPad, 0);
 
-							if(newGuiQuickButton(gui, quickRowNext(&qr), prof->noCollating ? labels[1] : labels[0])) {
+							if(gui->qButton(qr.next(), prof->noCollating ? labels[1] : labels[0])) {
 								prof->noCollating = !prof->noCollating;
 
 								if(prof->noCollating) {
@@ -1254,13 +1337,13 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								} else prof->setPlay();
 							}
 
-							newGuiQuickSlider(gui, quickRowNext(&qr), &prof->frameIndex, 0, FRAME_BUFFER_SIZE-1);
+							gui->qSlider(qr.next(), &prof->frameIndex, 0, FRAME_BUFFER_SIZE-1);
 						}
 
 						{
 							p.y -= separatorHeight/2;
-							guiDrawLineH(p+vec2(0,0.5f), p+vec2(ew,0)+vec2(0,0.5f), cSeparatorDark);
-							guiDrawLineH(p+vec2(0,-0.5f), p+vec2(ew,0)+vec2(0,-0.5f), cSeparatorBright);
+							pfDrawLineH(p+vec2(0,0.5f), p+vec2(ew,0)+vec2(0,0.5f), cSeparatorDark);
+							pfDrawLineH(p+vec2(0,-0.5f), p+vec2(ew,0)+vec2(0,-0.5f), cSeparatorBright);
 							p.y -= separatorHeight/2+pad.y;
 						}
 					}
@@ -1268,7 +1351,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 					//
 
 					Profiler* prof = &ds->profiler;
-					Timer* timer = prof->timer;
+					ProfilerTimer* timer = prof->timer;
 					Timings* timings = prof->timings[prof->currentFrameIndex];
 					Statistic* statistics = prof->statistics[prof->currentFrameIndex];
 
@@ -1288,20 +1371,37 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 					// @Stats
 					case 0: {
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
 						int barWidth = 1;
 						int barCount = arrayCount(prof->timings);
 
 						float cols[] = {0,0,0,0,0,0,0,0, barWidth*barCount};
 						char* labels[] = {"File", "Function", "Description", "Cycles", "Hits", "C/H", "Avg. Cycl.", "Total Time", "Graphs"};
 
-						r = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						qr = quickRow(r, pad.x, cols, arrayCount(cols));
+						qr = ql.row(cols, arrayCount(cols));
 
 						for(int i = 0; i < arrayCount(cols); i++) {
-							TextBoxSettings tbs = gui->textBoxSettings; 
+							TextBoxSettings tbs = gui->sTextBox; 
 							tbs.boxSettings.borderColor = vec4(0);
-							tbs.textSettings = gui->textSettings2;
-							if(newGuiQuickButton(gui, quickRowNext(&qr), fillString("<b>%s<b>", labels[i]), &tbs)) {
+							tbs.textSettings = gui->sText2;
+							if(gui->qButton(qr.next(), fillString("<b>%s<b>", labels[i]), &tbs)) {
 								if(abs(ds->statsSortingIndex) == i) ds->statsSortingIndex *= -1;
 								else ds->statsSortingIndex = i;
 							}
@@ -1358,28 +1458,28 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 							if(!tInfo->initialised) continue;
 
-							r = rectTLDim(p, vec2(ew, eh)); p.y -= eh;
-							qr = quickRow(r, pad.x, cols, arrayCount(cols));
+							ql.pad.y = 0;
+							qr = ql.row(cols, arrayCount(cols));
 
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%s", tInfo->file + 21), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%s", tInfo->file + 21), vec2i(-1,0));
 
-							TextBoxSettings tbs = gui->textBoxSettings; tbs.boxSettings.borderColor = vec4(0);
-							if(newGuiQuickButton(gui, quickRowNext(&qr), fillString("%s", tInfo->function), vec2i(-1,0), &tbs)) {
+							TextBoxSettings tbs = gui->sTextBox; tbs.boxSettings.borderColor = vec4(0);
+							if(gui->qButton(qr.next(), fillString("%s", tInfo->function), vec2i(-1,0), &tbs)) {
 								char* command = fillString("%s %s:%i", Editor_Executable_Path, tInfo->file, tInfo->line);
 								shellExecuteNoWindow(command);
 							}
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%s", tInfo->name), vec2i(-1,0));
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%i64.c", timing->cycles), vec2i(-1,0));
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%i64.", timing->hits), vec2i(-1,0));
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%i64.c", timing->cyclesOverHits), vec2i(-1,0));
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%i64.c", (i64)statistics[i].avg), vec2i(-1,0)); // Not a i64 but whatever.
-							newGuiQuickText(gui, quickRowNext(&qr), fillString("%.3f%%", ((float)timing->cycles/cyclesPerFrame)*100), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%s", tInfo->name), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%i64.c", timing->cycles), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%i64.", timing->hits), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%i64.c", timing->cyclesOverHits), vec2i(-1,0));
+							gui->qText(qr.next(), fillString("%i64.c", (i64)statistics[i].avg), vec2i(-1,0)); // Not a i64 but whatever.
+							gui->qText(qr.next(), fillString("%.3f%%", ((float)timing->cycles/cyclesPerFrame)*100), vec2i(-1,0));
 
 							// Bar graph.
 
 							// dcState(STATE_LINEWIDTH, barWidth);
 
-							Rect r = quickRowNext(&qr);
+							Rect r = qr.next();
 							r.left = round(r.left) + 0.5f;
 							r.right = round(r.right) + 0.5f;
 
@@ -1409,17 +1509,35 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 					// @Graph
 					case 1: {
+						static float scrollHeight = 0;
+						float yOffset = 0;
+						float wOffset = 0;
+						{
+							static float scrollValue = 0;
+							Rect pr = pri.setT(p.y);
+
+							gui->sScroll.scrollBarPadding = pad.x;
+							gui->sScroll.scrollAmount = eh + pad.y;
+							gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+						}
+
+						QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+						float startY = ql.pos.y;
+
+						defer { gui->qScrollEnd(); };
+						defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
 						Vec4 bgColor = vec4(0,0.15f);
 						Vec4 cThreadLine = vec4(0,0.5f);
 						Vec4 cSwapBoundary = vec4(0,0.5f);
 						Vec4 cMinimap = vec4(0,0.25f);
-						TextBoxSettings slotSettings = gui->textBoxSettings2;
+						TextBoxSettings slotSettings = gui->sTextBox2;
 						slotSettings.textSettings.cull = true;
 
 						//
 
 						// Rect cyclesRect = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						Rect headerRect = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
+						Rect headerRect = ql.getRect();
 
 						float lineHeightOffset = 1.2;
 						float lineHeight = ds->fontHeight * lineHeightOffset;
@@ -1427,9 +1545,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 						int stackCountMain = 3;
 						int stackCountThreads = 2;
 
-						eh = stackCountMain*lineHeight + stackCountThreads*lineHeight*(threadQueue->threadCount);
-						Rect bgRect = rectTLDim(p, vec2(ew, eh)); p.y -= eh+pad.y;
-						eh = elementHeight;
+						ql.dim.h = stackCountMain*lineHeight + stackCountThreads*lineHeight*(threadQueue->threadCount);
+						Rect bgRect = ql.getRect();
+						ql.dim.h = elementHeight;
 
 						//
 
@@ -1468,7 +1586,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							// Translate.
 
 							Vec2 offset = vec2(0,0);
-							int dragEvent = newGuiGoDragAction(gui, bgRect);	
+							int dragEvent = gui->goDragAction(pfGetRectScissor(gui->scissor, bgRect));	
 							if(dragEvent == 1) {
 								gui->mouseAnchor = input->mousePosNegative;
 
@@ -1483,7 +1601,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							float zoom = !input->keysDown[KEYCODE_CTRL]  ? 0.9f : 
 							             !input->keysDown[KEYCODE_SHIFT] ? 0.8f : 0.6f;
 							if(dragEvent == 0) {
-								if(newGuiGoButtonAction(gui, bgRect, Gui_Focus_MWheel)) scale = true;
+								if(gui->goButtonAction(bgRect, Gui_Focus_MWheel)) scale = true;
 							}
 
 							//
@@ -1523,7 +1641,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 								// Big line.
 								{
 									float h = headerRect.h() * heightMod;
-									dxDrawLine(vec2(p,headerRect.min.y), vec2(p,headerRect.min.y + h), lineColor);
+									dxDrawLine(vec2(p,headerRect.bottom), vec2(p,headerRect.bottom + h), lineColor);
 								}
 
 								// // Text
@@ -1574,7 +1692,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 									else if(cycles < 1000000000000) s = fillString("%.1fbc", cycles/1000000000);
 									else s = fillString("INF");
 
-									drawText(s, textPos, vec2i(0,0), gui->textSettings2);
+									drawText(s, textPos, vec2i(0,0), gui->sText2);
 								}
 
 								pos += timelineSection;
@@ -1593,16 +1711,17 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 						// dcState(STATE_LINEWIDTH, 1);
 
-						BoxSettings bs = gui->boxSettings;
+						BoxSettings bs = gui->sBox;
 						bs.color = bgColor;
-						newGuiQuickBox(gui, bgRect, &bs);
+						bgRect.bottom += 1;
+						gui->qBox(round(bgRect), &bs);
 
 						Vec2 pos = bgRect.tl();
 						for(int threadIndex = 0; threadIndex < threadQueue->threadCount+1; threadIndex++) {
 
 							// Horizontal lines to distinguish thread bars.
 							if(threadIndex > 0) {
-								dxDrawLine(pos, vec2(bgRect.right, pos.y), cThreadLine);
+								dxDrawLineH(pos, vec2(bgRect.right, pos.y), cThreadLine);
 							}
 
 							int bufferCount = prof->slotBufferCount;
@@ -1619,7 +1738,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 								// Draw vertical line at swap boundaries.
 								if(slot->timerIndex == swapTimerIndex) {
-									dxDrawLine(vec2(right, bgRect.bottom), vec2(right, bgRect.top), cSwapBoundary);
+									dxDrawLineV(vec2(right, bgRect.bottom), vec2(right, bgRect.top), cSwapBoundary);
 								}
 
 								float y = pos.y - (slot->stackIndex*lineHeight);
@@ -1641,7 +1760,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 
 									} else {
 										slotSettings.boxSettings.color = color;
-										newGuiQuickTextBox(gui, r, text, vec2i(-1,0), &slotSettings);
+										gui->qTextBox(r, text, vec2i(-1,0), &slotSettings);
 									}
 
 								} else {
@@ -1659,7 +1778,7 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 							hRect.right = max(hRect.right, hRect.left + tw);
 
 							slotSettings.boxSettings.color = hc;
-							newGuiQuickTextBox(gui, hRect, hText, vec2i(-1,0), &slotSettings);
+							gui->qTextBox(hRect, hText, vec2i(-1,0), &slotSettings);
 						}
 
 					} break;
@@ -1680,8 +1799,8 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		gui->zLevel = 0;
 	}
 
-	newGuiPopupSetup(gui);
-	newGuiEnd(gui);
+	gui->popupSetup();
+	gui->end();
 
 	// @Console.
 	// Not actually usefull right now. More of a proof of concept...

@@ -121,8 +121,16 @@ inline int randomInt(int from, int to) {
 	return pcg32_boundedrand(to - from + 1) + from;
 }
 
+inline float randomInt01() {
+	return randomInt(0,1);
+}
+
 inline float randomFloat(float from, float to) {
 	return randomInt(from/0.000001f, to/0.000001f) * 0.000001f;
+}
+
+inline float randomFloat01() {
+	return randomFloat(0,1);
 }
 
 inline float randomOffset(float offset) {

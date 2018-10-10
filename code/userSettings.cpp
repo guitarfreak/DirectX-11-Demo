@@ -53,10 +53,18 @@ void saveAppSettings(AppSessionSettings at) {
 
 //
 
-enum BlendState {
-	Blend_State_Blend,
-	Blend_State_BlendAlphaCoverage,
-	Blend_State_NoBlend,
-	Blend_State_DrawOverlay,
-	Blend_State_BlitOverlay,
+struct DebugSessionSettings {
+	Rect menuPanel;
+	int menuPanelActiveSection;
+	Rect profilerPanel;
+	int profilerPanelActiveSection;
+	int panelHierarchy[2];
 };
+
+void debugWriteSessionSettings(DebugSessionSettings* at) {
+	writeDataToFile((char*)at, sizeof(DebugSessionSettings), Gui_Session_File);
+}
+
+void debugReadSessionSettings(DebugSessionSettings* at) {
+	readDataFromFile((char*)at, Gui_Session_File);
+}

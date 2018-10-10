@@ -16,48 +16,6 @@ struct Camera {
 	Vec3 right;
 };
 
-struct Particle {
-	Vec3 pos;
-	Vec3 vel;
-	Vec3 acc;
-
-	Vec4 color;
-	Vec4 velColor;
-	Vec4 accColor;
-
-	Vec3 size;
-	Vec3 velSize;
-	Vec3 accSize;
-
-	Quat rot;
-	Vec3 velRot;
-	Vec3 accRot;
-
-	float time;
-	float timeToLive;
-};
-
-struct ParticleEmitter {
-	Particle* particleList;
-	int particleListSize;
-	int particleListCount;
-	int particleListIndex;
-
-	Vec3 pos;
-	float spawnRate;
-	int spawnCount;
-	float spawnTime;
-
-	Vec4 color;
-
-	// Set either one.
-	float time;
-	float timeToLive;
-
-	int liveTimeSpawnCount;
-	int liveTimeSpawns;
-};
-
 struct Entity {
 	bool init;
 
@@ -224,49 +182,3 @@ void entityKeyboardAcceleration(Entity* e, Input* input, float speed, float boos
 		e->acc += norm(acceleration)*speed;
 	}
 }
-
-//
-
-void particleEmitterUpdate(ParticleEmitter* e, float dt, float dtTime) {
-	for(int i = 0; i < e->particleListCount; i++) {
-		Particle* p = e->particleList + i;
-
-		p->vel = p->vel + p->acc*dt;
-		// p->vel = p->vel * pow(0.01f,dt);
-		p->pos = p->pos - 0.5f*p->acc*dt*dt + p->vel*dt;
-
-		p->velColor = p->velColor + p->accColor*dt;
-		// p->velColor = p->velColor * pow(friction,dt);
-		p->color = p->color - 0.5f*p->accColor*dt*dt + p->velColor*dt;
-
-		p->velSize = p->velSize + p->accSize*dt;
-		// p->velSize = p->velSize * pow(friction,dt);
-		p->size = p->size - 0.5f*p->accSize*dt*dt + p->velSize*dt;
-
-		// p->velRot = p->velRot + p->accRot*dt;
-		// // p->velColor = p->velColor * pow(friction,dt);
-		// p->rot = p->rot - 0.5f*p->accRot*dt*dt + p->velRot*dt;
-
-		p->time += dtTime;
-	}
-}
-
-void particleEmitterFinish(ParticleEmitter* e) {
-
-	// Remove dead.
-	for(int i = 0; i < e->particleListCount; i++) {
-		Particle* p = e->particleList + i;
-
-		if(p->time >= p->timeToLive) {
-			if(i == e->particleListCount-1) {
-				e->particleListCount--;
-				break;
-			}
-
-			e->particleList[i] = e->particleList[e->particleListCount-1];
-			e->particleListCount--;
-			i--;
-		}
-	}	
-}
-

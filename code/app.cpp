@@ -20,11 +20,16 @@ ToDo:
 - Hot reloading for all assets.
 
 - DDS file generation automation.
+- Environment mapping, basic reflections.
 
-- Animation doesn't use scaling yet.
+- Improve Bloom.
+- Make animation that demonstrates scaling.
+- Put shader in own file.
 
 Bugs:
 - Black shadow spot where sun hits material with displacement map.
+- Hot reloading once and then minimizing crashes app.
+- Particle mipmaps dark alpha border.
 
 */
 
@@ -68,13 +73,13 @@ struct GraphicsState;
 struct AudioState;
 struct MemoryBlock;
 struct DebugState;
-struct Timer;
+struct ProfilerTimer;
 ThreadQueue*   theThreadQueue;
 GraphicsState* theGState;
 AudioState*    theAudioState;
 MemoryBlock*   theMemory;
 DebugState*    theDebugState;
-Timer*         theTimer;
+ProfilerTimer* theTimer;
 
 // Internal.
 
@@ -88,7 +93,7 @@ Timer*         theTimer;
 #include "mathBasic.cpp"
 #include "math.cpp"
 #include "color.cpp"
-#include "timer.cpp"
+#include "profilerTimer.cpp"
 #include "interpolation.cpp"
 #include "sort.cpp"
 #include "container.cpp"
@@ -109,15 +114,22 @@ Timer*         theTimer;
 #include "animation.cpp"
 #include "rendering.cpp"
 #include "font.cpp"
-#include "newGui.cpp"
+#include "layout.cpp"
+#include "gui.h"
+#include "gui.cpp"
 #include "console.cpp"
 
 #include "entity.cpp"
+#include "particles.cpp"
 #include "audio.cpp"
 
 #include "menu.cpp"
 
 #include "introspection.cpp"
+
+#include "assetReload.cpp"
+#include "stateRecord.cpp"
+#include "profiler.cpp"
 
 //
 
@@ -194,12 +206,6 @@ struct AppData {
 
 	//
 
-	Particle* particleLists[50];
-	bool particleListUsage[50];
-	int particleListsSize;
-
-	//
-
 	bool playerMode;
 
 	//
@@ -215,6 +221,18 @@ struct AppData {
 	bool firstWalk;
 	float footstepSoundValue;
 	int lastFootstepSoundId;
+
+	//
+
+	Mat4 viewLight;
+	Mat4 projLight;
+
+	//
+
+	ParticleEmitter emitters[10];
+	int emitterCount;
+	ParticleGroup groups[10];
+	int groupCount;
 };
 
 #include "debug.cpp"
@@ -363,8 +381,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->fieldOfView = 60;
 			ad->msaaSamples = 4;
 			ad->resolutionScale = 1;
-			ad->nearPlane = 0.1f;
-			ad->farPlane = 100;
+			ad->nearPlane = 0.2f;
+			ad->farPlane = 50;
 			ad->dt = 1/(float)ws->frameRate;
 
 			pcg32_srandom(0, __rdtsc());
@@ -511,6 +529,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 					}
 
 					dxGetShader(Shader_Primitive)->inputLayout = gs->primitiveInputLayout;
+					dxGetShader(Shader_Bloom)->inputLayout = gs->primitiveInputLayout;
+					dxGetShader(Shader_Particle)->inputLayout = gs->primitiveInputLayout;
 					dxGetShader(Shader_Main)->inputLayout = gs->mainInputLayout;
 					dxGetShader(Shader_Sky)->inputLayout = 0;
 					dxGetShader(Shader_Gradient)->inputLayout = gs->primitiveInputLayout;
@@ -536,6 +556,12 @@ extern "C" APPMAINFUNCTION(appMain) {
 						tex.name = getPStringCpy(fd.fileName);
 						tex.file = getPStringCpy(fd.filePath);
 						tex.format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+						
+						if(strFind(fd.fileName, "particles.dds") != -1) {
+							tex.spriteSheet = true;
+							tex.spriteCount = 12;
+							tex.cellDim = vec2i(8,8);
+						}
 
 						dxLoadAndCreateTextureDDS(&tex, true);
 
@@ -634,50 +660,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			// @Samplers.
 			{
-				{
-					D3D11_SAMPLER_DESC samplerDesc;
-					// samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-					samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
-					samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-					samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-					samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-					samplerDesc.MipLODBias = 0;
-					samplerDesc.MaxAnisotropy = 16;
-					samplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS;
-					samplerDesc.BorderColor[0] = 0;
-					samplerDesc.BorderColor[1] = 0;
-					samplerDesc.BorderColor[2] = 0;
-					samplerDesc.BorderColor[3] = 0;
-					samplerDesc.MinLOD = 0;
-					samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-
-					ID3D11SamplerState* sampler;
-					d3dDevice->CreateSamplerState(&samplerDesc, &sampler);
-
-					gs->sampler = sampler;
-				}
-
-				{
-					D3D11_SAMPLER_DESC samplerDesc;
-					samplerDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-					samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_MIRROR;
-					samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_MIRROR;
-					samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_MIRROR;
-					samplerDesc.MipLODBias = 0;
-					samplerDesc.MaxAnisotropy = 0;
-					samplerDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
-					samplerDesc.BorderColor[0] = 0;
-					samplerDesc.BorderColor[1] = 0;
-					samplerDesc.BorderColor[2] = 0;
-					samplerDesc.BorderColor[3] = 0;
-					samplerDesc.MinLOD = 0;
-					samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-
-					ID3D11SamplerState* sampler;
-					d3dDevice->CreateSamplerState(&samplerDesc, &sampler);
-
-					gs->samplerCmp = sampler;
-				}
+				gs->sampler      = createSampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP, 16, D3D11_COMPARISON_LESS);
+				gs->samplerClamp = createSampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_CLAMP, 16, D3D11_COMPARISON_LESS);
+				gs->samplerCmp   = createSampler(D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR, D3D11_TEXTURE_ADDRESS_MIRROR, 0, D3D11_COMPARISON_LESS_EQUAL);
 			}
 
 			// @BlendStates.
@@ -685,27 +670,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 				gs->blendStateCount = 0;
 
 				D3D11_BLEND_DESC blendDesc = {};
-				blendDesc.RenderTarget[0] = {false, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, D3D11_COLOR_WRITE_ENABLE_ALL};
+				blendDesc.RenderTarget[0] = {false, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+					                                 D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+					                                 D3D11_COLOR_WRITE_ENABLE_ALL};
 				d3dDevice->CreateBlendState(&blendDesc, &gs->blendStates[Blend_State_NoBlend]);
 
-				gs->blendStates[Blend_State_Blend] = dxCreateBlendState(
-				                                                        D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
+				gs->blendStates[Blend_State_Blend] = dxCreateBlendState(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
 
-				gs->blendStates[Blend_State_Blend] = dxCreateBlendState(
-				                                                        D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
-
-				gs->blendStates[Blend_State_DrawOverlay] = dxCreateBlendState(
-				                                                              D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+				gs->blendStates[Blend_State_DrawOverlay] = dxCreateBlendState(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
 				                                                              D3D11_BLEND_ONE,       D3D11_BLEND_ONE,           D3D11_BLEND_OP_ADD);
 
-				gs->blendStates[Blend_State_BlitOverlay] = dxCreateBlendState(
-				                                                              D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
+				gs->blendStates[Blend_State_BlitOverlay] = dxCreateBlendState(D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
 
 				// gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
 				// 	D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, true);
 
-				gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(
-				                                                                     D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, true, false);
+				gs->blendStates[Blend_State_BlendAlphaCoverage] = dxCreateBlendState(D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, true, false);
+
+				gs->blendStates[Blend_State_PreMultipliedAlpha] = dxCreateBlendState(D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
+
+				gs->blendStates[Blend_State_Add] = dxCreateBlendState(D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD);
 			}
 
 			// @FrameBuffers.
@@ -819,17 +803,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// @AppInit.
 		{
+			int here = sizeof(Particle);
+
 			ad->audioState.masterVolume = 0.5f;
 
 			ad->gameMode = GAME_MODE_LOAD;
 			ad->menu.activeId = 0;
 
-			#if SHIPPING_MODE
-			ad->captureMouse = true;
-			#else 
+			// #if SHIPPING_MODE
+			// ad->captureMouse = true;
+			// #else 
 			ad->captureMouse = false;
 			ad->debugMouse = true;
-			#endif
+			// #endif
 
 			ad->volumeFootsteps = 0.2f;
 			ad->volumeGeneral = 0.5f;
@@ -838,14 +824,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			ad->mouseSensitivity = 0.2f;
 
 			ad->redrawSkyBox = true;
-
-			//
-
-			ad->particleListsSize = 100;
-			for(int i = 0; i < arrayCount(ad->particleLists); i++) {
-				ad->particleLists[i] = getPArray(Particle, ad->particleListsSize);
-				ad->particleListUsage[i] = false;
-			}
 
 			// Entity.
 
@@ -889,6 +867,22 @@ extern "C" APPMAINFUNCTION(appMain) {
 					ad->fieldOfView = settings.fieldOfView;
 				}
 			}
+
+			{
+				char* saveFile = "C:\\Projects\\NoIdea\\data\\particles.tmp";
+				readDataFromFile((char*)ad->groups, saveFile);
+
+				for(int i = 0; i < ad->groupCount; i++) {
+					ParticleGroup* g = &ad->groups[i];
+				
+					for(int i = 0; i < g->emitterCount; i++) {
+						ParticleEmitter* e = &g->emitters[i];
+						if(e->initialized) {
+							e->particles = getPArray(Particle, e->particleSize);
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -920,7 +914,6 @@ extern "C" APPMAINFUNCTION(appMain) {
 			}
 		}
 	}
-
 
 	// Update timer.
 	{
@@ -971,7 +964,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 			bool blockInput = false;
 			bool blockMouse = false;
 
-			if(newGuiSomeoneActive(&ds->gui) || newGuiSomeoneHot(&ds->gui)) {
+			if(ds->gui.someoneActive() || ds->gui.someoneHot()) {
 				blockInput = true;
 				blockMouse = true;
 			}
@@ -1227,15 +1220,19 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 			{
 				PrimitiveShaderVars* primitiveVars = dxGetShaderVars(Primitive);
+				BloomShaderVars* bloomVars = dxGetShaderVars(Bloom);
+				ParticleShaderVars* particleVars = dxGetShaderVars(Particle);
 				SkyShaderVars* skyVars = dxGetShaderVars(Sky);
 				MainShaderVars* mainVars = dxGetShaderVars(Main);
 				GradientShaderVars* gradientVars = dxGetShaderVars(Gradient);
 				ShadowShaderVars* shadowVars = dxGetShaderVars(Shadow);
 
 				*primitiveVars = {};
-				primitiveVars->view = ad->view2d;
-				primitiveVars->proj = ad->ortho;
+				primitiveVars->viewProj = ad->ortho * ad->view2d;
 				primitiveVars->gammaGradient = false;
+
+				*bloomVars = {};
+				bloomVars->viewProj = ad->proj * ad->view;
 
 				{
 					if(init || reload) {
@@ -1326,6 +1323,23 @@ extern "C" APPMAINFUNCTION(appMain) {
 				shadowVars->closeTessDistance = 1.0f;
 				shadowVars->farTessFactor = 1;
 				shadowVars->closeTessFactor = 10;
+
+				*particleVars = {};
+				particleVars->viewProj = ad->proj * ad->view;
+				particleVars->nearPlane = ad->nearPlane;
+				particleVars->farPlane  = ad->farPlane;
+				particleVars->msaaSamples  = ad->msaaSamples;
+
+				particleVars->ambient = mainVars->ambient;
+				particleVars->light = mainVars->light;
+				particleVars->lightCount = mainVars->lightCount;
+				particleVars->shadowMapSize = vec2(gs->shadowMapSize);
+
+				particleVars->alphaMod = 50;
+				particleVars->alphaMod2 = 100;
+				particleVars->alphaContrastMod = 2;
+
+				gs->d3ddc->PSSetSamplers(1, 1, &gs->samplerCmp); // Good idea to put this here?
 			}
 		}
 	}
@@ -1337,8 +1351,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 	if(ad->gameMode == GAME_MODE_MENU) {
 
 		dxViewPort(ws->currentRes);
-		dxGetShaderVars(Primitive)->view = ad->view2d;
-		dxGetShaderVars(Primitive)->proj = ad->ortho;
+		dxGetShaderVars(Primitive)->viewProj = ad->ortho * ad->view2d;
 		dxSetShaderAndPushConstants(Shader_Primitive);
 		dxBindFrameBuffer("2dMsaa");
 
@@ -1548,9 +1561,11 @@ extern "C" APPMAINFUNCTION(appMain) {
 	}
 
 	if(ad->gameMode == GAME_MODE_LOAD) {
+		TIMER_BLOCK_NAMED("Load Mode");
+
 		for(int i = 0; i < ad->entityList.size; i++) ad->entityList.e[i].init = false;
 
-			// Init player.
+		// Init player.
 		{
 			float v = randomFloat(0,M_2PI);
 			Vec3 startRot = vec3(v,0,0);
@@ -1620,6 +1635,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 
 		{
+			TIMER_BLOCK_NAMED("Sky");
+
 			dxViewPort(ad->cur3dBufferRes);
 
 			// @RedrawCubeMap.
@@ -1719,15 +1736,13 @@ extern "C" APPMAINFUNCTION(appMain) {
 			} else {
 				dxDepthTest(false); defer{dxDepthTest(true);};
 
-				dxGetShaderVars(Primitive)->view = ad->view2d;
-				dxGetShaderVars(Primitive)->proj = orthoMatrixZ01(0, 0, 1, 1, 10, -10);
+				dxGetShaderVars(Primitive)->viewProj = orthoMatrixZ01(0, 0, 1, 1, 10, -10) * ad->view2d;
 				dxPushShaderConstants(Shader_Primitive);
 
 				dxDrawRect(rectTLDim(0,1,1,1), vec4(1), dxGetFrameBuffer("Sky")->shaderResourceView);	
 			}
 
-			dxGetShaderVars(Primitive)->view = ad->view;
-			dxGetShaderVars(Primitive)->proj = ad->proj;
+			dxGetShaderVars(Primitive)->viewProj = ad->proj * ad->view;
 			dxPushShaderConstants(Shader_Primitive);
 		}
 
@@ -1815,6 +1830,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// @Animation.
 		{
+			TIMER_BLOCK_NAMED("Animation");
+
 			Mesh* mesh = dxGetMesh("figure\\figure.mesh");
 			AnimationPlayer* player = &mesh->animPlayer;
 
@@ -1847,6 +1864,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 		// @3d.
 		{
+			TIMER_BLOCK_NAMED("3dScene");
+
 			// @Grid.
 			{
 				dxSetShader(Shader_Primitive);
@@ -1942,8 +1961,9 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 				char* mat = "Matte\\mat.mtl";
 
-				objA[objC++] = {"cube\\obj.obj", vec3(0,0,-0.05f + 0.0001f), vec3(10,10,0.1f), vec4(1,1), quat(), mat};
-				objA[objC++] = {"cube\\obj.obj", vec3(-3,4,0.5f), vec3(1,1,1), hslToRgbf(0,0.5f,0.5f, 1), quat(-0.6f, vec3(0,0,1)), mat};
+				objA[objC++] = {"cube\\obj.obj", vec3(-2.5,0,-0.05f), vec3(15,10,0.1f), vec4(1,1), quat(), mat};
+				objA[objC++] = {"cube\\obj.obj", vec3(-6,2,-0.025f + 0.0001f), vec3(7,5,0.05f), vec4(0.25f,1), quat(), mat};
+				objA[objC++] = {"cube\\obj.obj", vec3(-0,4,0.5f), vec3(1,1,1), hslToRgbf(0,0.5f,0.5f, 1), quat(-0.6f, vec3(0,0,1)), mat};
 
 				Quat rot = quat(M_PI_2, vec3(1,0,0));
 				objA[objC++] = {"treeRealistic\\Tree.obj", vec3(3,3,0), vec3(0.8f), vec4(1,1), quat(), 0, true};
@@ -1951,8 +1971,8 @@ extern "C" APPMAINFUNCTION(appMain) {
 				{
 					mat = "Figure\\material.mtl";
 
-					Vec3 pos = vec3(-4,0,0);
-					Vec3 scale = vec3(0.6f);
+					Vec3 pos = vec3(-8,-3,0);
+					Vec3 scale = vec3(0.6f / 100.0f);
 					Quat rot = quat(degreeToRadian(135), vec3(0,0,1));
 
 					ad->figureModel = modelMatrix(pos, scale, rot);
@@ -1967,11 +1987,14 @@ extern "C" APPMAINFUNCTION(appMain) {
 				Mat4 projLight = {};
 				{
 					// Hardcoding values for now.
-					float dist = 8;
-					float size = 15;
+					float dist = 12;
+					float size = 25;
 					Vec3 sunDir = dxGetShaderVars(Sky)->sunDir;
 					viewLight = viewMatrix(sunDir * dist, sunDir);
 					projLight = orthoMatrixZ01(size, size, 0, 30);
+
+					ad->viewLight = viewLight;
+					ad->projLight = projLight;
 				}
 
 				// Render scene.
@@ -2088,27 +2111,128 @@ extern "C" APPMAINFUNCTION(appMain) {
 			drawSkeleton(mesh->animPlayer.bones, ad->figureModel, &mesh->boneTree);
 		}
 
+		// @Particles.
+		{
+			TIMER_BLOCK_NAMED("Particles");
+
+			FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+			gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
+
+			dxGetShaderVars(Particle)->shadowViewProj = ad->projLight * ad->viewLight;
+
+			// Draw all groups.
+			{
+				for(int i = 0; i < ad->groupCount; i++) {
+					ParticleGroup* group = ad->groups + i;
+					group->update(ad->dt, &ad->activeCam);
+				}
+
+				int groupCount = ad->groupCount;
+				ParticleGroup groups[10];
+				for(int i = 0; i < ad->groupCount; i++) groups[i] = ad->groups[i];
+
+				// Sort.
+				{
+					for(int i = 0; i < groupCount; i++) {
+						ParticleGroup* group = groups + i;
+						group->distToCam = len(group->xForm.trans - ad->activeCam.pos);
+					}
+
+					auto cmp = [](void* a, void* b){
+						return ((ParticleGroup*)a)->distToCam > ((ParticleGroup*)b)->distToCam;
+					};
+
+					mergeSort(groups, groupCount, cmp);
+
+					for(int i = 0; i < groupCount; i++) {
+						ParticleGroup* group = groups + i;
+					}
+				}
+
+				for(int i = 0; i < groupCount; i++) {
+					ParticleGroup* group = groups + i;
+
+					group->draw(&ad->activeCam);
+				}
+			}
+		}
+
 		{
 			dxResolveFrameBuffer("3dMsaa", "3dNoMsaa");
+
+			dxDepthTest(false);
+			defer{ dxDepthTest(true); };
+
+			// @Bloom.
+			{
+				dxSetShader(Shader_Bloom);
+				dxViewPort(ws->currentRes);
+
+				char* cBuf = "Bloom";
+				char* oBuf = "Bloom2";
+
+				dxBindFrameBuffer(cBuf, 0);
+
+				{
+					dxGetShaderVars(Bloom)->viewProj = ad->ortho * ad->view2d;
+					dxGetShaderVars(Bloom)->mode = 0;
+					dxPushShaderConstants(Shader_Bloom);
+
+					Rect sr = getScreenRect(ws);
+					dxDrawRect(sr, vec4(1,1,1,1), dxGetFrameBuffer("3dNoMsaa")->shaderResourceView);
+				}
+
+				{
+					dxGetShaderVars(Bloom)->mode = 1;
+
+					int blurSteps = 5;
+					for(int i = 0; i < blurSteps*2; i++) {
+						dxBindFrameBuffer(oBuf, 0);
+
+						dxGetShaderVars(Bloom)->mode = 1 + (i%2);
+						dxPushShaderConstants(Shader_Bloom);
+
+						Rect sr = getScreenRect(ws);
+						dxDrawRect(sr, vec4(1,1,1,1), dxGetFrameBuffer(cBuf)->shaderResourceView);
+
+					 	swap(&cBuf, &oBuf);
+					}
+				}
+			}
+
 			dxViewPort(ws->currentRes);
 			dxBindFrameBuffer("2dMsaa", "ds");
 
-			dxGetShaderVars(Primitive)->view = ad->view2d;
-			dxGetShaderVars(Primitive)->proj = ad->ortho;
+			dxGetShaderVars(Primitive)->viewProj = ad->ortho * ad->view2d;
 			dxSetShaderAndPushConstants(Shader_Primitive);
 
-			dxDepthTest(false);
 			dxDrawRect(getScreenRect(ws), vec4(1), dxGetFrameBuffer("3dNoMsaa")->shaderResourceView);
-			dxDepthTest(true);
+
+			// Additively blend bloomed texture back to frameBuffer.
+			{
+				dxSetBlendState(Blend_State_Add);
+				defer{dxSetBlendState(Blend_State_Blend);};
+
+				Rect sr = getScreenRect(ws);
+				dxDrawRect(sr, vec4(1,1,1,1), dxGetFrameBuffer("Bloom")->shaderResourceView);
+			}
 		}
 
 		// @2d.
 		{
-			FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+			dxSetShader(Shader_Primitive);
 			Rect sr = getScreenRect(ws);
-			// dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
-		}
 
+			// FrameBuffer* fb = dxGetFrameBuffer("Shadow");
+			// dxDrawRect(rectTRDim(sr.tr(),vec2(50)), vec4(1,1,1,1), fb->shaderResourceView);
+
+			// {
+			// 	float s = 200;
+			// 	Vec2 p = sr.tl() + vec2(10,-10);
+			// 	dxDrawRect(rectTLDim(p, vec2(s)), vec4(1,1,1,1), dxGetFrameBuffer("Bloom")->shaderResourceView);
+			// 	dxDrawRect(rectTLDim(p + vec2(s + 2,0), vec2(s)), vec4(1,1,1,1), dxGetFrameBuffer("Bloom2")->shaderResourceView);
+			// }
+		}
 	}
 
 	// {
@@ -2225,7 +2349,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	debugMain(ds, appMemory, ad, reload, isRunning, init, threadQueue, __COUNTER__, mouseInClientArea(windowHandle));
 
-		// Save game settings.
+	// Save game settings.
 	if(*isRunning == false) {
 		GameSettings settings = {};
 		settings.fullscreen = ws->fullscreen;
@@ -2242,7 +2366,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		}
 	}
 
-		// @AppSessionWrite
+	// @AppSessionWrite
 	if(*isRunning == false) {
 		Rect windowRect = getWindowWindowRect(sd->windowHandle);
 		if(ws->fullscreen) windowRect = ws->previousWindowRect;

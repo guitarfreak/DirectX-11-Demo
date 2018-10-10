@@ -523,3 +523,31 @@ struct Statistic {
 		avg /= count;
 	}
 };
+
+//
+
+struct TimerInterval {
+	f64 totalTime = 0;
+	int count = 0;
+	f64 stamp = 0;
+
+	f64 resultTime;
+
+	bool update(f64 dt, f64 time, float intervalSeconds = 1) {
+		totalTime += dt;
+		count++;
+		stamp += time;
+
+		if(totalTime >= intervalSeconds) {
+			resultTime = stamp/count;
+
+			totalTime = 0;
+			count = 0;
+			stamp = 0;
+
+			return true;
+		}
+
+		return false;
+	}
+};

@@ -1,16 +1,12 @@
 
-void getPointsFromSkeleton(Mesh* mesh, BoneNode* node, Quat q = quat(), Vec3 p = vec3(0.0f)) {
+void xFormsLocalToGlobal(XForm* forms, BoneNode* node, XForm cForm = xForm()) {
+	XForm form = forms[node->data->index];
 
-	XForm form = mesh->basePose[node->data->index];
-
-	Vec3 oldP = p;
-	p = p + (q * form.translation);
-	q = q * form.rotation;
-
-	mesh->basePosePoints[node->data->index] = p;
+	cForm = xFormCombine(cForm, form);
+	forms[node->data->index] = cForm;
 
 	for(int i = 0; i < node->childCount; i++) {
-		getPointsFromSkeleton(mesh, node->children + i, q, p);
+		xFormsLocalToGlobal(forms, node->children + i, cForm);
 	}
 }
 
@@ -63,7 +59,7 @@ void AnimationPlayer::update(float dt) {
 	frame = min(frame, (float)animation->frameCount-1);
 
 	{
-		int boneCount = animation->boneCount;
+		boneCount = animation->boneCount;
 
 		int frame1 = floor(frame);
 		int frame2 = ceil(frame);
@@ -84,9 +80,9 @@ void AnimationPlayer::update(float dt) {
 				XForm f2 = frames2[i];
 
 				XForm f3 = {};
-				f3.translation = lerp(t, f1.translation, f2.translation);
+				f3.trans = lerp(t, f1.trans, f2.trans);
 				// Should rotate the other way if over 180 degrees?
-				f3.rotation = quatLerp(f1.rotation, f2.rotation, t);
+				f3.rot = quatLerp(f1.rot, f2.rot, t);
 				f3.scale = lerp(t, f1.scale, f2.scale);
 
 				bones[i] = f3;
@@ -96,36 +92,25 @@ void AnimationPlayer::update(float dt) {
 
 	if(noLocomotion) {
 		// Needs some work.
-		Vec3 baseTranslation = animation->frames[0][0].translation;
-		bones[0].translation.xy = baseTranslation.xy;
+		Vec3 baseTranslation = animation->frames[0][0].trans;
+		bones[0].trans.xy = baseTranslation.xy;
 	}
 
-	calcMats(mesh->basePose, bones, &mesh->boneTree);
-}
+	xFormsLocalToGlobal(bones, &mesh->boneTree);
 
-void AnimationPlayer::calcMats(XForm* baseBones, XForm* bones, BoneNode* node, Quat q, Vec3 p, Quat totalRot) {
-	XForm formPose = baseBones[node->data->index];
-	XForm form = bones[node->data->index];
+	// Calc mats.
+	{
+		for(int i = 0; i < boneCount; i++) {
+			XForm a = mesh->basePose[i];
+			XForm b = bones[i];
 
-	Vec3 basePoseNodePos = mesh->basePosePoints[node->data->index];
+			Quat totalRot = b.rot * quatInverse(a.rot);
 
-	// There is probably a better way to do this.
+			Mat4 model = translationMatrix(a.trans) * 
+			             modelMatrix(b.trans - a.trans, vec3(1), totalRot) * 
+			             translationMatrix(-a.trans);
 
-	Quat q1 = q * formPose.rotation;
-	Quat q2 = q * form.rotation;
-	Quat q3 = q2 * quatInverse(q1);
-	totalRot = q3 * totalRot;
-
-	p = p + (q * form.translation);
-	q = q * form.rotation;
-
-	Mat4 model = translationMatrix(basePoseNodePos) * 
-	             modelMatrix(p - basePoseNodePos, vec3(1), totalRot) * 
-	             translationMatrix(-basePoseNodePos);
-
-	mats[node->data->index] = model;
-
-	for(int i = 0; i < node->childCount; i++) {
-		calcMats(baseBones, bones, node->children + i, q, p, totalRot);
+			mats[i] = model;
+		}
 	}
 }

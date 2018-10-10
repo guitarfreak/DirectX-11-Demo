@@ -16,6 +16,10 @@ struct Texture {
 
 	uint format;
 
+	bool spriteSheet;
+	int spriteCount;
+	Vec2i cellDim;
+
 	AssetInfo assetInfo;
 
 	// int channels;
@@ -38,6 +42,7 @@ struct FrameBuffer {
 	ID3D11Texture2D* texture;
 
 	bool isShadow;
+	bool makeDepthView;
 
 	union {
 		struct {
@@ -67,6 +72,16 @@ struct Shader {
 	ID3D11Buffer* constantBuffer;
 
 	ID3D11InputLayout* inputLayout;
+};
+
+enum BlendState {
+	Blend_State_Blend,
+	Blend_State_BlendAlphaCoverage,
+	Blend_State_NoBlend,
+	Blend_State_DrawOverlay,
+	Blend_State_BlitOverlay,
+	Blend_State_PreMultipliedAlpha,
+	Blend_State_Add,
 };
 
 struct PrimitiveVertex {
@@ -168,7 +183,6 @@ struct Mesh {
 	BoneNode boneTree;
 
 	XForm* basePose;
-	Vec3* basePosePoints;
 
 	Animation animations[10];
 	int animationCount;
@@ -176,4 +190,89 @@ struct Mesh {
 	//
 
 	AssetInfo assetInfo[2];
+};
+
+struct DXTimer {
+	ID3D11DeviceContext* d3ddc;
+
+	ID3D11Query* queryStart[5];
+	ID3D11Query* queryStop[5];
+	ID3D11Query* queryDisjoint[5];
+
+	int queryCount;
+	int queryIndex;
+
+	bool initialized;
+
+	f64 dt;
+
+	void init(ID3D11Device* d3dDevice, ID3D11DeviceContext* d3ddc) {
+		this->d3ddc = d3ddc;
+
+		D3D11_QUERY_DESC queryDesc;
+
+		for(int i = 0; i < arrayCount(queryStart); i++) {
+			queryDesc = {D3D11_QUERY_TIMESTAMP};
+			d3dDevice->CreateQuery(&queryDesc, &queryStop[i]);
+		}
+
+		for(int i = 0; i < arrayCount(queryStart); i++) {
+			queryDesc = {D3D11_QUERY_TIMESTAMP};
+			d3dDevice->CreateQuery(&queryDesc, &queryStart[i]);
+		}
+
+		for(int i = 0; i < arrayCount(queryStart); i++) {
+			queryDesc = {D3D11_QUERY_TIMESTAMP_DISJOINT};
+			d3dDevice->CreateQuery(&queryDesc, &queryDisjoint[i]);
+		}
+
+		queryCount = arrayCount(queryStart);
+		queryIndex = 0;
+	}
+
+	void start() {
+		d3ddc->Begin(queryDisjoint[queryIndex]);
+		d3ddc->End(queryStart[queryIndex]);
+	}
+
+	bool stop() {
+		d3ddc->End(queryStop[queryIndex]);
+		d3ddc->End(queryDisjoint[queryIndex]);
+
+		// Wait for one full roundtrip.
+		if(!initialized && queryIndex == queryCount-1) {
+			initialized = true;
+		}
+
+		bool result = false;
+
+		int nextIndex = (queryIndex+1)%queryCount;
+		if(initialized) {
+
+			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT queryDataDisjoint;
+			UINT64 queryDataStart;
+			UINT64 queryDataEnd;
+
+			while(S_OK != d3ddc->GetData(queryDisjoint[nextIndex], &queryDataDisjoint, sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT), 0)) {
+				sleep(1);
+			}
+
+			bool result1 = (S_OK != d3ddc->GetData(queryStart[nextIndex], &queryDataStart, sizeof(UINT64), 0));
+			bool result2 = (S_OK != d3ddc->GetData(queryStop[nextIndex], &queryDataEnd, sizeof(UINT64), 0));
+
+			// 	if(queryDataDisjoint.Disjoint) {
+			// 		waiting = false;
+			// 		return false;
+			// 	}
+
+			dt = (queryDataEnd - queryDataStart) / (f64)queryDataDisjoint.Frequency;
+			dt *= 1000; // To ms.
+
+			result = true;
+		}
+
+		queryIndex = nextIndex;
+
+		return result;
+	}
 };

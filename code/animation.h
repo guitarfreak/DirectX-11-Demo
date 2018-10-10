@@ -1,15 +1,8 @@
 
-struct XForm {
-	Vec3 translation;
-	Quat rotation;
-	Vec3 scale;
-};
-
 struct Bone {
 	char* name;
 	int index;
 	int depth;
-	// XForm xform;
 };
 
 struct BoneNode {
@@ -58,5 +51,4 @@ struct AnimationPlayer {
 
 	void setAnim(char* name);
 	void update(float dt);
-	void calcMats(XForm* baseBones, XForm* bones, BoneNode* node, Quat q = quat(), Vec3 p = vec3(0.0f), Quat totalRots = quat());
 };

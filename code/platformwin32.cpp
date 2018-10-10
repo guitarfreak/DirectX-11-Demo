@@ -444,7 +444,7 @@ __int64 getCycleStamp() {
 	return __rdtsc();
 }
 
-struct MSTimer {
+struct Timer {
 	double frequency;
 	LARGE_INTEGER timeStamp;
 

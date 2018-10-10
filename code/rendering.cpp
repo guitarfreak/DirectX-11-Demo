@@ -1,89 +1,4 @@
 
-struct DXTimer {
-	ID3D11DeviceContext* d3ddc;
-
-	ID3D11Query* queryStart[5];
-	ID3D11Query* queryStop[5];
-	ID3D11Query* queryDisjoint[5];
-
-	int queryCount;
-	int queryIndex;
-
-	bool initialized;
-
-	f64 dt;
-
-	void init(ID3D11Device* d3dDevice, ID3D11DeviceContext* d3ddc) {
-		this->d3ddc = d3ddc;
-
-		D3D11_QUERY_DESC queryDesc;
-
-		for(int i = 0; i < arrayCount(queryStart); i++) {
-			queryDesc = {D3D11_QUERY_TIMESTAMP};
-			d3dDevice->CreateQuery(&queryDesc, &queryStop[i]);
-		}
-
-		for(int i = 0; i < arrayCount(queryStart); i++) {
-			queryDesc = {D3D11_QUERY_TIMESTAMP};
-			d3dDevice->CreateQuery(&queryDesc, &queryStart[i]);
-		}
-
-		for(int i = 0; i < arrayCount(queryStart); i++) {
-			queryDesc = {D3D11_QUERY_TIMESTAMP_DISJOINT};
-			d3dDevice->CreateQuery(&queryDesc, &queryDisjoint[i]);
-		}
-
-		queryCount = arrayCount(queryStart);
-		queryIndex = 0;
-	}
-
-	void start() {
-		d3ddc->Begin(queryDisjoint[queryIndex]);
-		d3ddc->End(queryStart[queryIndex]);
-	}
-
-	bool stop() {
-		d3ddc->End(queryStop[queryIndex]);
-		d3ddc->End(queryDisjoint[queryIndex]);
-
-		// Wait for one full roundtrip.
-		if(!initialized && queryIndex == queryCount-1) {
-			initialized = true;
-		}
-
-		bool result = false;
-
-		int nextIndex = (queryIndex+1)%queryCount;
-		if(initialized) {
-
-			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT queryDataDisjoint;
-			UINT64 queryDataStart;
-			UINT64 queryDataEnd;
-
-			while(S_OK != d3ddc->GetData(queryDisjoint[nextIndex], &queryDataDisjoint, sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT), 0)) {
-				sleep(1);
-			}
-
-			bool result1 = (S_OK != d3ddc->GetData(queryStart[nextIndex], &queryDataStart, sizeof(UINT64), 0));
-			bool result2 = (S_OK != d3ddc->GetData(queryStop[nextIndex], &queryDataEnd, sizeof(UINT64), 0));
-
-			// 	if(queryDataDisjoint.Disjoint) {
-			// 		waiting = false;
-			// 		return false;
-			// 	}
-
-			dt = (queryDataEnd - queryDataStart) / (f64)queryDataDisjoint.Frequency;
-			dt *= 1000; // To ms.
-
-			result = true;
-		}
-
-		queryIndex = nextIndex;
-
-		return result;
-	}
-};
-
 struct GraphicsState {
 
 	IDXGISwapChain* swapChain;
@@ -137,7 +52,9 @@ struct GraphicsState {
 
 	D3D11_RASTERIZER_DESC rasterizerState;
 	D3D11_DEPTH_STENCIL_DESC depthStencilState;
+	
 	ID3D11SamplerState* sampler;
+	ID3D11SamplerState* samplerClamp;
 	ID3D11SamplerState* samplerCmp;
 
 	ID3D11BlendState* blendStates[10];
@@ -257,7 +174,9 @@ void dxSetShader(int shaderId) {
 		}
 	}
 
-	if(shader->id == Shader_Primitive) {
+	if((shader->id == Shader_Primitive) || 
+	   (shader->id == Shader_Particle) || 
+	   (shader->id == Shader_Bloom)) {
 		UINT stride = sizeof(PrimitiveVertex);
 		UINT offset = 0;
 		gs->d3ddc->IASetVertexBuffers( 0, 1, &gs->primitiveVertexBuffer, &stride, &offset );
@@ -314,7 +233,7 @@ PrimitiveVertex* dxBeginPrimitiveColored(Vec4 color, uint topology = -1) {
 	GraphicsState* gs = theGState;
 
 	gs->d3ddc->PSSetShaderResources(0, 1, &gs->textureWhite->view);
-	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
+	gs->d3ddc->PSSetSamplers(0, 1, &gs->samplerClamp);
 
 	dxGetShaderVars(Primitive)->color = color;
 	dxPushShaderConstants(Shader_Primitive);
@@ -412,7 +331,6 @@ void dxDepthTest(bool value) {
 ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op, D3D11_BLEND srcA, D3D11_BLEND dstA, D3D11_BLEND_OP opA, bool alphaCoverage = false, bool asdf = true) {
 	D3D11_BLEND_DESC blendDesc = {};
 	blendDesc.AlphaToCoverageEnable = alphaCoverage;
-	// blendDesc.AlphaToCoverageEnable = true;
 	blendDesc.IndependentBlendEnable = false;
 	blendDesc.RenderTarget[0].BlendEnable = asdf;
 	blendDesc.RenderTarget[0].SrcBlend = src;
@@ -517,6 +435,16 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples) {
 
 			gs->d3dDevice->CreateShaderResourceView(fb->texture, &srvDesc, &fb->shaderResourceView);
 
+		} else if(fb->makeDepthView) {
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+			srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+			srvDesc.ViewDimension = hasMsaa ? D3D11_SRV_DIMENSION_TEXTURE2DMS : 
+			                                  D3D11_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MipLevels = descTex.MipLevels;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+
+			gs->d3dDevice->CreateShaderResourceView(fb->texture, &srvDesc, &fb->shaderResourceView);
+
 		} else {
 			gs->d3dDevice->CreateShaderResourceView(fb->texture, NULL, &fb->shaderResourceView);
 		}
@@ -532,6 +460,15 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples) {
 
 			gs->d3dDevice->CreateDepthStencilView(fb->texture, &descDSV, &fb->depthStencilView);
 
+		} else if(fb->makeDepthView) {
+			D3D11_DEPTH_STENCIL_VIEW_DESC descDSV = {};
+			descDSV.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+			descDSV.ViewDimension = hasMsaa ? D3D11_DSV_DIMENSION_TEXTURE2DMS : 
+			                                  D3D11_DSV_DIMENSION_TEXTURE2D;
+			descDSV.Texture2D.MipSlice = 0;
+			
+			gs->d3dDevice->CreateDepthStencilView(fb->texture, &descDSV, &fb->depthStencilView);
+			
 		} else {
 			gs->d3dDevice->CreateDepthStencilView(fb->texture, NULL, &fb->depthStencilView);
 		}
@@ -582,6 +519,33 @@ void dxReleaseFrameBuffer(FrameBuffer* fb) {
 	if(fb->hasShaderResourceView) fb->shaderResourceView->Release();
 	if(fb->hasRenderTargetView)   fb->renderTargetView->Release();
 	if(fb->hasDepthStencilView)   fb->depthStencilView->Release();
+}
+
+//
+// @Samplers.
+// 
+
+ID3D11SamplerState* createSampler(uint filter, uint address, int anisotropy, uint compareFunc) {
+	D3D11_SAMPLER_DESC samplerDesc;
+	
+	samplerDesc.Filter = (D3D11_FILTER)filter;
+	samplerDesc.AddressU = (D3D11_TEXTURE_ADDRESS_MODE)address;
+	samplerDesc.AddressV = (D3D11_TEXTURE_ADDRESS_MODE)address;
+	samplerDesc.AddressW = (D3D11_TEXTURE_ADDRESS_MODE)address;
+	samplerDesc.MipLODBias = 0;
+	samplerDesc.MaxAnisotropy = anisotropy;
+	samplerDesc.ComparisonFunc = (D3D11_COMPARISON_FUNC)compareFunc;
+	samplerDesc.BorderColor[0] = 0;
+	samplerDesc.BorderColor[1] = 0;
+	samplerDesc.BorderColor[2] = 0;
+	samplerDesc.BorderColor[3] = 0;
+	samplerDesc.MinLOD = 0;
+	samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+	ID3D11SamplerState* sampler;
+	theGState->d3dDevice->CreateSamplerState(&samplerDesc, &sampler);
+
+	return sampler;
 }
 
 //
@@ -687,6 +651,10 @@ void dxLoadAndCreateTextureDDS(Texture* tex, bool srgb) {
 	ID3D11Texture2D* texResource;
 	resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **) &texResource);
 
+	D3D11_TEXTURE2D_DESC desc;
+	texResource->GetDesc(&desc);
+	tex->dim = vec2i(desc.Width, desc.Height);
+
 	tex->resource = texResource;
 	tex->view = view;
 }
@@ -713,6 +681,10 @@ void dxReleaseTexture(Texture* tex) {
 // 	int result = stbi_write_png(path, w, h, 4, buffer, w*4);
 // }
 // #endif
+
+void dxSetTexture(ID3D11ShaderResourceView* view, int index) {
+	theGState->d3ddc->PSSetShaderResources(index, 1, &view);
+}
 
 //
 // @Mesh
@@ -842,27 +814,16 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 			m->bones[i].index = i;
 		}
 
-		// m->orientations = getPArray(Vec3, m->boneCount);
-		// for(int i = 0; i < m->boneCount; i++) {
-		// 	m->orientations[i] = parser->orientationArray[i];
-		// }
-
 		m->basePose = getPArray(XForm, m->boneCount);
 		for(int i = 0; i < m->boneCount; i++) {
-			m->basePose[i].translation = parser->poseArray[i].translation;
-			m->basePose[i].rotation = orientationToQuat(parser->poseArray[i].rotation);
+			m->basePose[i].trans = parser->poseArray[i].trans;
+			m->basePose[i].rot   = orientationToQuat(parser->poseArray[i].rot);
 			m->basePose[i].scale = parser->poseArray[i].scale;
-
-			// Temp.
-			m->basePose[i].translation /= m->basePose[i].scale;
 		}
 
 		buildBoneTree(m->bones, m->boneCount, &m->boneTree);
 
-		{
-			m->basePosePoints = getPArray(Vec3, m->boneCount);
-			getPointsFromSkeleton(m, &m->boneTree);
-		}
+		xFormsLocalToGlobal(m->basePose, &m->boneTree);
 
 		m->animationCount = parser->animationCount;
 		for(int animIndex = 0; animIndex < m->animationCount; animIndex++) {
@@ -890,12 +851,9 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 				anim->frames[frameIndex] = getPArray(XForm, anim->boneCount);
 
 				for(int i = 0; i < anim->boneCount; i++) {
-					anim->frames[frameIndex][i].translation = pAnim->frames[frameIndex][i].translation;
-					anim->frames[frameIndex][i].rotation = orientationToQuat(pAnim->frames[frameIndex][i].rotation);
+					anim->frames[frameIndex][i].trans = pAnim->frames[frameIndex][i].trans;
+					anim->frames[frameIndex][i].rot = orientationToQuat(pAnim->frames[frameIndex][i].rot);
 					anim->frames[frameIndex][i].scale = pAnim->frames[frameIndex][i].scale;
-
-					// Temp.
-					anim->frames[frameIndex][i].translation /= anim->frames[frameIndex][i].scale;
 				}
 			}
 		}
@@ -991,6 +949,15 @@ void dxPushLine(Vec3 a, Vec3 b, Vec4 c) {
 	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b, c);
 }
 
+void dxPushQuad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec4 color, Rect uv) {
+	theGState->pVertexArray[theGState->pVertexCount++] = { a, color, uv.bl() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { b, color, uv.tl() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { c, color, uv.tr() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { c, color, uv.tr() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { d, color, uv.br() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { a, color, uv.bl() };
+}
+
 //
 
 void dxDrawLine(Vec2 a, Vec2 b, Vec4 color) {
@@ -1017,7 +984,7 @@ void dxDrawRect(Rect r, Vec4 color, ID3D11ShaderResourceView* view = 0, Rect uv 
 
 	if(!view) view = gs->textureWhite->view;
 	gs->d3ddc->PSSetShaderResources(0, 1, &view);
-	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
+	gs->d3ddc->PSSetSamplers(0, 1, &gs->samplerClamp);
 
 	dxGetShaderVars(Primitive)->color = color;
 	dxPushShaderConstants(Shader_Primitive);
@@ -1219,6 +1186,21 @@ void dxDrawLine(Vec3 a, Vec3 b, Vec4 color) {
 	dxEndPrimitive(2);
 }
 
+void dxDrawQuad(Vec3 bl, Vec3 tl, Vec3 tr, Vec3 br, Rect uv,  ID3D11ShaderResourceView* view, Vec4 color) {
+	PrimitiveVertex* v = dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+	theGState->d3ddc->PSSetShaderResources(0, 1, &view);
+	dxGetShaderVars(Primitive)->color = vec4(1,1,1,1);
+	dxPushShaderConstants(Shader_Primitive);
+
+	v[0] = { bl, color, uv.bl() };
+	v[1] = { tl, color, uv.tl() };
+	v[2] = { br, color, uv.br() };
+	v[3] = { tr, color, uv.tr() };
+
+	dxEndPrimitive(4);
+}
+
 void dxDrawCube(Vec3 point, Vec3 scale, Vec4 color) {
 	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -1358,22 +1340,17 @@ void dxDrawObject(Object* obj, bool shadow = false) {
 	dxFillWireFrame(false);
 }
 
-void drawSkeleton(XForm* bones, Mat4 model, BoneNode* node, Quat q = quat(), Vec3 p = vec3(0.0f), int depth = 0) {
-
-	XForm form = bones[node->data->index];
-
-	Vec3 oldP = p;
-	p = p + (q * form.translation);
-	q = q * form.rotation;
-
-	if(depth > 1) {
-		dxDrawLine((model * vec4(oldP,1)).xyz, (model * vec4(p,1)).xyz, vec4(0.26f,1.00f,0.64f,1));
-	}
-
-	// dxDrawCube(model * p, vec3(0.05f), vec4(0,0,1,1));
+void drawSkeleton(XForm* bones, Mat4 model, BoneNode* node, int depth = 0) {
 
 	for(int i = 0; i < node->childCount; i++) {
-		drawSkeleton(bones, model, node->children + i, q, p, depth+1);
+		if(depth > 0) {
+			XForm form = bones[node->data->index];
+			XForm formChild = bones[node->children[i].data->index];
+
+			dxDrawLine((model * vec4(form.trans,1)).xyz, (model * vec4(formChild.trans,1)).xyz, vec4(0.26f,1.00f,0.64f,1));
+		}
+
+		drawSkeleton(bones, model, node->children + i, depth+1);
 	}
 }
 
@@ -1385,22 +1362,28 @@ void addFrameBuffers() {
 	// DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 	DXGI_FORMAT dFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	// DXGI_FORMAT fFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	DXGI_FORMAT fFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 	
 	dxAddFrameBuffer("Sky",         fFormat, true,  true,  false);
-	dxAddFrameBuffer("3dMsaa",      format,  true,  false, false);
-	dxAddFrameBuffer("3dNoMsaa",    format,  true, true,  false);
-	dxAddFrameBuffer("2dMsaa",      format,  true,  false, false);
-	dxAddFrameBuffer("2dNoMsaa",    format,  true,  true,  false);
-	dxAddFrameBuffer("2dTemp",      format,  false, false, false);
+	dxAddFrameBuffer("3dMsaa",      fFormat,  true,  false, false);
+	dxAddFrameBuffer("3dNoMsaa",    fFormat,  true, true,  false);
+	dxAddFrameBuffer("2dMsaa",      fFormat,  true,  false, false);
+	dxAddFrameBuffer("2dNoMsaa",    fFormat,  true,  true,  false);
+	dxAddFrameBuffer("2dTemp",      fFormat,  false, false, false);
+
 	dxAddFrameBuffer("DebugMsaa",   format,  true,  false, false);
 	dxAddFrameBuffer("DebugNoMsaa", format,  false, true,  false);
-	dxAddFrameBuffer("ds3d",        dFormat, false, false, true );
+	// dxAddFrameBuffer("ds3d",        dFormat, false, false, true );
+	dxAddFrameBuffer("ds3d", DXGI_FORMAT_R24G8_TYPELESS, false, true, true );
+	dxGetFrameBuffer("ds3d")->makeDepthView = true;
+
 	dxAddFrameBuffer("ds",          dFormat, false, false, true );
 
 	dxAddFrameBuffer("Shadow",   DXGI_FORMAT_R32_TYPELESS, false, true, true );
 	dxGetFrameBuffer("Shadow")->isShadow = true;
+
+	dxAddFrameBuffer("Bloom",       DXGI_FORMAT_R16G16B16A16_FLOAT,  true, true, false);
+	dxAddFrameBuffer("Bloom2",       DXGI_FORMAT_R16G16B16A16_FLOAT,  true, true, false);
 }
 
 void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples) {
@@ -1415,6 +1398,9 @@ void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples) {
 	dxSetFrameBuffer("ds",       res2d, m);
 
 	dxSetFrameBuffer("Shadow",   vec2i(theGState->shadowMapSize), 1);
+
+	dxSetFrameBuffer("Bloom",     res3d, 1);
+	dxSetFrameBuffer("Bloom2",    res3d, 1);
 }
 
 void clearFrameBuffers() {
@@ -1424,4 +1410,7 @@ void clearFrameBuffers() {
 	dxClearFrameBuffer("DebugNoMsaa", vec4(0.0f));
 	dxClearFrameBuffer("ds3d");
 	dxClearFrameBuffer("ds");
+
+	dxClearFrameBuffer("Bloom");
+	dxClearFrameBuffer("Bloom2");
 }

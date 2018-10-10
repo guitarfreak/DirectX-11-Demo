@@ -83,8 +83,6 @@ struct TestStruct {
 	TYPEFUNC(Vec3) \
 	TYPEFUNC(Vec4) \
 	TYPEFUNC(Quat) \
-	TYPEFUNC(Particle) \
-	TYPEFUNC(ParticleEmitter) \
 	TYPEFUNC(Entity) \
 	TYPEFUNC(TestStruct)
 
@@ -155,41 +153,6 @@ MEMBER_ARRAY(CURRENT_TYPE) = {
 	MEMBER_INFO( float, y ),
 	MEMBER_INFO( float, z ),
 	MEMBER_INFO( float, w ),
-};
-
-#define CURRENT_TYPE Particle
-MEMBER_ARRAY(CURRENT_TYPE) = {
-	MEMBER_INFO( Vec3, pos ),
-	MEMBER_INFO( Vec3, vel ),
-	MEMBER_INFO( Vec3, acc ),
-	MEMBER_INFO( Vec4, color ),
-	MEMBER_INFO( Vec4, velColor ),
-	MEMBER_INFO( Vec4, accColor ),
-	MEMBER_INFO( Vec3, size ),
-	MEMBER_INFO( Vec3, velSize ),
-	MEMBER_INFO( Vec3, accSize ),
-	MEMBER_INFO( Quat, rot ),
-	MEMBER_INFO( Vec3, velRot ),
-	MEMBER_INFO( Vec3, accRot ),
-	MEMBER_INFO( float, time ),
-	MEMBER_INFO( float, timeToLive ),
-};
-
-#define CURRENT_TYPE ParticleEmitter
-MEMBER_ARRAY(CURRENT_TYPE) = {
-	MEMBER_INFOADV( Particle, particleList, particleListCount ),
-	MEMBER_INFO( int, particleListSize ),
-	MEMBER_INFO( int, particleListCount ),
-	MEMBER_INFO( int, particleListIndex ),
-	MEMBER_INFO( Vec3, pos ),
-	MEMBER_INFO( float, spawnRate ),
-	MEMBER_INFO( int, spawnCount ),
-	MEMBER_INFO( float, spawnTime ),
-	MEMBER_INFO( Vec4, color ),
-	MEMBER_INFO( float, time ),
-	MEMBER_INFO( float, timeToLive ),
-	MEMBER_INFO( int, liveTimeSpawnCount ),
-	MEMBER_INFO( int, liveTimeSpawns ),
 };
 
 #define CURRENT_TYPE Entity

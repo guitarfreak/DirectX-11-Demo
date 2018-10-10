@@ -40,27 +40,27 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
 	AppMemory appMemory = {};
 
-    bool firstFrame = true;
-    bool secondFrame = false;
-    bool isRunning = true;
-    while(isRunning) {
-    	
-    	bool reload = false;
+	bool firstFrame = true;
+	bool secondFrame = false;
+	bool isRunning = true;
+	while(isRunning) {
+
+		bool reload = false;
 
 		#ifndef SHIPPING_MODE
 
 		if(threadQueueFinished(&threadQueue)) reload = updateDll(&hotloadDll);
-     	platform_appMain = (appMainType*)getDllFunction(&hotloadDll, "appMain");
-        platform_appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
+		platform_appMain = (appMainType*)getDllFunction(&hotloadDll, "appMain");
+		platform_appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
 
 		#else 
 
-        appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
+		appMain(firstFrame, reload, &isRunning, wData, &threadQueue, &appMemory);
 
 		#endif
 
-        if(firstFrame) firstFrame = false;
-    }
+		if(firstFrame) firstFrame = false;
+	}
 
 	return 0;
 }

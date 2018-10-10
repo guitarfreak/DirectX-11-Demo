@@ -54,8 +54,8 @@ struct ObjLoader {
 	};
 
 	struct XForm {
-		Vec3 translation;
-		Vec3 rotation;
+		Vec3 trans;
+		Vec3 rot;
 		Vec3 scale;
 	};
 
@@ -592,9 +592,6 @@ struct ObjLoader {
 					v.x = strToFloat(buf); buf += strFind(buf, ' ');
 					v.y = strToFloat(buf); buf += strFind(buf, ' ');
 					v.z = strToFloat(buf);
-
-					// TEMP!!!!
-					v /= 100.0f;
 
 					vertexArray.push(v);
 

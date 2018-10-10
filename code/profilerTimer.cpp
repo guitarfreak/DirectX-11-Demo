@@ -30,8 +30,7 @@ struct TimerSlot {
 };
 #pragma pack(pop)
 
-// Find a different name for this...
-struct Timer {
+struct ProfilerTimer {
 	TimerInfo* timerInfos;
 	int timerInfoCount;
 	int timerInfoSize;
@@ -48,7 +47,7 @@ struct Timer {
 	void update();
 };
 
-void Timer::init(int bufferSize) {
+void ProfilerTimer::init(int bufferSize) {
 	this->timerInfoCount = TIMER_INFO_SIZE;
 	timerInfos = getPArrayDebug(TimerInfo, TIMER_INFO_SIZE);
 
@@ -56,7 +55,7 @@ void Timer::init(int bufferSize) {
 	timerBuffer = getPArrayDebug(TimerSlot, bufferSize);
 }
 
-void Timer::addSlot(int infoIndex, int type) {
+void ProfilerTimer::addSlot(int infoIndex, int type) {
 	// -10 so we have some room to patch things up at the end
 	// if we run out of space.
 	if(bufferIndex > bufferSize-10) return; 
@@ -70,7 +69,7 @@ void Timer::addSlot(int infoIndex, int type) {
 	slot->timerIndex = infoIndex;
 }
 
-void Timer::addSlotAndInfo(int infoIndex, int type, char* file, char* function, int line, char* name) {
+void ProfilerTimer::addSlotAndInfo(int infoIndex, int type, char* file, char* function, int line, char* name) {
 
 	TimerInfo* info = timerInfos + infoIndex;
 	if(!info->initialised) {
@@ -85,7 +84,7 @@ void Timer::addSlotAndInfo(int infoIndex, int type, char* file, char* function, 
 	addSlot(infoIndex, type);
 }
 
-void Timer::update() {
+void ProfilerTimer::update() {
 	for(int i = 0; i < timerInfoCount; i++) {
 		TimerInfo* info = timerInfos + i;
 
@@ -104,7 +103,7 @@ void Timer::update() {
 	}
 }
 
-extern Timer* theTimer;
+extern ProfilerTimer* theTimer;
 
 //
 

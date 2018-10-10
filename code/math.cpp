@@ -122,6 +122,12 @@ union Quat {
 	float e[4];
 };
 
+struct XForm {
+	Vec3 trans;
+	Quat rot;
+	Vec3 scale;
+};
+
 union Rect {
 	struct {
 		Vec2 min;
@@ -788,7 +794,22 @@ inline Vec3 reflectVector(Vec3 dir, Vec3 normal) {
 	return result;
 }
 
-Vec3 randomUnitSphereDirection() {
+Vec3 randomBoxPoint(Vec3 dim) {
+	return vec3(randomOffset(dim.x), randomOffset(dim.y), randomOffset(dim.z));
+}
+
+Vec3 randomDiskPoint() {
+	// Distribute in rect and discard if not in disk.
+
+	Vec3 p;
+	do {
+		p = vec3(randomOffset(1), randomOffset(1), 0);
+	} while(len(p.xy) > 1);
+
+	return p;
+}
+
+Vec3 randomSpherePoint() {
 	// Distribute in box and discard if not in sphere.
 
 	Vec3 p;
@@ -796,9 +817,11 @@ Vec3 randomUnitSphereDirection() {
 		p = vec3(randomOffset(1), randomOffset(1), randomOffset(1));
 	} while(len(p) > 1);
 
-	p = norm(p);
-
 	return p;
+}
+
+Vec3 randomUnitSphereDirection() {
+	return norm(randomSpherePoint());
 }
 
 Vec3 randomUnitHalfSphereDirection(Vec3 dir) {
@@ -1219,6 +1242,13 @@ inline void projMatrixZ01(Mat4* m, float fov, float ar, float n, float f) {
 		0,                    0,                 f/(n-f), (f*n)/(n-f),
 		0,                    0,                 -1,      0 
 	};
+
+	// *m = { 
+	// 	1/(ar*tan(fov*0.5f)), 0,                 0,       0,
+	// 	0,                    1/(tan(fov*0.5f)), 0,       0,
+	// 	0,                    0,                 f/(f-n), -(f*n)/(f-n),
+	// 	0,                    0,                 1,      0 
+	// };
 }
 
 inline Mat4 projMatrixZ01(float fov, float ar, float n, float f) {
@@ -1284,6 +1314,10 @@ Quat quat(float a, Vec3 axis) {
 	r.y = axis.y * sin(a*0.5f);
 	r.z = axis.z * sin(a*0.5f);
 	return r;
+}
+
+Quat quatDeg(float degrees, Vec3 axis) {
+	return quat(degreeToRadian(degrees), axis);
 }
 
 // Not the right name for this.
@@ -1416,8 +1450,7 @@ void rotateAround(Vec3* v, float a, Vec3 axis, Vec3 point) {
 }
 
 Vec3 rotateAround(Vec3 v, Quat q, Vec3 point) {
-	Vec3 aroundOrigin = q * (v - point);
-	aroundOrigin += point;
+	Vec3 aroundOrigin = point + (q * (v - point));
 
 	return aroundOrigin;
 }
@@ -1482,6 +1515,26 @@ Quat quatLerp(Quat q1, Quat q2, float t) {
 
 	q = quatNorm(q);
 	return q;
+}
+
+//
+// @XForms
+//
+
+XForm xForm(Vec3 trans, Quat rot, Vec3 scale) { return { trans, rot, scale }; }
+XForm xForm(Vec3 trans, Quat rot) { return { trans, rot, vec3(1.0f) }; }
+XForm xForm(Vec3 trans, Vec3 scale) { return { trans, quat(), scale }; }
+XForm xForm(Vec3 trans) { return { trans, quat(), vec3(1.0f) }; }
+XForm xForm() { return { vec3(0.0f), quat(), vec3(1.0f) }; }
+
+XForm xFormCombine(XForm a, XForm b) {
+	XForm xf;
+
+	xf.trans = a.trans + a.rot * (a.scale * b.trans);
+	xf.rot = a.rot * b.rot;
+	xf.scale = quatInverse(b.rot) * (a.scale * (b.rot * b.scale));
+
+	return xf;
 }
 
 //
