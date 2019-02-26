@@ -1,16 +1,18 @@
 #pragma once 
 
-#include "types.cpp"
+#include "types.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define arrayCount(array) (sizeof(array) / sizeof((array)[0]))
 #define addPointer(ptr, int) ptr = (char*)ptr + (int)
 #define memberSize(type, member) sizeof(((type *)0)->member)
 #define memberArrayCount(type, member) arrayCount(((type *)0)->member)
 #define memberOffsetSize(type, member) vec2i(offsetof(type, member), memberSize(type, member))
-#define mallocArray(type, count) (type*)malloc(sizeof(type)*(count))
-#define mallocStruct(type) (type*)malloc(sizeof(type))
-#define mallocString(count) (char*)malloc(sizeof(char)*(count))
+#define mallocArray(type, count) (type*)mallocX(sizeof(type)*(count))
+#define mallocStruct(type) (type*)mallocX(sizeof(type))
+#define mallocString(count) (char*)mallocX(sizeof(char)*(count))
 
 #define allocaArray(type, count) (type*)alloca(sizeof(type)*(count))
 #define allocaStruct(type) (type*)alloca(sizeof(type))
@@ -29,8 +31,8 @@
 #define For_Array(array, count, type) \
 	for(type* it = array; (it-array) < count; it++)
 
-#define arrayIndex(w, x, y) (y*w + x)
-#define arrayIndex3D(w, h, x, y, z) (z*h*w + y*w + x)
+#define aIndex(w, x, y) ((y)*(w) + (x))
+#define aIndex3D(w, h, x, y, z) ((z)*(h)*(w) + (y)*(w) + (x))
 
 #define writeTypeAndAdvance(buf, val, type) \
 		(*(type*)buf) = val; buf += sizeof(type); 
@@ -48,6 +50,11 @@ int myAssert(bool check) {
 		exit(1);
 	}
 	return -1;
+}
+
+// So we can debug break here and see who's taking memory.
+inline void* mallocX(size_t size) {
+	return malloc(size);
 }
 
 void zeroMemory(void* memory, int size) {

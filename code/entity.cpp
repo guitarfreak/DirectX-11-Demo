@@ -1,66 +1,4 @@
 
-enum Entity_Type {
-	ET_Player = 0,
-	ET_Camera,
-
-	ET_Object,
-	ET_Sound,
-
-	ET_Size,
-};
-
-struct Camera {
-	Vec3 pos;
-	Vec3 look;
-	Vec3 up;
-	Vec3 right;
-};
-
-struct Entity {
-	bool init;
-
-	int type;
-	int id;
-	char name[16];
-
-	Vec3 pos;
-	Vec3 dim;
-	Vec3 dir;
-	Vec3 rot;
-	float rotAngle;
-
-	Vec3 vel;
-	Vec3 acc;
-
-	int movementType;
-	int spatial;
-
-	bool onGround;
-
-	bool deleted;
-	bool isMoving;
-	bool isColliding;
-
-	union {
-		// Player.
-		struct {
-			Vec3 camOff;
-		};
-
-		// Sound.
-		struct {
-			int trackIndex;
-		};
-	};
-};
-
-struct EntityList {
-	Entity* e;
-	int size;
-};
-
-//
-
 float camDistanceFromFOVandWidth(float fovInDegrees, float w) {
 	float angle = degreeToRadian(fovInDegrees);
 	float sideAngle = ((M_PI-angle)/2.0f);
@@ -70,17 +8,30 @@ float camDistanceFromFOVandWidth(float fovInDegrees, float w) {
 	return h;
 }
 
-Camera getCamData(Vec3 pos, Vec3 rot, Vec3 offset = vec3(0,0,0), Vec3 gUp = vec3(0,0,1), Vec3 startDir = vec3(0,1,0)) {
+Camera getCamData(Vec3 pos, Vec2 rot, Vec3 offset = vec3(0,0,0), Vec3 up = vec3(0,0,1), Vec3 forward = vec3(0,1,0)) {
 	Camera c;
 	c.pos = pos + offset;
-	c.look = startDir;
-	rotate(&c.look, rot.x, gUp);
-	rotate(&c.look, rot.y, norm(cross(gUp, c.look)));
-	c.up = norm(cross(c.look, norm(cross(gUp, c.look))));
-	c.right = norm(cross(gUp, c.look));
+	c.look = forward;
+	rotate(&c.look, rot.x, up);
+	rotate(&c.look, rot.y, norm(cross(up, c.look)));
+	c.up = norm(cross(c.look, norm(cross(up, c.look))));
+	c.right = norm(cross(up, c.look));
 	c.look = -c.look;
 
+	// c.look  = rot * forward;
+	// c.up    = rot * up;
+	// c.right = norm(cross(c.look, c.up));
+
 	return c;
+}
+
+Vec2 getCamDim(float aspect, float fieldOfView, float nearPlane) {
+	float camRight = 1 / (aspect*tan(degreeToRadian(fieldOfView)*0.5f));
+	float camTop   = 1 / (tan(degreeToRadian(fieldOfView)*0.5f));
+	float camHeight = nearPlane*(2*tan(degreeToRadian(fieldOfView) / 2.0f));
+	float camWidth = camHeight * aspect;
+
+	return vec2(camWidth, camHeight);
 }
 
 Camera getCamDataLook(Vec3 pos, Vec3 look) {
@@ -107,61 +58,263 @@ Mat4 viewMatrix(Camera cam) {
 	return viewMatrix(cam.pos, -cam.look, cam.up, cam.right);
 }
 
-//
+Vec3 vectorToCam(Vec3 pos, Camera* cam) {
+	Vec3 intersection;
+	float distance = linePlaneIntersection(pos, -cam->look, cam->pos, cam->look, &intersection);
+	if(distance != -1) {
+		return intersection - pos;
+	}
 
-Vec3 getRotationToVector(Vec3 start, Vec3 dest, float* angle) {
-	Vec3 side = norm(cross(start, norm(dest)));
-	*angle = dot(start, norm(dest));
-	*angle = acos(*angle)*2;
-
-	return side;
-}	
-
-void initEntity(Entity* e, int type, Vec3 pos, Vec3 dim, Vec2i chunk) {
-	*e = {};
-	e->init = true;
-	e->type = type;
-	e->pos = pos;
-	e->dim = dim;
+	return vec3(0,0,0);
 }
 
-Entity* addEntity(EntityList* list, Entity* e) {
-	bool foundSlot = false;
-	Entity* freeEntity = 0;
+//
+
+Entity entity(int type, char* name = "", bool temp = false) {
+	Entity e = {};
+	e.type = type;
+	e.name = temp ? getPString(name) : getTString(name);
+	e.groupId = 0;
+	e.mountParentId = 0;
+
+	e.mesh = temp ? getPString("") : getTString(name);
+	e.material = temp ? getPString("") : getTString(name);
+
+	return e;
+}
+
+Entity entity(int type, XForm xForm, bool temp, char* name = 0, char* mesh = 0, char* material = 0, Vec4 color = vec4(1,1)) {
+	Entity e = {};
+	e.type = type;
+	e.xf = xForm;
+	e.name = temp ? (name ? getTString(name) : getTString("")) :
+	                (name ? getPString(name) : getPString(""));
+	e.groupId = 0;
+	e.mountParentId = 0;
+
+	e.mesh = temp ? (mesh ? getTString(mesh) : getTString("")) :
+	                (mesh ? getPString(mesh) : getPString(""));
+	e.material = temp ? (material ? getTString(material) : getTString("")) :
+	                    (material ? getPString(material) : getPString(""));
+	e.color = color;
+
+	return e;
+}
+
+Entity getDefaultEntity(int type, Vec3 pos, bool temp = false) {
+	Entity e;
+	switch(type) {
+		case ET_Player: e = entity(type, xForm(pos), temp); break;
+		case ET_Camera: e = entity(type, xForm(pos), temp); break;
+		case ET_Sky:    e = entity(type, xForm(pos), temp); break;
+		case ET_Object: e = entity(type, xForm(pos), temp, 0, "sphere\\obj.obj", "Matte\\mat.mtl", vec4(1,1,1,1)); break;
+		case ET_ParticleEffect: {
+			e = entity(type, xForm(pos), temp, 0, "entityUI_particle\\obj.obj", "Matte\\mat.mtl", hslToRgbf(0.8f,0.5f,0.5f,1));
+			e.particleEmitter.init();
+		} break;
+		// case ET_Group:  e = entity(type, xForm(pos), 0, "entityUI_group\\obj.obj", "Matte\\mat.mtl", hslToRgbf(0.8f,0.5f,0.5f,1)); break;
+		// case ET_Group:  e = entity(type, xForm(pos), 0, "entityUI_group\\obj.obj", 0, hslToRgbf(0.8f,0.5f,0.5f,1)); break;
+		case ET_Group:  e = entity(type, xForm(pos), temp, 0, "entityUI_group\\obj.obj", 0, vec4(1,1,1,1)); break;
+		case ET_Sound:  e = entity(type, xForm(pos), temp); break;
+	};
+	return e;
+}
+
+
+bool entityIsValid(Entity* e) {
+	return !e->deleted;
+}
+
+Entity* getEntity(EntityManager* em, int id) {
+	if(!id) return 0;
+	return em->entities + em->indices[id-1];
+}
+
+Entity* findEntity(EntityManager* em, char* name, int* index = 0) {
+	if(!strLen(name)) return 0;
+	for(int i = 0; i < em->entities.count; i++) {
+		Entity* e = em->entities.data + i;
+		if(entityIsValid(e) && strCompare(e->name, name)) {
+			if(index) *index = i;
+			return e;
+		}
+	}
+	return 0;
+}
+
+Entity* addEntity(EntityManager* em, Entity* e, bool keepIndex = false) {
+	// Init.
+	if(e->type == ET_ParticleEffect) {
+		e->particleEmitter.reset();
+	}
+
 	int id = 0;
-	for(int i = 0; i < list->size; i++) {
-		if(list->e[i].init == false) {
-			freeEntity = &list->e[i];
-			id = i;
-			break;
+	if(!keepIndex) {
+		for(int i = 0; i < em->indices.count; i++) {
+			if(em->indices[i] == -1) {
+				em->indices[i] = em->entities.count;
+				id = i+1;
+				break;
+			}
+		}
+
+		if(!id) {
+			id = em->indices.count + 1;
+			em->indices.push(em->entities.count);
+		}
+	} else {
+		id = e->id;
+		em->indices[e->id - 1] = em->entities.count;
+	}
+
+	Entity entity = *e;
+	entity.id = id;
+	em->entities.push(entity);
+
+	return em->entities.data + em->entities.count-1;
+}
+
+Entity* addEntity(EntityManager* em, Entity e) {
+	return addEntity(em, &e);
+}
+
+DArray<Entity> addEntities(EntityManager* em, Entity* list, int count) {
+	DArray<Entity> addedList;
+	addedList.init(getTMemory);
+	for(int i = 0; i < count; i++) {
+		Entity* e = addEntity(em, list + i);
+		addedList.push(e);
+	}
+
+	return addedList;
+}
+
+void removeEntity(EntityManager* em, int entityId) {
+	// Free memory.
+	Entity* e = getEntity(em, entityId);
+	if(e) {
+		if(e->type == ET_ParticleEffect) {
+			if(e->particleEmitter.particles.data) {
+				e->particleEmitter.particles.free();
+			}
 		}
 	}
 
-	assert(freeEntity);
+	int index = em->indices[entityId-1];
+	int movedId = em->entities.last().id;
+	em->indices[movedId-1] = index;
+	em->entities.remove(index);
+	em->indices[entityId-1] = -1;
+}
 
-	*freeEntity = *e;
-	freeEntity->id = id;
+void removeEntity(EntityManager* em, Entity* e) {
+	removeEntity(em, e->id);
+}
 
-	return freeEntity;
+bool entityCheck(Entity* e, int type, char* name) {
+	return e->type == type && (e->name ? strCompare(e->name, name) : false);
+}
+
+Entity copyEntity(Entity* e) {
+	Entity ce = *e;
+	switch(e->type) {
+		case ET_ParticleEffect: {
+			ce.particleEmitter.particles = {};
+		}
+	}
+	return ce;
+}
+
+DArray<Entity*>* getGroupMembers(EntityManager* em, int groupId) {
+	DArray<Entity*>* groups = em->byType + ET_Group;
+	for(int i = 0; i < groups->count; i++) {
+		if(groups->data[i]->id == groupId) {
+			return em->groupMembers + i;
+		}
+	}
+
+	return 0;
+}
+
+void entityXFormToLocal(EntityManager* em, Entity* e) {
+	Entity* mountEntity = getEntity(em,e->mountParentId);
+	e->xfMount = inverse(mountEntity->xf)*e->xf;
+}
+
+void collectByType(EntityManager* em) {
+	for(int i = 0; i < ET_Size; i++) em->byType[i].init(getTMemory);
+	for(int i = 0; i < em->entities.count; i++) {
+		Entity* e = em->entities.data + i;
+		if(!entityIsValid(e)) continue;
+
+		em->byType[e->type].push(e);
+	}
+
+	int groupCount = em->byType[ET_Group].count;
+	em->groupMembers = getTArray(DArray<Entity*>, groupCount);
+	for(int i = 0; i < groupCount; i++) em->groupMembers[i] = dArray<Entity*>(getTMemory);
+
+	DArray<Entity*>* groups = em->byType + ET_Group;
+	for(int i = 0; i < em->entities.count; i++) {
+		Entity* e = em->entities.data + i;
+		if(!entityIsValid(e)) continue;
+
+		int groupIndex = 0;
+		if(e->groupId) {
+			for(int i = 0; i < groupCount; i++) {
+				if(groups->data[i]->id == e->groupId) {
+					em->groupMembers[i].push(e);
+				}
+			}
+		}
+	}
+
+	// Sort groups by group z.
+	auto cmp = [](const void* a, const void* b) -> int { 
+		return (*((Entity**)a))->groupZ < (*((Entity**)b))->groupZ ? -1 : 1;
+	};
+	for(int i = 0; i < em->byType[ET_Group].count; i++) {
+		Entity* group = em->byType[ET_Group].data[i];
+
+		if(group->handlesParticles) {
+			DArray<Entity*>* groupList = em->groupMembers + i;
+			qsort(groupList->data, groupList->count, sizeof(Entity*), cmp);
+		}
+	}
 }
 
 //
 
 void entityMouseLook(Entity* e, Input* input, float mouseSensitivity) {
 	float turnRate = mouseSensitivity * 0.01f;
-	e->rot.y -= turnRate * input->mouseDelta.y;
-	e->rot.x -= turnRate * input->mouseDelta.x;
+
+	e->camRot.y -= turnRate * input->mouseDelta.y;
+	e->camRot.x -= turnRate * input->mouseDelta.x;
 
 	float margin = 0.05f;
-	clamp(&e->rot.y, (float)-M_PI_2+margin, (float)M_PI_2-margin);
-	e->rot.x = modf(e->rot.x, (float)M_PI*2);
+	clamp(&e->camRot.y, (float)-M_PI_2+margin, (float)M_PI_2-margin);
+	e->camRot.x = modf(e->camRot.x, (float)M_PI*2);
+
+	// // Swapping roll and pitch because of handedness.
+	// float pitch, roll, yaw;
+	// quatToEulerAngles(e->xf.rot, &roll, &pitch, &yaw);
+
+	// Vec2 md = input->mouseDelta * turnRate;
+
+	// yaw   -= md.x;
+	// pitch -= md.y;
+
+	// float margin = 0.05f;
+	// clamp(&pitch, (float)-M_PI_2+margin, (float)M_PI_2-margin);
+
+	// e->xf.rot = eulerAnglesToQuat(roll, pitch, yaw);
 }
 
 void entityKeyboardAcceleration(Entity* e, Input* input, float speed, float boost, bool freeForm) {
 
 	Vec3 up = vec3(0,0,1);
 
-	Camera cam = getCamData(e->pos, e->rot);
+	Camera cam = getCamData(e->xf.trans, e->camRot);
 
 	bool rightLock = !freeForm || input->keysDown[KEYCODE_CTRL];
 	if(rightLock) cam.look = cross(up, cam.right);
@@ -180,5 +333,180 @@ void entityKeyboardAcceleration(Entity* e, Input* input, float speed, float boos
 
 	if(acceleration != vec3(0,0,0)) {
 		e->acc += norm(acceleration)*speed;
+	}
+}
+
+//
+
+Vec3 mouseRayCast(Rect tr, Vec2 mp, Camera* cam, float nearX) {
+	Vec2 mousePercent = {};
+	mousePercent.x = mapRange01(mp.x, tr.left, tr.right);
+	mousePercent.y = mapRange01(mp.y, tr.bottom, tr.top);
+
+	Vec3 camBottomLeft = cam->pos + cam->look*nearX + (-cam->right)*(cam->dim.w/2.0f) + (-cam->up)*(cam->dim.h/2.0f);
+
+	Vec3 p = camBottomLeft;
+	p += (cam->right*cam->dim.w) * mousePercent.x;
+	p += (cam->up*cam->dim.h) * mousePercent.y;
+
+	Vec3 rayDir = norm(p - cam->pos);
+
+	return rayDir;
+}
+
+Rect3 sceneBoundingBox(EntityManager* em) {
+	Rect3 aabb = rect3(vec3(FLT_MAX), vec3(-FLT_MAX));
+
+	for(auto& e : em->entities) {
+		Mesh* mesh = dxGetMesh(e.mesh);
+		if(!mesh) continue;
+
+		if(!mesh->animPlayer.init) {
+			Rect3 bbr = transformBoundingBox(mesh->boundingBox, modelMatrix(e.xf));
+
+			aabb.min = min(aabb.min, bbr.min);
+			aabb.max = max(aabb.max, bbr.max);
+
+		} else {
+			AnimationPlayer* player = &mesh->animPlayer;
+
+			for(int i = 0; i < mesh->boneCount; i++) {
+				Mat4 mat = modelMatrix(e.xf) * player->mats[i];
+				Rect3 bbr = transformBoundingBox(mesh->boneBoundingBoxes[i], mat);
+
+				aabb.min = min(aabb.min, bbr.min);
+				aabb.max = max(aabb.max, bbr.max);
+			}
+		}
+	}
+
+	return aabb;
+}
+
+//
+
+void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, MouseEvents mouseEvents, float mouseSensitivity, EntityUI* eui) {
+	TIMER_BLOCK();
+
+	dxSetShader(Shader_Primitive);
+
+	for(int i = 0; i < em->entities.count; i++) {
+		Entity* e = em->entities.data + i;
+		if(!entityIsValid(e)) continue;
+
+		if(e->mountParentId) {
+			if(!(eui->selectedObjects.find(e->id) && (eui->selectionState == ENTITYUI_ACTIVE))) {
+				Entity* ep = getEntity(em, e->mountParentId);
+				e->xf = ep->xf * e->xfMount;
+			}
+		}
+
+		if(e->groupId) continue;
+
+		switch(e->type) {
+
+			case ET_Player: {
+				if(!playerMode) continue;
+
+				if(mouseEvents.fpsMode)
+					entityMouseLook(e, input, mouseSensitivity);
+
+				e->acc = vec3(0,0,0);
+				float speed = 5;
+				entityKeyboardAcceleration(e, input, speed, 2.0f, true);
+
+				e->vel = e->vel + e->acc*dt;
+				float friction = 0.05f;
+				e->vel = e->vel * pow(friction,dt);
+
+				if(e->acc == vec3(0,0,0) && 
+				   between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
+					e->vel = vec3(0.0f);
+				}
+
+				if(e->vel != vec3(0,0,0)) {
+					e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
+				}
+			} break;
+
+			case ET_Camera: {
+				if(playerMode) continue;
+
+				if(mouseEvents.fpsMode)
+					entityMouseLook(e, input, mouseSensitivity);
+
+				e->acc = vec3(0,0,0);
+				float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
+				if(input->keysDown[KEYCODE_BACKSPACE]) speed = 0.1f;
+				entityKeyboardAcceleration(e, input, speed, 2.0f, true);
+
+				e->vel = e->vel + e->acc*dt;
+				float friction = 0.01f;
+				e->vel = e->vel * pow(friction,dt);
+
+				if(e->acc == vec3(0,0,0) && 
+				   between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
+					e->vel = vec3(0.0f);
+				}
+
+				if(e->vel != vec3(0,0,0)) {
+					e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
+				}
+			} break;
+
+			case ET_Object: {
+
+			} break;
+
+			case ET_ParticleEffect: {
+				e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+			} break;
+
+			case ET_Sound: {
+				Track* track = theAudioState->tracks + e->trackIndex;
+
+				if(!track->used) {
+					e->deleted = true;
+					break;
+				}
+
+				track->isSpatial = true;
+				track->pos = e->xf.trans;
+
+			} break;
+
+			case ET_Group: {
+				if(e->handlesParticles) {
+					DArray<Entity*>* list = getGroupMembers(em, e->id);
+					if(!list) break;
+
+					// Temporarily transform from local space to world space.
+					// XForm oldForms[10];
+					// for(int i = 0; i < emitterCount; i++) {
+					// 	oldForms[i] = emitters[i].xForm;
+
+					// 	emitters[i].xForm = xFormCombine(xForm, emitters[i].xForm);
+					// }
+					// defer {
+					// 	for(int i = 0; i < emitterCount; i++) emitters[i].xForm = oldForms[i];
+					// };
+
+					int finishedCount = 0;
+					for(int i = 0; i < list->count; i++) {
+						Entity* e = list->data[i];
+						if(e->particleEmitter.finished) finishedCount++; 
+					}
+					bool everyoneFinished = finishedCount == list->count;
+
+					for(int i = 0; i < list->count; i++) {
+						Entity* e = list->data[i];
+						if(!e->particleEmitter.finished || everyoneFinished) 
+							e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+					}
+				}
+
+			} break;
+
+		}
 	}
 }

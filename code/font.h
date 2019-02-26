@@ -8,23 +8,24 @@ struct PackedChar {
    float xadvance; // yBearing + h-yBearing
 };
 
+Meta_Parse_Struct(0);
 struct Font {
 	char* file;
 	int id;
 	float heightIndex;
 
-	FT_Library library;
-	FT_Face face;
+	FT_Library library; // @Ignore
+	FT_Face face; // @Ignore
 
 	float pixelScale;
 
-	char* fileBuffer;
+	char* fileBuffer; // @Ignore
 
-	Vec2i glyphRanges[5];
+	Vec2i glyphRanges[5]; // @SizeVar(glyphRangeCount)
 	int glyphRangeCount;
 	int totalGlyphCount;
 
-	PackedChar* cData;
+	PackedChar* cData; // @Ignore
 	int height;
 	float baseOffset;
 	float lineSpacing;

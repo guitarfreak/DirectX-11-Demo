@@ -2,10 +2,17 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
+// #include <windows.h>
+#include "external\win32\atomic.h"
+#include "external\win32\dbghelp.h"
+#include "external\win32\file.h"
+#include "external\win32\io.h"
+#include "external\win32\misc.h"
+#include "external\win32\sysinfo.h"
+#include "external\win32\threads.h"
 
 #include "misc.cpp"
-#include "memory.cpp"
+#include "memory.h"
 #include "hotload.cpp"
 #include "threadQueue.cpp"
 

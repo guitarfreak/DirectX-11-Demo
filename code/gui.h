@@ -32,6 +32,7 @@ struct BoxSettings {
 	Vec2 padding;
 
 	float vertGradientOffset;
+	// char* texture;
 };
 
 struct CheckBoxSettings {
@@ -70,6 +71,9 @@ struct TextEditSettings {
 	float cursorFlashingSpeed;
 
 	float textOffset;
+
+	int floatPrecision;
+	bool dontCopy;
 };
 
 struct SliderSettings {
@@ -100,9 +104,9 @@ struct SliderSettings {
 
 struct ComboBoxData {
 	int index;
-	char** strings;
-	int count;
-	bool finished;
+	DArray<char> strBuilder;
+	DArray<char*> strings;
+	bool change;
 };
 
 enum {
@@ -173,6 +177,8 @@ struct LayoutData {
 
 enum Popup_Type {
 	POPUP_TYPE_COMBO_BOX = 0,
+	POPUP_TYPE_COLOR_PICKER,
+	POPUP_TYPE_ALPHA_PICKER,
 	POPUP_TYPE_OTHER,
 };
 
@@ -189,6 +195,8 @@ struct PopupData {
 
 	BoxSettings settings;
 	Vec2 border;
+
+	bool finished;
 };
 
 //
@@ -235,11 +243,14 @@ struct Gui {
 
 	bool disable;
 	bool setInactiveX;
+	bool discolorInactive;
 	bool stayInactive;
 
 	bool mouseInClient;
 
 	int test;
+
+	Vec2i tabIdRange;
 
 	// Temp vars for convenience.
 
@@ -262,6 +273,10 @@ struct Gui {
 
 	int* comboBoxIndex;
 	ComboBoxData comboBoxData;
+
+	Vec4 colorPickerColorCopy;
+	Vec4 colorPickerColorStart;
+	Vec4 colorPickerColor;
 
 	//
 
@@ -325,7 +340,7 @@ struct Gui {
 	bool someoneActive();
 	bool someoneHot();
 	void setNotActiveWhenActive(int id);
-	void setActive(int id, bool input, int focus = 0);
+	void setActive(int id, bool input, int focus = 0, bool ignoreHot = false);
 	bool focusCanBeHot(int focus);
 	void setHot(int id, float z, int focus = 0);
 	void setHot(int id, int focus = 0);
@@ -333,14 +348,18 @@ struct Gui {
 	void setHotAll(float z);
 	void setHotAllMouseOver(int id, Rect r, float z);
 	void setHotAllMouseOver(Rect r, float z);
+	void setHotAllMouseOver(Rect r);
 	void setHotMouseOver(int id, Vec2 mousePos, Rect r, float z, int focus = 0);
 	void clearHot();
 	void forceActive(int id);
 	int  inputFromFocus(int focus, bool press = true);
 	void setCursor(LPCSTR cursorType);
-	void setInactive(bool stayInactive = false);
+	void setInactive(bool discolor = true, bool stayInactive = false);
+	bool isInactive();
 	void setActive();
 	void handleInactive();
+
+	void setTabRange(int count = 0);
 
 	//
 
@@ -388,6 +407,7 @@ struct Gui {
 
 	Vec4 colorMod(int focus = 0);
 	Vec4 colorModB(int focus = 0);
+	Vec4 inactiveColorMod();
 
 	//
 
@@ -454,19 +474,25 @@ struct Gui {
 	bool qTextEdit(Rect r, float* data, TextEditSettings* editSettings = 0);
 
 	float sliderGetMod(int type, SliderSettings* settings, int mod);
-	bool qSlider(Rect r, int type, void* val, void* min, void* max, SliderSettings* settings = 0);
-	bool qSlider(Rect r, float* val, float min, float max, SliderSettings* settings = 0);
-	bool qSlider(Rect r, int* val, int min, int max, SliderSettings* settings = 0);
+	int qSlider(Rect r, int type, void* val, void* min, void* max, SliderSettings* settings = 0);
+	int qSlider(Rect r, float* val, float min, float max, SliderSettings* settings = 0);
+	int qSlider(Rect r, int* val, int min, int max, SliderSettings* settings = 0);
 
 	void qScroll(Rect r, float height, float* scrollValue, float* yOffset, float* wOffset, ScrollRegionSettings* settings = 0);
 	void qScrollEnd();
 	
-	bool qComboBox(Rect r, int* index, char** strings, int stringCount, TextBoxSettings* settings = 0);
-	bool qComboBox(Rect r, int* index, void* data, int memberSize, int count, char* (*getName) (void* a), TextBoxSettings* settings = 0);
+	int qComboBox(Rect r, int* index, char** strings, int stringCount, TextBoxSettings* settings = 0);
+	int qComboBox(Rect r, int* index, void* data, int memberSize, int count, char* (*getName) (void* a), TextBoxSettings* settings = 0);
+
+	int qComboBox(Rect r, int* index, MemberInfo* mInfo, TextBoxSettings* settings = 0);
+	int qComboBox(Rect r, int* index, EnumInfo* eInfo, int count, TextBoxSettings* settings = 0);
+
+	int qColorPicker(Rect r, Vec4* color, Vec2i align = vec2i(-1,0));
 
 	//
 
 	void popupSetup();
+	void handleColorPickerPopup();
 	void updateComboBoxPopups();
 };
 

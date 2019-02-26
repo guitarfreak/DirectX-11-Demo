@@ -47,13 +47,13 @@ struct Profiler {
 };
 
 void Profiler::init(int frameSlotCount, int totalSlotBufferCount) {
-	timer = getPStructDebug(ProfilerTimer);
+	timer = getPStruct(ProfilerTimer);
 	timer->init(frameSlotCount);
 
 	slotBufferMax = totalSlotBufferCount;
 	slotBufferIndex = 0;
 	slotBufferCount = 0;
-	slotBuffer = getPArrayDebug(GraphSlot, slotBufferMax);
+	slotBuffer = getPArray(GraphSlot, slotBufferMax);
 }
 
 void Profiler::setPlay() {

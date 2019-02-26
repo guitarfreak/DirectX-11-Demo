@@ -97,9 +97,9 @@ struct ObjLoader {
 	int normalIndex;
 
 	void parseMtl(char* folder, char* fileName) {
-		char* objFolder = getTStringCpy(fileName, strFindBackwards(fileName, '\\'));
+		char* objFolder = getTString(fileName, strFindBackwards(fileName, '\\'));
 
-		char* finalFolder = fillString("%s%s", folder, fileName);
+		char* finalFolder = fString("%s%s", folder, fileName);
 		
 		char* file = readFileToBufferZeroTerminated(finalFolder);
 		defer{::free(file);};
@@ -123,7 +123,7 @@ struct ObjLoader {
 
 					materialArray.push(m);
 
-					char* fileName = getTStringCpy(buf, endOfLine(buf));
+					char* fileName = getTString(buf, endOfLine(buf));
 					materialArray[materialArray.count-1].name = fileName;
 				} break;
 
@@ -145,8 +145,8 @@ struct ObjLoader {
 						// disp
 						buf += 5;
 
-						char* fileName = getTStringCpy(buf, endOfLine(buf));
-						materialArray[materialArray.count-1].disp = fillString("%s%s", objFolder, fileName);
+						char* fileName = getTString(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].disp = fString("%s%s", objFolder, fileName);
 					}
 
 				} break;
@@ -177,22 +177,22 @@ struct ObjLoader {
 						// map_Ka
 						buf += 7;
 
-						char* fileName = getTStringCpy(buf, endOfLine(buf));
-						materialArray[materialArray.count-1].map_Ka = fillString("%s%s", objFolder, fileName);
+						char* fileName = getTString(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].map_Ka = fString("%s%s", objFolder, fileName);
 
 					} else if(buf[4] == 'K' && buf[5] == 'd') {
 						// map_Kd
 						buf += 7;
 
-						char* fileName = getTStringCpy(buf, endOfLine(buf));
-						materialArray[materialArray.count-1].map_Kd = fillString("%s%s", objFolder, fileName);
+						char* fileName = getTString(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].map_Kd = fString("%s%s", objFolder, fileName);
 
 					} else if(buf[4] == 'N' && buf[5] == 's') {
 						// map_Ks
 						buf += 7;
 
-						char* fileName = getTStringCpy(buf, endOfLine(buf));
-						materialArray[materialArray.count-1].map_Ks = fillString("%s%s", objFolder, fileName);
+						char* fileName = getTString(buf, endOfLine(buf));
+						materialArray[materialArray.count-1].map_Ks = fString("%s%s", objFolder, fileName);
 					}
 				} break;
 
@@ -200,8 +200,8 @@ struct ObjLoader {
 					// bump
 					buf += 5;
 
-					char* fileName = getTStringCpy(buf, endOfLine(buf));
-					materialArray[materialArray.count-1].bump = fillString("%s%s", objFolder, fileName);
+					char* fileName = getTString(buf, endOfLine(buf));
+					materialArray[materialArray.count-1].bump = fString("%s%s", objFolder, fileName);
 				} break;
 			}
 
@@ -219,7 +219,7 @@ struct ObjLoader {
 
 		if(vertexArray.data != 0) clear();
 
-		char* fName = fillString("%s%s", folder, fileName);
+		char* fName = fString("%s%s", folder, fileName);
 		char* file = readFileToBufferZeroTerminated(fName);
 		defer{::free(file);};
 
@@ -245,10 +245,10 @@ struct ObjLoader {
 					buf += 7;
 
 					int size = endOfLine(buf);
-					char* mtlFileName = getTStringCpy(buf, size);
-					char* objFolder = getTStringCpy(fileName, strFindBackwards(fileName, '\\'));
+					char* mtlFileName = getTString(buf, size);
+					char* objFolder = getTString(fileName, strFindBackwards(fileName, '\\'));
 
-					char* folderAndFile = fillString("%s%s", objFolder, mtlFileName);
+					char* folderAndFile = fString("%s%s", objFolder, mtlFileName);
 					parseMtl(folder, folderAndFile);
 
 					buf += size;
@@ -260,7 +260,7 @@ struct ObjLoader {
 					buf += 7;
 
 					int size = endOfLine(buf);
-					char* materialName = getTStringCpy(buf, size);
+					char* materialName = getTString(buf, size);
 					buf += size;
 
 					addObjectIfChange();
@@ -510,7 +510,7 @@ struct ObjLoader {
 
 		if(vertexArray.data != 0) clear();
 
-		char* fName = fillString("%s%s", folder, fileName);
+		char* fName = fString("%s%s", folder, fileName);
 		char* file = readFileToBufferZeroTerminated(fName);
 		defer{::free(file);};
 
@@ -534,7 +534,7 @@ struct ObjLoader {
 
 				for(int i = 0; i < boneCount; i++) {
 					int depth = strToInt(buf); buf += strFind(buf, ' ');
-					char* name = getTStringCpy(buf, endOfLine(buf)); buf += strFind(buf, '\n');
+					char* name = getTString(buf, endOfLine(buf)); buf += strFind(buf, '\n');
 
 					Bone bone = {depth, name};
 					boneArray.push(bone);
@@ -856,20 +856,20 @@ struct ObjLoader {
 
 		// Get folder from file path.
 		int pos = strFindBackwards(fName, '\\');
-		char* folderPath = getTStringCpy(fName, pos);
+		char* folderPath = getTString(fName, pos);
 
 		FolderSearchData fd;
-		folderSearchStart(&fd, fillString("%s*", folderPath));
+		folderSearchStart(&fd, fString("%s*", folderPath));
 		while(folderSearchNextFile(&fd)) {
 
-			if(strFind(fd.fileName, ".anim") == -1) continue;
+			if(strFind(fd.file, ".anim") == -1) continue;
 
-			parseCustomAnim(folderPath, fd.fileName);
+			parseCustomAnim(folderPath, fd.file);
 		}
 	}
 
 	void parseCustomAnim(char* folder, char* fileName) {
-		char* fName = fillString("%s%s", folder, fileName);
+		char* fName = fString("%s%s", folder, fileName);
 		char* file = readFileToBufferZeroTerminated(fName);
 		defer{::free(file);};
 
@@ -881,7 +881,7 @@ struct ObjLoader {
 
 		Animation* anim = &animations[animationCount++];
 
-		anim->name = getTStringCpy(fileName);
+		anim->name = getTString(fileName);
 
 		buf += strLen("StartTime: ");
 		anim->startTime = strToInt(buf); buf += strFind(buf, '\n');
@@ -909,7 +909,7 @@ struct ObjLoader {
 
 			for(int i = 0; i < boneCount; i++) {
 				int depth = strToInt(buf); buf += strFind(buf, ' ');
-				char* name = getTStringCpy(buf, endOfLine(buf)); buf += strFind(buf, '\n');
+				char* name = getTString(buf, endOfLine(buf)); buf += strFind(buf, '\n');
 
 				Bone bone = {depth, name};
 				anim->bones[i] = bone;
@@ -1034,13 +1034,13 @@ struct ObjLoader {
 	}
 
 	void free() {
-		vertexArray.dealloc();
-		uvArray.dealloc();
-		normalArray.dealloc();
-		materialArray.dealloc();
-		vertexBuffer.dealloc();
-		objectArray.dealloc();
-		tangentArray.dealloc();
-		indexBuffer.dealloc();
+		vertexArray.free();
+		uvArray.free();
+		normalArray.free();
+		materialArray.free();
+		vertexBuffer.free();
+		objectArray.free();
+		tangentArray.free();
+		indexBuffer.free();
 	}
 };

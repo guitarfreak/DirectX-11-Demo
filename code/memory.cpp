@@ -1,21 +1,13 @@
 
 #include <assert.h>
-
-struct MemoryArray {
-	bool initialized;
-
-	char * data;
-	int index;
-	int size;
-};
+#include "memory.h"
 
 MemoryArray* theMemoryArray;
 
 void initMemoryArray(MemoryArray * memory, int slotSize, void* baseAddress = 0) {
     if(baseAddress) {
 	    memory->data = (char*)VirtualAlloc(baseAddress, slotSize, MEM_COMMIT, PAGE_READWRITE);
-	    // memory->data = (char*)malloc(slotSize);
-	    int errorCode = GetLastError();
+	    // int errorCode = GetLastError();
     } else memory->data = (char*)malloc(slotSize);
 
     assert(memory->data);
@@ -53,14 +45,6 @@ void* getBaseMemoryArray(MemoryArray* ma) {
 }
 
 //
-
-struct ExtendibleMemoryArray {
-	void* startAddress;
-	int slotSize;
-	int allocGranularity;
-	MemoryArray arrays[32];
-	int index;
-};
 
 ExtendibleMemoryArray* theExtendibleMemoryArray;
 
@@ -105,14 +89,6 @@ void* getBaseExtendibleMemoryArray(ExtendibleMemoryArray* ema) {
 }
 
 //
-
-struct BucketMemory {
-	int pageSize;
-	int count;
-	int useCount;
-	char* data;
-	bool* used;
-};
 
 BucketMemory* theBucketMemory;
 
@@ -181,17 +157,6 @@ void freeBucketMemory(void* address, BucketMemory* memory = 0) {
 
 //
 
-struct ExtendibleBucketMemory {
-	void* startAddress;
-	int slotSize;
-	int fullSize;
-	int allocGranularity;
-	BucketMemory arrays[32];
-	bool allocated[32];
-
-	int pageSize;
-};
-
 ExtendibleBucketMemory* globalExtendibleBucketMemory;
 
 void initExtendibleBucketMemory(ExtendibleBucketMemory* memory, int pageSize, int slotSize, int allocGranularity, void* baseAddress = 0) {
@@ -259,19 +224,3 @@ void freeExtendibleBucketMemory(void* address, ExtendibleBucketMemory* memory = 
 		memory->allocated[arrayIndex] = false;
 	}
 }
-
-//
-
-struct AppMemory {
-	MemoryArray memoryArrays[4];
-	int memoryArrayCount;
-	
-	ExtendibleMemoryArray extendibleMemoryArrays[4];
-	int extendibleMemoryArrayCount;
-
-	BucketMemory bucketMemories[4];
-	int bucketMemoryCount;
-
-	ExtendibleBucketMemory extendibleBucketMemories[4];
-	int extendibleBucketMemoryCount;
-};

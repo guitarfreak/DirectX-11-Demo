@@ -9,7 +9,7 @@
 #define M_LN10      2.30258509299404568402              // log_e 10
 #define M_2PI       6.2831853071795864769252867665590   // 2*pi
 #define M_PI        3.1415926535897932384626433832795   // pi
-#define M_3PI_2		4.7123889803846898576939650749193	// 3/2*pi
+#define M_3PI_2	  4.7123889803846898576939650749193   // 3/2*pi
 #define M_PI_2      1.5707963267948966192313216916398   // pi/2
 #define M_PI_4      0.78539816339744830962              // pi/4
 #define M_1_PI      0.31830988618379067154              // 1/pi
@@ -107,3 +107,11 @@ inline double divSafe(double a, double b) { return b==0 ? 0 : a/b; }
 inline int triangularNumber(int n) { return n*(n+1) / 2; }
 inline float root(float a, float root) { return powf(a, 1/root); }
 inline float logBase(float v, float base) { return log(v) / log(base); }
+inline int evenDivide(int size, int count, int* index) {
+	if(size == 0 || count == 0) return 0;
+
+	float div = (float)size / count;
+	*index = (div - floor(div)) * count;
+	if(*index == 0) *index = count;
+	return ceil(div);
+}

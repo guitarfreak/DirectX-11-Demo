@@ -49,10 +49,10 @@ struct ProfilerTimer {
 
 void ProfilerTimer::init(int bufferSize) {
 	this->timerInfoCount = TIMER_INFO_SIZE;
-	timerInfos = getPArrayDebug(TimerInfo, TIMER_INFO_SIZE);
+	timerInfos = getPArray(TimerInfo, TIMER_INFO_SIZE);
 
 	this->bufferSize = bufferSize;
-	timerBuffer = getPArrayDebug(TimerSlot, bufferSize);
+	timerBuffer = getPArray(TimerSlot, bufferSize);
 }
 
 void ProfilerTimer::addSlot(int infoIndex, int type) {
@@ -95,9 +95,9 @@ void ProfilerTimer::update() {
 
 		if(!info->initialised || info->stringsSaved) continue;
 		
-		info->file = getPStringCpyDebug(info->file);
-		info->function = getPStringCpyDebug(info->function);
-		info->name = getPStringCpyDebug(info->name);
+		info->file = getPString(info->file);
+		info->function = getPString(info->function);
+		info->name = getPString(info->name);
 
 		info->stringsSaved = true;
 	}

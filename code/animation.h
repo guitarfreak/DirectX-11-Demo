@@ -38,6 +38,7 @@ struct AnimationPlayer {
 	int boneCount;
 
 	Mat4 mats[100];
+	XForm xforms[100];
 
 	float time;
 	float dt;

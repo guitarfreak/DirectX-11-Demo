@@ -8,25 +8,53 @@
 		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot2.png" width="49%" />
   	</a>
 </p>
+<p float="right">
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png">
+  		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot3.png" width="49%" />
+  	</a>
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot4.png">
+		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot4.png" width="49%" />
+  	</a>
+</p>
+<p float="right">
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot5.png">
+  		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot5.png" width="49%" />
+  	</a>
+	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot6.png">
+		<img src="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot6.png" width="49%" />
+  	</a>
+</p>
 
-Not much there yet. In active development.
-
+In active development.
 * Directional lighting.
 * Basic shadow mapping. (Poisson disk sampling.)
 * Normal mapping.
 * Displacement mapping with tesselation.
 * Skeletal animation.
+* Particle system.
+* Entity transform widgets.
+* Save/Load maps.
+* Command history, Undo/Redo.
+* Introspection/Serialization with preprocessing step.
 
 #### Controls
 
-W,A,S,D - Move.  
-Q,E     - Fly Down/Up.  
-Ctrl    - Lock Z direction.  
-Shift   - Fly faster.  
-T       - Fly very fast.  
-F3      - Switch capturing mouse.  
-F5      - Console. Tab to switch through commands. (Doesn't do anything usefull right now.)  
-F6      - Gui panel.  
-F7      - App statistics.  
-F8      - Debug info text.  
-F11     - Switch fullscreen/windowed.  
+| | | 
+|-|-|
+| WASD       | Move camera.
+| QE         | Move Down/Up.
+| Ctrl       | Lock Z direction.
+| Shift      | Move faster.
+| T          | Move even faster.
+| LMB        | Select entities.
+| RMB        | Look around.
+| MMB        | Drag selection.
+| MWheel     | Toggle transform mode.
+| Ctrl+G     | Group entities.
+| Ctrl+Y/Z   | History undo/redo.
+| Ctrl+X/C/V | Cut/Copy/Paste.
+| F3         | Capture mouse.
+| F5         | Console. Tab to switch through commands. (Doesn't do anything usefull right now.)
+| F6         | Debug/Entity UI.
+| F8         | Debug info text.
+| F11        | Toggle fullscreen/windowed.

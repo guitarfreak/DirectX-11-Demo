@@ -2,14 +2,14 @@
 Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = false) {
 	char* fontFolder = 0;
 	for(int i = 0; i < theGState->fontFolderCount; i++) {
-		if(fileExists(fillString("%s%s", theGState->fontFolders[i], file))) {
+		if(fileExists(fString("%s%s", theGState->fontFolders[i], file))) {
 			fontFolder = theGState->fontFolders[i];
 			break;
 		}
 	}
 	if(!fontFolder) return 0;
 
-	char* path = fillString("%s%s", fontFolder, file);
+	char* path = fString("%s%s", fontFolder, file);
 
 
 
@@ -36,6 +36,8 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0xA1, 0xFF);
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x25BA, 0x25C4);
+	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x2192, 0x2192); // →
+
 	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x48, 0x49);
 	#undef setupRange
 
@@ -44,8 +46,7 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 
 
 
-	font.file = getPString(strLen(file)+1);
-	strCpy(font.file, file);
+	font.file = getPString(file);
 	font.heightIndex = height;
 
 	int error;
@@ -81,7 +82,7 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 
 
 
-	int gridSize = (sqrt(font.totalGlyphCount) + 1);
+	int gridSize = (sqrt((float)font.totalGlyphCount) + 1);
 	Vec2i texSize = vec2i(gridSize * font.height);
 	uchar* fontBitmapBuffer = mallocArray(unsigned char, texSize.x*texSize.y);
 	defer { free(fontBitmapBuffer); };
@@ -409,9 +410,9 @@ void updateMarkers(char* text, TextSimInfo* tsi, Font* font, bool skip = false) 
 				tsi->wrapIndex += Marker_Size;
 				Vec3 c;
 				if(!tsi->colorMode) {
-					c.r = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
-					c.g = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
-					c.b = colorIntToFloat(strHexToInt(getTStringCpy(&text[tsi->index], 2))); tsi->index += 2;
+					c.r = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
+					c.g = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
+					c.b = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
 					
 					tsi->wrapIndex += 6;
 
@@ -624,9 +625,9 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 	Vec4 currentColor = settings.color;
 
 	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
+	while(true) {		
+		Font* f = font;
 		
-	Font* f = font;
 		updateMarkers(text, &tsi, font);
 		if(tsi.bold) f = font->boldFont;
 		else if(tsi.italic) f = font->italicFont;
@@ -665,11 +666,7 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 		else currentColor.rgb = settings.color.rgb;
 
 		dxPushRect(ti.r, currentColor, ti.uv);
-
-		if(gs->pVertexCount >= gs->primitiveVertexBufferMaxCount-12) {
-			dxEndPrimitive();
-			dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		}
+		dxFlushIfFull();
 	}
 
 	dxEndPrimitive();

@@ -909,11 +909,11 @@ char* Console::getNextArgument(char** s) {
 	char* str = *s;
 
 	if(str[0] == '\0') return 0;
-	int wpos = strFindX(str, ' ');
+	int wpos = strFind(str, ' ');
 	if(wpos == -1) wpos = strLen(str) + 1;
 	wpos--;
 
-	char* argument = getTStringDebug(wpos + 1);
+	char* argument = getTString(wpos + 1);
 	strCpy(argument, str, wpos);
 
 	*s += wpos;
@@ -922,7 +922,7 @@ char* Console::getNextArgument(char** s) {
 }
 
 void Console::pushToMainBuffer(char* str) {
-	char* newString = getPArrayDebug(char, strLen(str) + 1);
+	char* newString = getPArray(char, strLen(str) + 1);
 	strCpy(newString, str);
 
 	mainBuffer[mainBufferSize] = newString;
@@ -1010,7 +1010,7 @@ bool Console::checkTypes(char* str, int* types, int typeCount) {
 
 	if(argCount != typeCount) {
 		char* plural = argCount == 1 ? "" : "s";
-		pushToMainBuffer(fillString("Error: Function needs %i argument%s but received %i.", typeCount, plural, argCount));
+		pushToMainBuffer(fString("Error: Function needs %i argument%s but received %i.", typeCount, plural, argCount));
 		return false;
 	}
 
@@ -1021,7 +1021,7 @@ bool Console::checkTypes(char* str, int* types, int typeCount) {
 		bool correctType = strIsType(str, type);
 		if(!correctType) {
 			char* argString = argumentTypeStrings[type];
-			pushToMainBuffer(fillString("Error: Argument %i is not of type \'%s\'.", i+1, argString));
+			pushToMainBuffer(fString("Error: Argument %i is not of type \'%s\'.", i+1, argString));
 			return false;
 		}
 	}
@@ -1043,7 +1043,7 @@ void Console::evaluateInput() {
 	}
 
 	if(!fInfo) {
-		pushToMainBuffer(fillString("Error: Unknown command \"%s\".", cName));
+		pushToMainBuffer(fString("Error: Unknown command \"%s\".", cName));
 		return;
 	}
 

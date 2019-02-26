@@ -1,16 +1,33 @@
 
-// @AssetHotloading.
+void watchFoldersInit(SystemData* sd, GraphicsState* gs) {
+	char* folders[] = {App_Texture_Folder, App_Mesh_Folder};
+	// initWatchFolders(sd, folders, arrayCount(folders));
+	int folderCount = arrayCount(folders);
 
-void initWatchFolders(SystemData* sd, char** folders, int folderCount) {
-	for(int i = 0; i < folderCount; i++) {
-		char* folder = folders[i];
-		HANDLE fileChangeHandle = FindFirstChangeNotification(folder, true, FILE_NOTIFY_CHANGE_LAST_WRITE);
-		if(fileChangeHandle == INVALID_HANDLE_VALUE) {
-			printf("Could not set folder change notification.\n");
+	{
+		for(int i = 0; i < folderCount; i++) {
+			char* folder = folders[i];
+			HANDLE fileChangeHandle = FindFirstChangeNotification(folder, true, FILE_NOTIFY_CHANGE_LAST_WRITE);
+			if(fileChangeHandle == INVALID_HANDLE_VALUE) {
+				printf("Could not set folder change notification.\n");
+			}
+			sd->folderHandles[i] = fileChangeHandle;
 		}
-		sd->folderHandles[i] = fileChangeHandle;
+		sd->folderHandleCount = folderCount;
 	}
-	sd->folderHandleCount = folderCount;
+
+	for(int i = 0; i < gs->textureCount; i++) {
+		Texture* tex = gs->textures + i;
+		char* path = tex->file;
+		tex->assetInfo.lastWriteTime = getLastWriteTime(path);
+	}
+
+	for(int i = 0; i < gs->meshCount; i++) {
+		Mesh* m = gs->meshes + i;
+		char* path = m->file;
+		m->assetInfo[0].lastWriteTime = getLastWriteTime(path);
+		m->assetInfo[1].lastWriteTime = getLastWriteTime(m->mtlFile);
+	}
 }
 
 void reloadChangedFiles(SystemData* sd) {

@@ -2,7 +2,7 @@
 void xFormsLocalToGlobal(XForm* forms, BoneNode* node, XForm cForm = xForm()) {
 	XForm form = forms[node->data->index];
 
-	cForm = xFormCombine(cForm, form);
+	cForm = cForm * form;
 	forms[node->data->index] = cForm;
 
 	for(int i = 0; i < node->childCount; i++) {
@@ -82,7 +82,7 @@ void AnimationPlayer::update(float dt) {
 				XForm f3 = {};
 				f3.trans = lerp(t, f1.trans, f2.trans);
 				// Should rotate the other way if over 180 degrees?
-				f3.rot = quatLerp(f1.rot, f2.rot, t);
+				f3.rot = lerp(f1.rot, f2.rot, t);
 				f3.scale = lerp(t, f1.scale, f2.scale);
 
 				bones[i] = f3;
@@ -104,13 +104,15 @@ void AnimationPlayer::update(float dt) {
 			XForm a = mesh->basePose[i];
 			XForm b = bones[i];
 
-			Quat totalRot = b.rot * quatInverse(a.rot);
+			Quat totalRot = b.rot * inverse(a.rot);
 
-			Mat4 model = translationMatrix(a.trans) * 
-			             modelMatrix(b.trans - a.trans, vec3(1), totalRot) * 
-			             translationMatrix(-a.trans);
+			// Mat4 model = translationMatrix(a.trans) * 
+			//              modelMatrix(b.trans - a.trans, vec3(1), totalRot) * 
+			//              translationMatrix(-a.trans);
+			// mats[i] = model;
 
-			mats[i] = model;
+			xforms[i] = xForm(a.trans) * xForm(b.trans - a.trans, totalRot) * xForm(-a.trans);
+			mats[i] = modelMatrix(xforms[i]);
 		}
 	}
 }

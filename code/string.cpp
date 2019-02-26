@@ -1,4 +1,6 @@
 
+#include "external\fast_atof.c"
+
 inline void strClear(char* string) {
 	string[0] = '\0';
 }
@@ -15,30 +17,6 @@ int intDigits(int n) {
 	return count;
 }
 
-inline char * intToStr(char * buffer, int var) {
-	int digits = intDigits(var);
-	if(var < 0) digits++;
-	buffer[digits--] = '\0';
-
-	if(var < 0) {
-		buffer[0] = '-';
-		var *= -1;
-	}
-
-	if(var == 0) {
-		buffer[0] = '0';
-		return buffer;
-	}
-
-
-	while(var != 0) {
-		buffer[digits--] = (char)((var % 10) + '0');
-		var /= 10;
-	}
-
-	return buffer;
-};
-
 int intDigits(i64 n) {
 	int count = 0;
 	if(n == 0) return 1;
@@ -49,46 +27,6 @@ int intDigits(i64 n) {
 	}
 
 	return count;
-}
-
-inline char * intToStr(char* buffer, i64 var) {
-	int digits = intDigits(var);
-	if(var < 0) digits++;
-	buffer[digits--] = '\0';
-
-	if(var < 0) {
-		buffer[0] = '-';
-		var *= -1;
-	}
-
-	if(var == 0) {
-		buffer[0] = '0';
-		return buffer;
-	}
-
-	while(var != 0) {
-		buffer[digits--] = (char)((var % 10) + '0');
-		var /= 10;
-	}
-
-	return buffer;
-};
-
-char* floatToStr(char * buffer, float f, int precision = 0) {
-	int stringSize = sprintf(buffer, "%1.*f", precision, f);
-	if(precision == 0) {
-		int stringIndex = stringSize-1;
-		while(buffer[stringIndex] == '0') {
-			stringIndex--;
-		}
-		if(buffer[stringIndex] == '.') {
-			stringIndex++;
-			buffer[stringIndex] = '0';
-		}
-		buffer[stringIndex + 1] = '\0'; 
-	}
-
-	return buffer;
 }
 
 void strCpyBackwards(char* dest, char* str, int size) {
@@ -111,7 +49,7 @@ void strInsert(char* destination, int index, char* str, int size = -1) {
 
 void strAppend(char* destination, char* str, int size = -1) {
 	int destSize = strLen(destination);
-	int strSize = size == -1? strLen(str) : size;
+	int strSize = size == -1 ? strLen(str) : size;
 
 	destination[destSize+strSize] = '\0';
 
@@ -120,23 +58,52 @@ void strAppend(char* destination, char* str, int size = -1) {
 	}
 }
 
+void strAppend(char** dest, char* str, int size = -1) {
+	int strSize = size == -1? strLen(str) : size;
+	for(int i = 0; i < strSize; i++) (*dest)[i] = str[i];
+
+	(*dest)[strSize] = '\0';
+
+	*dest += strSize;
+}
+
+inline char* stringToCamelCase(char* str) {
+	int len = strLen(str);
+	for(int i = 1; i < len; i++) {
+		if(str[i] >= 'a' && str[i] <= 'z') return str;
+	}
+
+	bool nextIsUpper = true;
+	int offset = 'a' - 'A';
+	for(int i = 0; i < len; i++) {
+		if(nextIsUpper) {
+			if(str[i] >= 'a' && str[i] <= 'z') str[i] -= offset;
+		} else {
+			if(str[i] >= 'A' && str[i] <= 'Z') str[i] += offset;
+		}
+
+		if(str[i] == '_') nextIsUpper = true;
+		else nextIsUpper = false;
+	}
+
+	return str;
+}
+
 inline int charToInt(char c) {
 	return (int)c - '0';
 }
 
 inline int strToInt(char* string) {
-	int result = atoi(string);
-	return result;
+	return atoi(string);
 }
 
 inline int strHexToInt(char* string) {
-	int result = (int)strtol(string, 0, 16);
-	return result;
+	return (int)strtol(string, 0, 16);
 }
 
 inline float strToFloat(char* string) {
-	float result = atof(string);		
-	return result;
+	// return atof(string);		
+	return fatof(string);		
 }
 
 inline void strErase(char* string, int index, int size) {
@@ -145,8 +112,7 @@ inline void strErase(char* string, int index, int size) {
 }
 
 inline bool strEmpty(char* string) {
-	bool result = string[0] == '\0';
-	return result;
+	return string[0] == '\0';
 }
 
 void copySubstring(char * destination, char * source, int start, int end) {
@@ -164,6 +130,7 @@ void strCpy(char * destination, char * source, int size = -1) {
 }
 
 bool strCompare(char* str, char* str2, int size = -1) {
+	if(!str) return false;
 	int length = size == -1 ? strLen(str2) : size;
 
 	if(length != strLen(str)) return false;
@@ -196,7 +163,7 @@ bool strCompare(char* str, int size1, char* str2, int size2) {
 bool strStartsWith(char* str, char* str2, int size = -1) {
 	int length = size == -1 ? strLen(str2) : size;
 
-	if(strLen(str) < length) return false;
+	// if(strLen(str) < length) return false;
 
 	bool result = true;
 	for(int i = 0; i < length; i++) {
@@ -223,15 +190,9 @@ int strFind(const char* str, char chr, int startIndex = 0) {
 	return pos;
 }
 
-int strFindX(const char* str, char chr, int startIndex = 0) {
-	int pos = strFind(str, chr, startIndex);
-	if(pos == 0) return -1;
-	else return pos;
-}
-
 int strFindOrEnd(const char* str, char chr, int startIndex = 0) {
 	int pos = strFind(str, chr, startIndex);
-	if(pos == 0) return strLen((char*)str);
+	if(pos == -1) return strLen((char*)str);
 	else return pos;
 }
 
@@ -250,7 +211,7 @@ int strFindBackwards(char* str, char chr, int startIndex = -1) {
 }
 
 int strFind(char* source, char* str, int to = 0, int from = 0) {
-	int sourceLength = to > 0 ? to : strLen(source);
+	int sourceLength = to > 0 ? to : strLen(source); // Fix this.
 	int length = strLen(str);
 
 	if(length > sourceLength) return -1;
@@ -278,6 +239,32 @@ int strFind(char* source, char* str, int to = 0, int from = 0) {
 	if(found) result = pos;
 
 	return result;
+}
+
+int strFindX(char* src, char* str) {
+	int len = strLen(str);
+
+	for(int i = 0; i < len; i++) {
+		if(src[i] == '\0') return -1;
+	}
+
+	int p = 0;
+	while(true) {
+		bool found = true;
+		for(int i = 0; i < len; i++) {
+			if(src[p+i] != str[i]) {
+				found = false;
+				break;
+			}
+		}
+
+		if(found) return p;
+
+		if(src[p+len] == '\0') return -1;
+		p++;
+	}
+
+	return -1;
 }
 
 int strFindRight(char* source, char* str, int searchDistance = 0) {
@@ -343,6 +330,51 @@ int eatEndOfLineOrFile(char** buffer) {
 
 //
 
+bool charIsSign(char c) { return c == '-' || c == '+'; }
+bool charIsDigit(char c) { return (c >= '0') && (c <= '9'); }
+bool charIsLetter(char c) { return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')); }
+bool charIsUppercaseLetter(char c) { return c >= 'A' && c <= 'Z'; }
+bool charIsLowercaseLetter(char c) { return c >= 'a' && c <= 'z'; }
+bool charIsAlphaNumeric(char c) { return charIsDigit(c) || charIsLetter(c); }
+bool charIsWhiteSpace(char c) { return c==' ' || c=='\n' || c=='\t' || c=='\v' || c=='\f' || c=='\r'; }
+
+int parseIdentifier(char* str) {
+	if(!charIsLetter(str[0]) && str[0] != '_') return -1;
+
+	char* b = str;
+	b++;
+	while(charIsAlphaNumeric(b[0]) || b[0] == '_') b++;
+
+	return b - str;
+}
+
+int parseNumber(char* str) {
+	char* b = str;
+	if(b[0] == '-') b++;
+	if(!charIsDigit(b[0])) return -1;
+	
+	while(charIsDigit(b[0])) b++;
+
+	return b - str;
+}
+
+bool eatChar(char** str, char c) {
+	bool result = (*str)[0] == c ? true : false;
+	if(result) (*str)++;
+
+	return result;
+}
+
+void eatWhiteSpace(char** str) {
+	while(charIsWhiteSpace((*str)[0])) (*str)++;
+}
+
+void eatSpaces(char** str) {
+	while((*str)[0] == ' ') (*str)++;
+}
+
+//
+
 // Old and not in use right now.
 
 #define initString(function, size) init(function(size), size)
@@ -393,3 +425,35 @@ struct String {
 
 	void setEndZero() { data[size] = '\0'; }
 };
+
+// struct StringBuilder {
+// 	char* data;
+// 	int count;
+// 	int reserved;
+// 	int startSize;
+
+// 	bool customAlloc;
+// 	void* (*allocFunc) (int size);
+// 	void  (*freeFunc) (void* ptr);
+
+// 	//
+
+// 	void init(void* data, int maxSize) {
+// 		this->data = (char*)data;
+// 		this->maxSize = maxSize;
+// 		this->size = 0;
+// 		setEndZero();
+// 	}
+
+// 	void append(char c) {
+// 		data[size++] = c;
+// 		setEndZero();
+// 	}
+
+// 	void append(char* str, int length = 0) {
+// 		if(!length) length = strLen(str);
+// 		memcpy(data + size, str, length);
+// 		size += length;
+// 		setEndZero();
+// 	}
+// };

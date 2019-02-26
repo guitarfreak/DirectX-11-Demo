@@ -1,7 +1,5 @@
 
 struct MemoryBlock {
-	bool debugMode;
-	
 	int markerStack[10];
 	int markerStackIndex;
 
@@ -9,84 +7,85 @@ struct MemoryBlock {
 	MemoryArray* tMemory;
 	ExtendibleBucketMemory* dMemory;
 
-	MemoryArray* pMemoryDebug;
+	ExtendibleMemoryArray* pMemoryDebug;
 	MemoryArray* tMemoryDebug;
+	ExtendibleBucketMemory* dMemoryDebug;
+
+	ExtendibleMemoryArray* currentPMemory;
+	MemoryArray* currentTMemory;
+	ExtendibleBucketMemory* currentDMemory;
 };
+
+void setMemory(bool debug = false) {
+	if(!debug) {
+		theMemory->currentPMemory = theMemory->pMemory;
+		theMemory->currentTMemory = theMemory->tMemory;
+		theMemory->currentDMemory = theMemory->dMemory;
+	} else {
+		theMemory->currentPMemory = theMemory->pMemoryDebug;
+		theMemory->currentTMemory = theMemory->tMemoryDebug;
+		theMemory->currentDMemory = theMemory->dMemoryDebug;
+	}
+}
+
+#define getPStruct(type)       (type*)(getPMemory(sizeof(type)))
+#define getPArray(type, count) (type*)(getPMemory(sizeof(type) * count))
+#define getTStruct(type)       (type*)(getTMemory(sizeof(type)))
+#define getTArray(type, count) (type*)(getTMemory(sizeof(type) * count))
+#define getDStruct(type)       (type*)(getDMemory(sizeof(type)))
+#define getDArray(type, count) (type*)(getDMemory(sizeof(type) * count))
+
+inline void* getPMemory(int size) {
+	return getExtendibleMemoryArray(size, theMemory->currentPMemory);
+}
+
+inline char* getPString(int size) { 
+	char* s = getPArray(char, size + 1);
+	s[0] = '\0';
+	return s;
+}
+
+inline char* getPString(char* str, int size = -1) {
+	char* newStr = getPArray(char, (size == -1 ? strLen(str) : size) + 1);
+	strCpy(newStr, str, size);
+	return newStr;
+}
 
 //
 
-#define getPStruct(type)       (type*)(getPMemoryMain(sizeof(type)))
-#define getPArray(type, count) (type*)(getPMemoryMain(sizeof(type) * count))
-#define getPString(count)      (char*)(getPMemoryMain(count))
-#define getTStruct(type)       (type*)(getTMemoryMain(sizeof(type)))
-#define getTArray(type, count) (type*)(getTMemoryMain(sizeof(type) * count))
-#define getTString(size)       (char*)(getTMemoryMain(size))
-#define getDStruct(type)       (type*)(getDMemoryMain(sizeof(type)))
-#define getDArray(type, count) (type*)(getDMemoryMain(sizeof(type) * count))5
-
-void* getPMemoryMain(int size, MemoryBlock* memory) {
-	return getExtendibleMemoryArray(size, memory->pMemory);
-}
-void* getPMemoryMain(int size) {
-	return getExtendibleMemoryArray(size, theMemory->pMemory);
+inline void* getTMemory(int size) {
+	return getMemoryArray(size, theMemory->currentTMemory);
 }
 
-void* getTMemoryMain(int size, MemoryBlock* memory) {
-	return getMemoryArray(size, memory->tMemory);
-}
-void* getTMemoryMain(int size) {
-	return getMemoryArray(size, theMemory->tMemory);
-}
+// Empty function for containers.
+inline void freeTMemory(void* data) {}
 
-void clearTMemory(MemoryBlock* memory = 0) {
-	clearMemoryArray(memory ? memory->tMemory : theMemory->tMemory);
+inline void clearTMemory() {
+	clearMemoryArray(theMemory->currentTMemory);
 }
 
-void* getDMemoryMain(int size, MemoryBlock* memory = 0) {
-	return getExtendibleBucketMemory(memory ? memory->dMemory : theMemory->dMemory);
-}
-void freeDMemoryMain(void* address, MemoryBlock* memory = 0) {
-	freeExtendibleBucketMemory(address, memory ? memory->dMemory : theMemory->dMemory);
+inline void pushMarkerTMemory()  {
+    theMemory->markerStack[theMemory->markerStackIndex++] = theMemory->currentTMemory->index;
 }
 
-void pushMarkerTMemoryMain(MemoryBlock* memory = 0)  {
-    if(!memory) memory = theMemory;
-    memory->markerStack[memory->markerStackIndex++] = memory->tMemory->index;
+inline void popMarkerTMemory()  {
+    int storedIndex = theMemory->markerStack[--theMemory->markerStackIndex];
+    theMemory->currentTMemory->index = storedIndex;
 }
 
-void popMarkerTMemoryMain(MemoryBlock* memory = 0)  {
-    if(!memory) memory = theMemory;
-    int storedIndex = memory->markerStack[--memory->markerStackIndex];
-    memory->tMemory->index = storedIndex;
-}
-
-
-
-inline char* getPStringCpy(char* str, int size = -1) {
-	char* newStr = getPString((size == -1 ? strLen(str) : size) + 1);
-	strCpy(newStr, str, size);
-	return newStr;
-}
-
-inline char* getTStringCpy(char* str, int size = -1) {
-	char* newStr = getTString((size == -1 ? strLen(str) : size) + 1);
-	strCpy(newStr, str, size);
-	return newStr;
-}
-
-inline char* getPStringClr(int size) { 
-	char* s = getPString(size);
+inline char* getTString(int size) { 
+	char* s = getTArray(char, size + 1);
 	s[0] = '\0';
 	return s;
 }
 
-inline char* getTStringClr(int size) { 
-	char* s = getTString(size);
-	s[0] = '\0';
-	return s;
+inline char* getTString(char* str, int size = -1) {
+	char* newStr = getTArray(char, (size == -1 ? strLen(str) : size) + 1);
+	strCpy(newStr, str, size);
+	return newStr;
 }
 
-char** getTStringArray(char** strings, int count) {
+inline char** getTStringArray(char** strings, int count) {
 	char** array = getTArray(char*, count);
 	for(int i = 0; i < count; i++) {
 		array[i] = getTString(strLen(strings[i]));
@@ -97,77 +96,11 @@ char** getTStringArray(char** strings, int count) {
 
 //
 
-#define getPStructDebug(type)       (type*)(getPMemoryDebug(sizeof(type)))
-#define getPArrayDebug(type, count) (type*)(getPMemoryDebug(sizeof(type) * count))
-#define getPStringDebug(count)      (char*)(getPMemoryDebug(count))
-#define getTStructDebug(type)       (type*)(getTMemoryDebug(sizeof(type)))
-#define getTArrayDebug(type, count) (type*)(getTMemoryDebug(sizeof(type) * count))
-#define getTStringDebug(size)       (char*)(getTMemoryDebug(size))
-
-void* getPMemoryDebug(int size, MemoryBlock* memory) {
-	return getMemoryArray(size, memory->pMemoryDebug);
-}
-void* getPMemoryDebug(int size) {
-	return getMemoryArray(size, theMemory->pMemoryDebug);
+inline void* getDMemory(int size) {
+	return getExtendibleBucketMemory(theMemory->currentDMemory);
 }
 
-void* getTMemoryDebug(int size, MemoryBlock* memory) {
-	return getMemoryArray(size, memory->tMemoryDebug);
-}
-void* getTMemoryDebug(int size) {
-	return getMemoryArray(size, theMemory->tMemoryDebug);
+inline void freeDMemory(void* address) {
+	freeExtendibleBucketMemory(address, theMemory->currentDMemory);
 }
 
-void clearTMemoryDebug(MemoryBlock* memory = 0) {
-	clearMemoryArray(memory ? memory->tMemoryDebug : theMemory->tMemoryDebug);
-}
-
-void pushMarkerTMemoryDebug(MemoryBlock* memory = 0)  {
-    if(!memory) memory = theMemory;
-    memory->markerStack[memory->markerStackIndex++] = memory->tMemoryDebug->index;
-}
-
-void popMarkerTMemoryDebug(MemoryBlock* memory = 0)  {
-    if(!memory) memory = theMemory;
-    int storedIndex = memory->markerStack[--memory->markerStackIndex];
-    memory->tMemoryDebug->index = storedIndex;
-}
-
-//
-
-inline char* getPStringCpyDebug(char* str, int size = -1) {
-	char* newStr = getPString((size == -1 ? strLen(str) : size) + 1);
-	strCpy(newStr, str, size);
-	return newStr;
-}
-
-inline char* getTStringCpyDebug(char* str, int size = -1) {
-	char* newStr = getTString((size == -1 ? strLen(str) : size) + 1);
-	strCpy(newStr, str, size);
-	return newStr;
-}
-
-//
-
-// Choose right function according to memory mode that's set globally.
-
-#define getPStructX(type)       (type*)(getPMemory(sizeof(type)))
-#define getPArrayX(type, count) (type*)(getPMemory(sizeof(type) * count))
-#define getPStringX(count)      (char*)(getPMemory(count))
-#define getTStructX(type)       (type*)(getTMemory(sizeof(type)))
-#define getTArrayX(type, count) (type*)(getTMemory(sizeof(type) * count))
-#define getTStringX(size)       (char*)(getTMemory(size))
-
-void* getPMemory(int size, MemoryBlock* memory = 0) {
-	if(memory == 0) memory = theMemory;
-
-	if(!memory->debugMode) return getPMemoryMain(size, memory);
-	else return getPMemoryDebug(size, memory);
-}
-
-void* getTMemory(int size, MemoryBlock* memory = 0) {
-	if(memory == 0) memory = theMemory;
-
-	if(!memory->debugMode) return getTMemoryMain(size, memory);
-	else return getTMemoryDebug(size, memory);
-}

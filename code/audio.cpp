@@ -17,25 +17,27 @@ extern AudioState* theAudioState;
 //   WORD  cbSize;
 // } WAVEFORMATEX;
 
+Meta_Parse_Struct(0);
 struct Audio {
-	char* name;
-	char* file;
+	char* name; // @String
+	char* file; // @String
 
 	int channels;
 	int sampleRate;
 	int bitsPerSample;
 
-	stb_vorbis* stbVorbis;
+	stb_vorbis* stbVorbis; // @Ignore
 	char* vorbisFile;
 
-	short* data;
+	short* data; // @Ignore
 	int decodeIndex;
 	int frameCount;
 	int totalLength;
 };
 
+Meta_Parse_Struct(0);
 struct Track {
-	bool used;
+	bool used; // @Init
 
 	bool playing;
 	bool paused;
@@ -60,12 +62,13 @@ enum SoundType {
 	Sound_Type_Size,
 };
 
+Meta_Parse_Struct(0);
 struct Sound {
-	char* name;
+	char* name; // @String
 
 	int type;
 
-	Audio** audioArray;
+	Audio** audioArray; // @SizeVar(audioCount)
 	int audioCount;
 
 	float volume;
@@ -78,14 +81,15 @@ struct Sound {
 	float maxDistance;
 };
 
+Meta_Parse_Struct(0);
 struct AudioState {
-	IMMDeviceEnumerator* deviceEnumerator;
-	IMMDevice* immDevice;
-	IAudioClient* audioClient;
-	IAudioRenderClient* renderClient;
+	IMMDeviceEnumerator* deviceEnumerator; // @Ignore
+	IMMDevice* immDevice; // @Ignore
+	IAudioClient* audioClient; // @Ignore
+	IAudioRenderClient* renderClient; // @Ignore
 	float latencyInSeconds;
 
-	WAVEFORMATEX* waveFormat;
+	WAVEFORMATEX* waveFormat; // @Ignore
 	uint bufferFrameCount;
 	float latency;
 	int channelCount;
@@ -93,7 +97,7 @@ struct AudioState {
 
 	//
 
-	Audio* files;
+	Audio* files; // @SizeVar(fileCount)
 	int fileCount;
 	int fileCountMax;
 
@@ -107,7 +111,7 @@ struct AudioState {
 
 	//
 
-	Sound* sounds;
+	Sound* sounds; // @SizeVar(soundCount)
 	int soundCount;
 };
 
@@ -217,7 +221,7 @@ void addAudio(AudioState* as, char* filePath, char* name) {
 
 	Audio audio = {};
 
-	audio.name = getPStringCpy(name);
+	audio.name = getPString(name);
 	audio.file = 0;
 	audio.data = mallocArray(short, frameCount * channels);
 	audio.decodeIndex = 0;
@@ -273,118 +277,142 @@ inline void audioGetSamples(short* data, float fIndex, int channelCount, float s
 	if(channelCount == 1) samples[1] = samples[0];
 }
 
-void updateAudio(AudioState* as, float dt, Camera cam) {
+void initSoundTable(AudioState* as);
+void audioInit(AudioState* as, int frameRate) {
+
+	(*as) = {};
+	as->masterVolume = 0.5f;
+	as->effectVolume = 0.8f;
+	as->musicVolume = 1.0f;
+
+	audioDeviceInit(as, frameRate);
+
+	as->fileCountMax = 100;
+	as->files = getPArray(Audio, as->fileCountMax);
+
 	{
-		TIMER_BLOCK_NAMED("Audio");
+		RecursiveFolderSearchData fd;
+		recursiveFolderSearchStart(&fd, App_Audio_Folder);
+		while(recursiveFolderSearchNext(&fd)) {
+			addAudio(as, fd.filePath, fd.fileName);
+		}
+	}
 
-		int framesPerFrame = dt * as->waveFormat->nSamplesPerSec * as->latency;
+	initSoundTable(as);
+}
 
-		uint numFramesPadding;
-		as->audioClient->GetCurrentPadding(&numFramesPadding);
-		uint numFramesAvailable = as->bufferFrameCount - numFramesPadding;
-		framesPerFrame = min(framesPerFrame, (int)numFramesAvailable);
+void audioUpdate(AudioState* as, float dt) {
+	TIMER_BLOCK_NAMED("Audio");
 
-		// int framesToPush = framesPerFrame - numFramesPadding;
-		// printf("%i %i %i %i\n", numFramesAvailable, numFramesPadding, as->bufferFrameCount, framesToPush);
+	Camera* cam = &theGState->activeCam;
 
-		// numFramesPadding = framesPerFrame;
-		// framesPerFrame = framesToPush;
+	int framesPerFrame = dt * as->waveFormat->nSamplesPerSec * as->latency;
 
-		// if(framesPerFrame && framesToPush > 0) 
-		if(framesPerFrame) {
+	uint numFramesPadding;
+	as->audioClient->GetCurrentPadding(&numFramesPadding);
+	uint numFramesAvailable = as->bufferFrameCount - numFramesPadding;
+	framesPerFrame = min(framesPerFrame, (int)numFramesAvailable);
 
-			float* buffer;
-			as->renderClient->GetBuffer(numFramesAvailable, (BYTE**)&buffer);
+	// int framesToPush = framesPerFrame - numFramesPadding;
+	// printf("%i %i %i %i\n", numFramesAvailable, numFramesPadding, as->bufferFrameCount, framesToPush);
 
-			for(int i = 0; i < numFramesAvailable*2; i++) buffer[i] = 0.0f;
+	// numFramesPadding = framesPerFrame;
+	// framesPerFrame = framesToPush;
 
-			for(int trackIndex = 0; trackIndex < arrayCount(as->tracks); trackIndex++) {
-				Track* track = as->tracks + trackIndex;
-				Audio* audio = track->audio;
+	// if(framesPerFrame && framesToPush > 0) 
+	if(framesPerFrame) {
 
-				if(!track->used) continue;
+		float* buffer;
+		as->renderClient->GetBuffer(numFramesAvailable, (BYTE**)&buffer);
+
+		for(int i = 0; i < numFramesAvailable*2; i++) buffer[i] = 0.0f;
+
+		for(int trackIndex = 0; trackIndex < arrayCount(as->tracks); trackIndex++) {
+			Track* track = as->tracks + trackIndex;
+			Audio* audio = track->audio;
+
+			if(!track->used) continue;
 
 
-				int index = track->index;
-				int channels = audio->channels;
+			int index = track->index;
+			int channels = audio->channels;
 
-				float speed = track->speed * ((float)audio->sampleRate / as->sampleRate);
-				int frameCount = audio->frameCount;
-				if(speed != 1.0f) {
-					frameCount = roundf((frameCount-1) * (float)(1/speed)) + 1;
-				}
+			float speed = track->speed * ((float)audio->sampleRate / as->sampleRate);
+			int frameCount = audio->frameCount;
+			if(speed != 1.0f) {
+				frameCount = roundf((frameCount-1) * (float)(1/speed)) + 1;
+			}
 
-				int availableFrames = min(frameCount - index, (int)numFramesAvailable);
+			int availableFrames = min(frameCount - index, (int)numFramesAvailable);
 
-				{
-					float distance = track->isSpatial ? len(track->pos - cam.pos) : 0;
-					if(!track->isSpatial || (track->isSpatial && distance <= track->maxDistance)) {
+			{
+				float distance = track->isSpatial ? len(track->pos - cam->pos) : 0;
+				if(!track->isSpatial || (track->isSpatial && distance <= track->maxDistance)) {
 
-						float volume = as->masterVolume * track->volume;
-						if(track->type == Sound_Type_Effect) volume *= as->effectVolume;
-						else if(track->type == Sound_Type_Music) volume *= as->musicVolume;
+					float volume = as->masterVolume * track->volume;
+					if(track->type == Sound_Type_Effect) volume *= as->effectVolume;
+					else if(track->type == Sound_Type_Music) volume *= as->musicVolume;
 
-						float panning = 0; // -1 to 1
-						if(track->isSpatial) {
+					float panning = 0; // -1 to 1
+					if(track->isSpatial) {
 
-							Vec3 planePoint = projectPointOnPlane(track->pos, cam.pos, cam.up);
-							Vec3 dir = norm(planePoint - cam.pos);
-							float rightPercent = acos(dot(dir, -cam.right)) / M_PI;
-							panning = (rightPercent * 2) - 1;
+						Vec3 planePoint = projectPointOnPlane(track->pos, cam->pos, cam->up);
+						Vec3 dir = norm(planePoint - cam->pos);
+						float rightPercent = acos(dot(dir, -cam->right)) / M_PI;
+						panning = (rightPercent * 2) - 1;
 
-							float distanceVolumeMod = track->minDistance / distance;
-							distanceVolumeMod = min(distanceVolumeMod, 1.0f);
+						float distanceVolumeMod = track->minDistance / distance;
+						distanceVolumeMod = min(distanceVolumeMod, 1.0f);
 
-							volume *= distanceVolumeMod;
-							volume *= 0.5f; // We don't want to distort when playing only in one channel.
+						volume *= distanceVolumeMod;
+						volume *= 0.5f; // We don't want to distort when playing only in one channel.
+					}
+
+					{
+						TIMER_BLOCK_NAMED("Decoding");
+
+						int endFrame = (index + availableFrames + 1) * speed;
+						endFrame = min(endFrame, audio->frameCount);
+
+						if(audio->decodeIndex < audio->frameCount && endFrame > audio->decodeIndex) {
+							int framesToDecode = endFrame - audio->decodeIndex;
+							stb_vorbis_get_samples_short_interleaved(audio->stbVorbis, audio->channels, audio->data + audio->decodeIndex*audio->channels, (framesToDecode) * audio->channels);
+
+							audio->decodeIndex = endFrame;
 						}
+					}
 
-						{
-							TIMER_BLOCK_NAMED("Decoding");
+					for(int frameIndex = 0; frameIndex < availableFrames; frameIndex++) {
+						float sampleIndex = (index + frameIndex) * speed;
+						if(sampleIndex > (audio->frameCount-1)) break;
 
-							int endFrame = (index + availableFrames + 1) * speed;
-							endFrame = min(endFrame, audio->frameCount);
+						float samples[2];
+						audioGetSamples(audio->data, sampleIndex, channels, speed, samples);
 
-							if(audio->decodeIndex < audio->frameCount && endFrame > audio->decodeIndex) {
-								int framesToDecode = endFrame - audio->decodeIndex;
-								stb_vorbis_get_samples_short_interleaved(audio->stbVorbis, audio->channels, audio->data + audio->decodeIndex*audio->channels, (framesToDecode) * audio->channels);
+						float* bufferLeftChannel  = buffer + ((frameIndex*2) + 0);
+						float* bufferRightChannel = buffer + ((frameIndex*2) + 1);
 
-								audio->decodeIndex = endFrame;
-							}
-						}
+						float pan = abs(panning);
+						if(panning < 0) {
+							(*bufferLeftChannel)  += samples[0] * volume + (samples[1] * volume * pan);
+							(*bufferRightChannel) += samples[1] * volume * (1 - pan);
 
-						for(int frameIndex = 0; frameIndex < availableFrames; frameIndex++) {
-							float sampleIndex = (index + frameIndex) * speed;
-							if(sampleIndex > (audio->frameCount-1)) break;
-
-							float samples[2];
-							audioGetSamples(audio->data, sampleIndex, channels, speed, samples);
-
-							float* bufferLeftChannel  = buffer + ((frameIndex*2) + 0);
-							float* bufferRightChannel = buffer + ((frameIndex*2) + 1);
-
-							float pan = abs(panning);
-							if(panning < 0) {
-								(*bufferLeftChannel)  += samples[0] * volume + (samples[1] * volume * pan);
-								(*bufferRightChannel) += samples[1] * volume * (1 - pan);
-
-							} else {
-								(*bufferRightChannel) += samples[1] * volume + (samples[0] * volume * pan);
-								(*bufferLeftChannel)  += samples[0] * volume * (1 - pan);
-							}
+						} else {
+							(*bufferRightChannel) += samples[1] * volume + (samples[0] * volume * pan);
+							(*bufferLeftChannel)  += samples[0] * volume * (1 - pan);
 						}
 					}
 				}
-
-				track->index += framesPerFrame;
-
-				if(track->index >= audio->frameCount) {
-					track->used = false;
-				}
 			}
 
-			as->renderClient->ReleaseBuffer(framesPerFrame, 0);
+			track->index += framesPerFrame;
+
+			if(track->index >= audio->frameCount) {
+				track->used = false;
+			}
 		}
+
+		as->renderClient->ReleaseBuffer(framesPerFrame, 0);
 	}
 }
 
@@ -467,7 +495,7 @@ int playSound(char* name) {
 //
 
 void soundInit(Sound* s, char* name, int type, char* file) {
-	s->name = getPStringCpy(name);
+	s->name = getPString(name);
 	s->type = type;
 	s->audioArray = getPArray(Audio*, 1);
 	s->audioArray[s->audioCount++] = getAudio(file);

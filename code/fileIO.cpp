@@ -5,7 +5,7 @@ int createFileAndOverwrite(char* fileName, int fileSize) {
 
 	fileSize += 1;
 
-	char* tempBuffer = (char*)malloc(fileSize);
+	char* tempBuffer = (char*)mallocX(fileSize);
 	zeroMemory(tempBuffer, fileSize);
 	fwrite(tempBuffer, fileSize, 1, file);
 	free(tempBuffer);
@@ -63,7 +63,7 @@ int readFileToBuffer(char* buffer, char* fileName) {
 
 int readFileToBufferMalloc(char* fileName, char** buffer) {
 	int size = fileSize(fileName);
-	char* buf = (char*)malloc(sizeof(char)*size);
+	char* buf = (char*)mallocX(sizeof(char)*size);
 
 	readFileToBuffer(buf, fileName);
 
@@ -80,7 +80,7 @@ char* readFileToBufferZeroTerminated(char* fileName) {
 	int size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 
-	char* buffer = (char*)malloc(size+1);
+	char* buffer = (char*)mallocX(size+1);
 
 	fread(buffer, size, 1, file);
 
@@ -154,6 +154,13 @@ void readDataFromFile(char* data, char* fileName) {
 	int size = fileSize(file);
 	fread(data, size, 1, file);
 	fclose(file);
+}
+
+int getFileName(char* file) {
+	char* ext = strrchr(file, '.');
+	if(!ext) return 0;
+
+	return ext - file;
 }
 
 char* getFileExtension(char* file) {

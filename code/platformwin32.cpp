@@ -1,20 +1,21 @@
 #pragma once
 
-#include <Mmsystem.h>
 #include "input.h"
 
+Meta_Parse_Struct(0);
 struct MonitorData {
 	Rect fullRect;
 	Rect workRect;
-	HMONITOR handle;
+	HMONITOR handle; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 struct WindowSettings {
 	Vec2i res;
 	Vec2i fullRes;
 	bool fullscreen;
 	uint style;
-	WINDOWPLACEMENT g_wpPrev;
+	WINDOWPLACEMENT g_wpPrev; // @Ignore
 	Rect previousWindowRect;
 
 	MonitorData monitors[3];
@@ -28,26 +29,27 @@ struct WindowSettings {
 
 	bool dontUpdateCursor;
 	bool customCursor;
-	POINT lastMousePosition;
+	POINT lastMousePosition; // @Ignore
 
 	bool vsync;
 	int frameRate;
 };
 
+Meta_Parse_Struct(0);
 struct SystemData {
-	WindowsData windowsData;
-	HINSTANCE instance;
-	HDC deviceContext;
-	HWND windowHandle;
+	WindowsData windowsData; // @Ignore
+	HINSTANCE instance; // @Ignore
+	HDC deviceContext; // @Ignore
+	HWND windowHandle; // @Ignore
 	
-	HANDLE folderHandles[5];
-	int folderHandleCount;
+	HANDLE folderHandles[5]; // @Ignore
+	int folderHandleCount; // @Ignore
 
 	//
 
-	Input* input;
-	void* mainFiber;
-	void* messageFiber;
+	Input* input; // @Ignore
+	void* mainFiber; // @Ignore
+	void* messageFiber; // @Ignore
 
 	int coreCount;
 	int fontHeight;
@@ -158,6 +160,13 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	systemData->windowsData = wData;
 
 	EnumDisplayMonitors(0, 0, monitorEnumProc, ((LPARAM)ws));
+
+	ws->biggestMonitorSize = vec2i(0,0);
+	for(int i = 0; i < arrayCount(ws->monitors); i++) {
+		Rect r = ws->monitors[i].fullRect;
+		ws->biggestMonitorSize.w = max(ws->biggestMonitorSize.w, (int)r.w());
+		ws->biggestMonitorSize.h = max(ws->biggestMonitorSize.h, (int)r.h());
+	}
 
 	DEVMODE devMode;
 	EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &devMode);
@@ -424,8 +433,12 @@ void showWindow(HWND windowHandle) {
     ShowWindow(windowHandle, SW_SHOW);
 }
 
+Rect getScreenRect(Vec2i res) {
+	return rectTLDim(0, 0, res.w, res.h);
+}
+
 Rect getScreenRect(WindowSettings* ws) {
-	return rectTLDim(0,0,ws->currentRes.w,ws->currentRes.h);
+	return getScreenRect(ws->currentRes);
 }
 
 // @Time.
@@ -481,134 +494,51 @@ struct Timer {
 	}
 };
 
+struct SectionTimer {
+	struct TimeLabel {
+		double time;
+		char* label;
+	};
+
+	Timer* timer;
+	TimeLabel sections[20];
+	int sectionCount;
+	double totalTime;
+
+	void start(Timer* timer) { 
+		this->timer = timer;
+		timer->start(); 
+		sectionCount = 0;
+		totalTime = 0;
+	}
+	void stop() { timer->stop(); }
+
+	void add(char* label) {
+		double ct = timer->update();
+		sections[sectionCount++] = {ct, label};
+		totalTime += ct;
+	}
+
+	void stopAndPrint() {
+		stop();
+
+		int maxTextWidth = 0;
+		for(int i = 0; i < sectionCount; i++) {
+			maxTextWidth = max(maxTextWidth, strLen(sections[i].label));
+		}
+
+		printf("Startup Times:\n");
+		for(int i = 0; i < sectionCount; i++) {
+			printf("%-*s %fs\n", maxTextWidth, sections[i].label, sections[i].time);
+		}
+		printf("%-*s %fs\n", maxTextWidth, "Total", totalTime);
+	}
+};
+
 // @Folder.
 
-enum FileType {
-	FILE_TYPE_FILE = 0,
-	FILE_TYPE_FOLDER,
-};
-
-struct FolderSearchData {
-	WIN32_FIND_DATA findData;
-	HANDLE folderHandle;
-
-	char* fileName;
-	char* filePath;
-	int type;
-};
-
-struct RecursiveFolderSearchData {
-	FolderSearchData data[10];
-
-	int index;
-	char* startFolder;
-	int strSizes[10];
-	char folder[200];
-
-	char* filePath;
-	char* fileName;
-};
-
-bool folderSearchStart(FolderSearchData* fd, char* folder) {	
-	// Remember, for searching folder add "*" at the end of path
-
-	fd->folderHandle = FindFirstFile(folder, &fd->findData);
-
-	if(fd->folderHandle != INVALID_HANDLE_VALUE) return true;
-	else return false;
-}
-
-bool folderSearchNextFile(FolderSearchData* fd) {
-	if(FindNextFile(fd->folderHandle, &fd->findData) == 0) {
-		FindClose(fd->folderHandle);
-		return false;
-	}
-
-	if(strCompare(fd->findData.cFileName, "..")) {
-		return folderSearchNextFile(fd); // Skip ".."
-	}
-
-	if(flagGet(fd->findData.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY)) {
-		fd->type = FILE_TYPE_FOLDER;
-	} else {
-		fd->type = FILE_TYPE_FILE;
-	}
-
-	fd->fileName = fd->findData.cFileName;
-
-	return true;
-}
-
-void recursiveFolderSearchStart(RecursiveFolderSearchData* rfd, char* folder) {
-
-	rfd->index = 0;
-	rfd->startFolder = folder;
-	strClear(rfd->folder);
-
-	char* folderPath = fillString("%s*", folder);
-	folderSearchStart(rfd->data + rfd->index, folderPath);
-}
-
-bool recursiveFolderSearchNext(RecursiveFolderSearchData* rfd) {
-
-	for(;;) {
-		FolderSearchData* fd = rfd->data + rfd->index;
-
-		for(;;) {
-			bool result = folderSearchNextFile(fd);
-			if(!result) {
-				if(rfd->index == 0) return false;
-				else {
-					// Pop stack.
-					rfd->index--;
-					int index = rfd->strSizes[rfd->index];
-					index = strLen(rfd->folder) - index;
-					if(rfd->index > 0) index--;
-					rfd->folder[index] = '\0';
-
-					fd = rfd->data + rfd->index;
-				}
-			} else {
-				break;
-			}
-		}
-
-		if(fd->type == FILE_TYPE_FOLDER) {
-			// Push stack.
-
-			rfd->strSizes[rfd->index] = strLen(fd->fileName);
-			if(rfd->index > 0) strAppend(rfd->folder, "\\");
-			strAppend(rfd->folder, fd->fileName);
-
-			rfd->index++;
-
-			char* folderPath = fillString("%s%s\\*", rfd->startFolder, rfd->folder);
-			folderSearchStart(rfd->data + rfd->index, folderPath);
-
-		} else {
-			rfd->filePath = fillString("%s%s%s%s", rfd->startFolder, rfd->folder, strLen(rfd->folder)?"\\":"", fd->fileName);
-			rfd->fileName = fillString("%s%s%s", rfd->folder, strLen(rfd->folder)?"\\":"", fd->fileName);
-
-			break;
-		}
-	}
-
-	return true;
-}
-
-int folderFileCount(char* folder) {
-	FolderSearchData fd;
-	folderSearchStart(&fd, folder);
-	int count = 0;
-	while(folderSearchNextFile(&fd)) {
-		if(fd.type == FILE_TYPE_FILE) count++;
-	}
-
-	return count;
-}
-
 void folderExistsCreate(char* path) {
-	bool folderExists = PathFileExists(path);
+	bool folderExists = PathFileExistsA(path);
 	if(!folderExists) {
 		CreateDirectory(path, 0);
 	}
@@ -682,16 +612,44 @@ int getSystemFontHeight(HWND windowHandle) {
 	return textMetric.tmHeight;
 }
 
+void updateFontSizes(SystemData* sd, int* fontHeight, float fontScale, int* fontHeightScaled, float windowScale) {
+	sd->fontHeight = getSystemFontHeight(sd->windowHandle);
+
+	*fontHeight = roundInt(sd->fontHeight * fontScale);
+	*fontHeightScaled = roundInt(sd->fontHeight * windowScale);
+}
+
 #if 0
 #include <psapi.h>
 
-void getMemoryUsage() {
+void printMemoryUsage() {
 	PROCESS_MEMORY_COUNTERS_EX pmc;
 	GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
 
-	SIZE_T commited = pmc.PrivateUsage;
-	SIZE_T workingSet = pmc.WorkingSetSize;
+	// SIZE_T commited = pmc.PrivateUsage;
+	// SIZE_T workingSet = pmc.WorkingSetSize;
 
-	printf("%f %f\n", commited/1024.0f/1024.0f, workingSet/1024.0f/1024.0f);
+	float PeakWorkingSetSize = pmc.PeakWorkingSetSize/1024.0f/1024.0f;
+	float WorkingSetSize = pmc.WorkingSetSize/1024.0f/1024.0f;
+	float QuotaPeakPagedPoolUsage = pmc.QuotaPeakPagedPoolUsage/1024.0f/1024.0f;
+	float QuotaPagedPoolUsage = pmc.QuotaPagedPoolUsage/1024.0f/1024.0f;
+	float QuotaPeakNonPagedPoolUsage = pmc.QuotaPeakNonPagedPoolUsage/1024.0f/1024.0f;
+	float QuotaNonPagedPoolUsage = pmc.QuotaNonPagedPoolUsage/1024.0f/1024.0f;
+	float PagefileUsage = pmc.PagefileUsage/1024.0f/1024.0f;
+	float PeakPagefileUsage = pmc.PeakPagefileUsage/1024.0f/1024.0f;
+	float PrivateUsage = pmc.PrivateUsage/1024.0f/1024.0f;
+
+	// printf("%f %f\n", commited/1024.0f/1024.0f, workingSet/1024.0f/1024.0f);
+	printf("%f %f %f %f %f %f %f %f %f\n", 
+	       PeakWorkingSetSize, 
+	       WorkingSetSize, 
+	       QuotaPeakPagedPoolUsage, 
+	       QuotaPagedPoolUsage, 
+	       QuotaPeakNonPagedPoolUsage, 
+	       QuotaNonPagedPoolUsage, 
+	       PagefileUsage, 
+	       PeakPagefileUsage, 
+	       PrivateUsage
+	       );
 }
 #endif

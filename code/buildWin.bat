@@ -1,5 +1,9 @@
 @echo off
 
+set COMPILE_PREPROCESSOR=false
+set COMPILE_MAIN=false
+set COMPILE_APP=true
+
 if exist "appName.bat" (
 	call appName.bat
 ) else (
@@ -41,6 +45,9 @@ pushd "..\%BUILD_FOLDER%"
 set INC=
 set LINC=
 
+set INC_EXTRA=
+set LINC_EXTRA=
+
 rem -DEFAULTLIB:Shell32.lib 
 set LINKER_LIBS= -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Winmm.lib -DEFAULTLIB:Ole32.lib -DEFAULTLIB:D3D11.lib -DEFAULTLIB:d3dcompiler.lib
 
@@ -60,8 +67,8 @@ goto compilerSelectionEnd
 	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.17134.0\um\x86"
 :compilerSelectionEnd
 
-set          INC=%INC% -I"..\libs\freetype 2.9\include"
-set LINC=%LINC% -LIBPATH:"..\libs\freetype 2.9\lib\%PLATFORM%"
+set   INC_EXTRA=%INC_EXTRA% -I"..\libs\freetype 2.9\include"
+set  LINC_EXTRA=%LINC_EXTRA% -LIBPATH:"..\libs\freetype 2.9\lib\%PLATFORM%"
 set LINKER_LIBS=%LINKER_LIBS% -DEFAULTLIB:freetype.lib
 
 set BUILD_MODE=-Od
@@ -87,14 +94,48 @@ set MODE_DEFINE=%MODE_DEFINE% -DA_NAME=%APP_NAME_STRING%
 
 rem preprocesser output -> -E
 rem -d2cgsummary -Bt
-set COMPILER_OPTIONS= %RUNTIME% %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7
+rem /Qvec-report:1
+rem /showIncludes
+set COMPILER_OPTIONS= %RUNTIME% %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7 
 set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
 
+rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -E
+rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -showIncludes
+rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% /Qvec-report:1
+rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% /Qvec-report:2
+
+rem PreProcess step
+
+set BUILD_PREPROCESS=false
+
+set PREPROCESS_FOLDER=preprocess
+set PREPROCESS_NAME=preprocess
+set RUN_PREPROCESSOR=true
+
+if not exist "%PREPROCESS_NAME%" (
+	mkdir ".\%PREPROCESS_FOLDER%"
+	set COMPILE_PREPROCESSOR=true
+)
+
+if %COMPILE_PREPROCESSOR%==false goto afterPreprocess
+
+	set LINKER_OPTIONS_PRE= -link -SUBSYSTEM:CONSOLE -OUT:"%PREPROCESS_NAME%.exe" -incremental:no -opt:ref
+
+	pushd ".\%PREPROCESS_FOLDER%"
+	cl %COMPILER_OPTIONS% ..\..\code\preprocess.cpp %MODE_DEFINE% %INC% %LINKER_OPTIONS_PRE% %LINC%
+	popd
+
+:afterPreprocess
+
+if %RUN_PREPROCESSOR%==true call ".\%PREPROCESS_FOLDER%\%PREPROCESS_NAME%.exe"
+
+
 if "%~4"=="-folder" goto noDLL
+if %COMPILE_APP%==false goto noDLL
 
 del main_*.pdb > NUL 2> NUL
 echo. 2>lock.tmp
-cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INC% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINC% %LINKER_LIBS%
+cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INC% %INC_EXTRA% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINC% %LINC_EXTRA% %LINKER_LIBS%
 
 if %ERRORLEVEL%==0 (
    echo.
@@ -108,7 +149,16 @@ del lock.tmp
 
 :noDLL
 
-cl %COMPILER_OPTIONS% ..\code\main.cpp %MODE_DEFINE% %INC% %LINKER_OPTIONS% %LINC% %LINKER_LIBS%
+if not exist "%APP_NAME%.exe" (
+	set COMPILE_MAIN=true
+	echo %cd%
+)
+
+if %COMPILE_MAIN%==false goto afterMain
+
+cl %COMPILER_OPTIONS% ..\code\main.cpp %MODE_DEFINE% %INC% %INC_EXTRA% %LINKER_OPTIONS% %LINC% %LINC_EXTRA% %LINKER_LIBS%
+
+:afterMain
 
 
 
@@ -128,6 +178,8 @@ if NOT "%~4"=="-folder" goto packShippingFolderEnd
 	del ".\%BUILD_FOLDER%\*.exp"
 	del ".\%BUILD_FOLDER%\*.lib"
 	del ".\%BUILD_FOLDER%\*.obj"
+
+	rmdir ".\%BUILD_FOLDER%\%PREPROCESS_FOLDER%" /S /Q
 
 	xcopy ".\libs\freetype 2.9\lib\%PLATFORM%\*.dll" ".\%BUILD_FOLDER%" /Q
 	xcopy ".\libs\d3dcompiler\lib\%PLATFORM%\*.dll" ".\%BUILD_FOLDER%" /Q

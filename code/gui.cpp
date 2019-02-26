@@ -59,6 +59,16 @@ void pfDrawRectRoundedGradient(Rect r, Vec4 color, float size, Vec4 off) {
 	dxDrawRectRoundedGradient(r, color, size, off);
 }
 
+void pfDrawRectGradientH(Rect r, Vec4 color, Vec4 color2) {
+	dxGetShaderVars(Primitive)->gammaGradient = true;
+	dxDrawRectGradientH(r, color, color2);
+	dxGetShaderVars(Primitive)->gammaGradient = false;
+}
+
+void pfSetGamma(bool gamma = false) {
+	dxGetShaderVars(Primitive)->gammaGradient = gamma;
+}
+
 void pfDrawText(char* text, Vec2 startPos, Vec2i align, TextSettings s, int wrapWidth = 0) {
 	::drawText(text, startPos, align, wrapWidth, s);
 }
@@ -178,6 +188,8 @@ void Gui::defaultSettings(Font* font) {
 	etbs.boxSettings.color = c.edit;
 	etbs.boxSettings.roundedCorner = 0;
 	sEdit = textEditSettings(etbs, vec4(0,0,0,0), editText, ESETTINGS_SINGLE_LINE | ESETTINGS_START_RIGHT, 1, 1.1f, cEditSelection, cEditCursor, 6, textPadding);
+	sEdit.defaultTextColor = sEdit.textBoxSettings.textSettings.color;
+	sEdit.defaultTextColor.a = 0.3f;
 
 	float sw = fontHeight*1.0f;
 	sSlider = sliderSettings(etbs, sw, sw, 0, 0, fontHeight*0.20f, c.button, vec4(0,0,0,0));
@@ -219,6 +231,9 @@ void Gui::begin(Input* input, WindowSettings* ws, float dt, bool mouseInClient) 
 	// if(activeId != 0) {
 	// 	for(int i = 0; i < Gui_Focus_Size; i++) hotId[i] = voidId;
 	// }
+
+	comboBoxData.strings.allocFunc = getPMemory;
+	comboBoxData.strBuilder.allocFunc = getPMemory;
 
 	zLevel = 0;
 
@@ -385,7 +400,7 @@ void Gui::setNotActiveWhenActive(int id) {
 	if(isActive(id)) clearActive();
 }
 
-void Gui::setActive(int id, bool input, int focus) {
+void Gui::setActive(int id, bool input, int focus, bool ignoreHot) {
 	bool setActive = false;
 
 	if(id == activeSignalId) {
@@ -397,7 +412,7 @@ void Gui::setActive(int id, bool input, int focus) {
 			if(input) {
 				int stop = 234;
 			}
-			if(input && isHot(id, focus)) {
+			if(input && (!ignoreHot ? isHot(id, focus) : true)) {
 				if(someoneActive()) { 
 					activeSignalId = id;
 					
@@ -463,6 +478,10 @@ void Gui::setHotAllMouseOver(Rect r, float z) {
 	return setHotAllMouseOver(incrementId(), r, z);
 }
 
+void Gui::setHotAllMouseOver(Rect r) {
+	return setHotAllMouseOver(incrementId(), r, zLevel);
+}
+
 void Gui::setHotMouseOver(int id, Vec2 mousePos, Rect r, float z, int focus) {
 	if(pointInRectEx(mousePos, r) && !r.empty()) {
 		setHot(id, z, focus);
@@ -496,10 +515,13 @@ void Gui::setCursor(LPCSTR cursorType) {
 	currentCursor = cursorType;
 }
 
-void Gui::setInactive(bool stayInactive) {
+void Gui::setInactive(bool discolor, bool stayInactive) {
 	setInactiveX = true;
-	stayInactive = stayInactive;
+	this->discolorInactive = discolor;
+	this->stayInactive = stayInactive;
 }
+
+bool Gui::isInactive() { return setInactiveX; }
 
 void Gui::setActive() {
 	setInactiveX = false;
@@ -518,6 +540,14 @@ void Gui::handleInactive() {
 				break;
 			}
 		}
+	}
+}
+
+void Gui::setTabRange(int count) {
+	if(count == 0) tabIdRange = vec2i(-1,-1);
+	else {
+		int cId = currentId();
+		tabIdRange = vec2i(cId + 1, cId + 1 + count);
 	}
 }
 
@@ -946,20 +976,35 @@ int Gui::goTextEdit(Rect textRect, float z, void* var, int mode, TextEditSetting
 
 	int event = goDragAction(textRect, z, doubleClick?input->doubleClick:input->mouseButtonPressed[0], releaseEvent, Gui_Focus_MLeft);
 
+	// @Hack.
+	if(currentId() >= tabIdRange.min && currentId() <= tabIdRange.max && event > 1) {
+		if(input->keysPressed[KEYCODE_TAB]) {
+			event = 3;
+			enter = true;
+		}
+	}
+
 	editVars->dt = dt;
 
 	if(event == 1) {
 		editVars->scrollOffset = vec2(0,0);
 		if(mode == EDIT_MODE_CHAR) strCpy(editText, (char*)var);
-		else if(mode == EDIT_MODE_INT) strCpy(editText, fillString("%i", *((int*)var)));
-		else if(mode == EDIT_MODE_FLOAT) strCpy(editText, fillString("%f", *((float*)var)));
+		else if(mode == EDIT_MODE_INT) strCpy(editText, fString("%i", *((int*)var)));
+		else if(mode == EDIT_MODE_FLOAT) {
+			if(editSettings.floatPrecision == 0)
+				strCpy(editText, fString("%g", *((float*)var)));
+			else 
+				strCpy(editText, fString("%.*f", editSettings.floatPrecision, *((float*)var)));
+		}
 		if(flagGet(editSettings.flags, ESETTINGS_START_RIGHT)) {
 			editVars->cursorIndex = editVars->markerIndex = strlen(editText);
 		}
 	}
 
 	if(event == 3 && (leftMouse || enter)) {
-		if(mode == 0)      strCpy((char*)var, editText);
+		if(mode == 0) {
+			if(!editSettings.dontCopy) strCpy((char*)var, editText);
+		}
 		else if(mode == 1) *((int*)var) = strToInt(editText);
 		else if(mode == 2) *((float*)var) = strToFloat(editText);
 	}
@@ -1057,25 +1102,24 @@ Vec4 Gui::hotActiveColorMod(bool isHot, bool isActive, bool inactive, float hotD
 		}
 	}
 	if(isActive) colorMod = vec4(0.17f,0); 
-
-	if(inactive) colorMod.a = -0.5f;
+	if(inactive) colorMod.a -= 0.60f;
 
 	return colorMod;
 }
 Vec4 Gui::inactiveColorMod(bool inactive) {
-	Vec4 colorMod = !inactive ? vec4(0,0) : vec4(-0.1f,0);
+	Vec4 colorMod = !inactive ? vec4(0,0) : vec4(0,-0.6f);
 	return colorMod;
 }
 // We assume you got an id first before calling this.
 Vec4 Gui::colorModId(int id, int focus) {
 	float hotDecay;
 	bool hot = isHotQueued(id, &hotDecay) || isHot(id, focus);
-	return hotActiveColorMod(hot, isActive(id), setInactiveX, hotDecay);
+	return hotActiveColorMod(hot, isActive(id), setInactiveX && discolorInactive, hotDecay);
 }
 Vec4 Gui::colorModBId(int id, int focus) {
 	float hotDecay;
 	bool hot = isHotQueued(id, &hotDecay) || isHot(id, focus);
-	return hotActiveColorMod(hot, gotActive(id), setInactiveX, hotDecay);
+	return hotActiveColorMod(hot, gotActive(id), setInactiveX && discolorInactive, hotDecay);
 }
 
 Vec4 Gui::colorMod(int focus) {
@@ -1083,6 +1127,9 @@ Vec4 Gui::colorMod(int focus) {
 }
 Vec4 Gui::colorModB(int focus) {
 	return colorModBId(currentId(), focus);
+}
+Vec4 Gui::inactiveColorMod() {
+	return inactiveColorMod(isInactive() && discolorInactive);
 }
 
 // @GuiAutomation
@@ -1345,13 +1392,25 @@ void Gui::drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, 
 }
 
 void Gui::drawTextEditBox(void* val, int mode, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	return drawTextEditBox(mode == EDIT_MODE_INT ? fillString("%i", VDref(int, val)) : fillString("%f", VDref(float, val)), textRect, active, scissor, editVars, editSettings);
+	char* text;
+	if(mode == EDIT_MODE_INT) {
+		text = fString("%i", VDref(int, val));
+	} else {
+		if(editSettings.floatPrecision == 0)
+			text = fString("%g", VDref(int, val));
+		else 
+			text = fString("%.*f", editSettings.floatPrecision, VDref(float, val));
+	}
+	return drawTextEditBox(text, textRect, active, scissor, editVars, editSettings);
 }
 void Gui::drawTextEditBox(int number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	return drawTextEditBox(fillString("%i", number), textRect, active, scissor, editVars, editSettings);
+	return drawTextEditBox(fString("%i", number), textRect, active, scissor, editVars, editSettings);
 }
 void Gui::drawTextEditBox(float number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings) {
-	return drawTextEditBox(fillString("%f", number), textRect, active, scissor, editVars, editSettings);
+	char* text;
+	if(editSettings.floatPrecision == 0) text = fString("%g", number);
+	else text = fString("%.*f", editSettings.floatPrecision, number);
+	return drawTextEditBox(text, textRect, active, scissor, editVars, editSettings);
 }
 
 enum {
@@ -1380,7 +1439,7 @@ void Gui::drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, Slide
 
 	drawBox(sr, scissor, sliderBoxSettings);
 
-	char* text = type == SLIDER_TYPE_FLOAT ? fillString("%f", *((float*)val)) : fillString("%i", *((int*)val)) ;
+	char* text = type == SLIDER_TYPE_FLOAT ? fString("%.2f", *((float*)val)) : fString("%i", *((int*)val)) ;
 
 	// Position text outside of slider rect.
 	{
@@ -1434,6 +1493,8 @@ void Gui::drawSlider(void* val, bool type, Rect br, Rect sr, Rect scissor, Slide
 			}
 		}
 
+		textSettings->color.a += colorMod().a;
+		defer { textSettings->color.a -= colorMod().a; };
 		pfDrawText(text, tp, align, *textSettings);
 	}
 }
@@ -1482,15 +1543,13 @@ bool Gui::_qButton(Rect r, char* text, Vec2i align, TextBoxSettings* settings, b
 	bool active = goButtonAction(intersection);
 	if(!intersection.empty()) {
 		TextBoxSettings set = settings == 0 ? sButton : *settings;
-		set.boxSettings.color += highlightOnActive?colorModB():colorMod();
-		// set.boxSettings.color += newGuiInactiveColorMod(setInactive);
+		set.boxSettings.color += highlightOnActive ? colorModB() : colorMod();
+		set.textSettings.color += inactiveColorMod();
 
 		drawTextBox(r, text, align, scissor, set);
 	}
 
-	if(isHot()) {
-		setCursor(IDC_HAND);
-	}
+	if(isHot()) setCursor(IDC_HAND);
 	handleInactive();
 
 	return active;
@@ -1571,9 +1630,25 @@ bool Gui::_qTextEdit(Rect r, void* data, int varType, int maxSize, TextEditSetti
 	// if(event == 0) set.textBoxSettings.boxSettings.color += newGuiColorMod(gui);
 
 	bool active = event == 1 || event == 2;
-	if(varType == EDIT_MODE_CHAR) drawTextEditBox(charData, r, active, scissor, editVars, set);
+	if(varType == EDIT_MODE_CHAR) {
+		// Hack.
+		if(set.dontCopy && event == 3) active = true;
+		
+		drawTextEditBox(charData, r, active, scissor, editVars, set);
+	}
 	else if(varType == EDIT_MODE_INT) drawTextEditBox(*intData, r, active, scissor, editVars, set);
 	else if(varType == EDIT_MODE_FLOAT) drawTextEditBox(*floatData, r, active, scissor, editVars, set);
+
+	// @Hack.
+	if(event == 3 && input->keysPressed[KEYCODE_TAB]) {
+		input->keysPressed[KEYCODE_TAB] = false;
+
+		int inc = input->keysDown[KEYCODE_SHIFT] ? -1 : 1;
+		int newId = currentId() + inc;
+		newId = tabIdRange.min + mod(newId - tabIdRange.min, tabIdRange.max - tabIdRange.min);
+
+		setActive(newId, true, Gui_Focus_MLeft, true);
+	}
 
 	if(isHot() || (isActive() && pointInRectEx(input->mousePosNegative, intersect))) setCursor(IDC_IBEAM);
 
@@ -1607,12 +1682,12 @@ float Gui::sliderGetMod(int type, SliderSettings* settings, int mod) {
 	}
 }
 
-bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSettings* settings) {
+int Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSettings* settings) {
 
 	bool typeIsInt = type == SLIDER_TYPE_INT;
 	SliderSettings set = settings == 0 ? sSlider : *settings;
 
-	bool result = false;
+	int result = 0;
 	bool editMode = false;
 
 	storeIds(10);
@@ -1635,7 +1710,7 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 			return false;
 
 		} else if(event == 3) {
-			result = true;
+			result = 2;
 		}
 	}
 
@@ -1653,7 +1728,7 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 			float modValue = sliderGetMod(type, &set, mod);
 			if(typeIsInt) VDref(int, val) += roundInt(modValue);
 			else VDref(float, val) += modValue;
-			result = true;
+			result = 2;
 		}
 	}
 
@@ -1661,10 +1736,10 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 	void* valuePointer = val;
 	int sliderId = incrementId();
 
-	if(set.applyAfter && sliderId == sliderId) {
-		if(typeIsInt) val = &editInt;
-		else val = &editFloat;
-	}
+	float valF = VDref(float, val);
+	int valI = VDref(int, val);
+
+	val = typeIsInt ? (void*)&valI : (void*)&valF;
 
 	// Right now we just handle int as if it was a float.
 
@@ -1696,7 +1771,7 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 
 	if(event == 1 && set.useDefaultValue && input->doubleClick) {
 		setNotActive(currentId());
-		result = true;
+		result = 2;
 
 		if(typeIsInt) VDref(int, val) = roundInt(set.defaultvalue);
 		else VDref(float, val) = set.defaultvalue;
@@ -1706,9 +1781,7 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 			if(typeIsInt) editInt = VDref(int, val);
 			else editFloat = VDref(float, val);
 
-			if(set.applyAfter) {
-				sliderId = sliderId;
-			}
+			sliderId = sliderId;
 
 			mouseAnchor = input->mousePosNegative - slider.c();
 		}
@@ -1728,7 +1801,7 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 
 			if(input->keysDown[KEYCODE_SHIFT]) floatVal = roundf(floatVal);
 
-			if(set.notifyWhenActive) result = true;
+			if(set.notifyWhenActive) result = 1;
 		}
 
 		if(typeIsInt) VDref(int, val) = floatVal;
@@ -1742,28 +1815,27 @@ bool Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSetti
 		scissorPop();
 	}
 
+	bool setValue = set.applyAfter ? false : true;
 	if(event == 3) {
-		if(set.applyAfter) {
-			if(typeIsInt) VDref(int, valuePointer) = editInt;
-			else VDref(float, valuePointer) = editFloat;
-
-			sliderId = 0;
-		}
-	
-		result = true;
+		setValue = true;
+		result = 2;
 	}
 
-	clearStoredIds();
+	if(setValue) {
+		if(typeIsInt) VDref(int, valuePointer) = VDref(int, val);
+		else VDref(float, valuePointer) = VDref(float, val);
+	}
 
 	handleInactive();
+	clearStoredIds();
 
 	return result;
 }
 
-bool Gui::qSlider(Rect r, float* val, float min, float max, SliderSettings* settings) {
+int Gui::qSlider(Rect r, float* val, float min, float max, SliderSettings* settings) {
 	return qSlider(r, SLIDER_TYPE_FLOAT, val, &min, &max, settings);
 }
-bool Gui::qSlider(Rect r, int* val, int min, int max, SliderSettings* settings) {
+int Gui::qSlider(Rect r, int* val, int min, int max, SliderSettings* settings) {
 	return qSlider(r, SLIDER_TYPE_INT, val, &min, &max, settings);
 }
 
@@ -1773,23 +1845,22 @@ void Gui::qScroll(Rect r, float height, float* scrollValue, float* yOffset, floa
 
 	clampMin(&height, 0.0f);
 
-	float scrollRegionHeight = r.h();
+	r = round(r);
+	height = round(height+1);
 
-	float itemsHeight = height - scrollRegionHeight;
+	float itemsHeight = height - r.h();
 	clampMin(&itemsHeight, 0.0f);
 	bool hasScrollbar = itemsHeight > 0;
 
 	Rect scrollRegion = round(r);
 	if(!hasScrollbar && flagGet(flags, SCROLL_DYNAMIC_HEIGHT)) {
-		scrollRegion = scrollRegion.setB(scrollRegion.top - height);
+		scrollRegion = scrollRegion.setB(scrollRegion.top - height - 1);
 	}
-	float scrollBarWidth = hasScrollbar?set.scrollBarWidth:0;
+	float scrollBarWidth = hasScrollbar ? set.scrollBarWidth : 0;
+	scrollBarWidth = round(scrollBarWidth);
 
-	Rect itemRegion = scrollRegion.setR(scrollRegion.right - scrollBarWidth);
+	Rect itemRegion      = scrollRegion.setR(scrollRegion.right - scrollBarWidth);
 	Rect scrollBarRegion = scrollRegion.setL(scrollRegion.right - scrollBarWidth);
-	scrollBarRegion = round(scrollBarRegion);
-
-	pfScissorTestScreen(scissor.expand(vec2(0)));
 
 	// if(!hasScrollbar) rectSetB(&scrollRegion, scrollRegion.top-height);
 	pfDrawRect(scrollRegion, set.boxSettings.color);
@@ -1862,7 +1933,7 @@ void Gui::qScroll(Rect r, float height, float* scrollValue, float* yOffset, floa
 	// layoutScissorPush(itemRegion, sciss);
 	// ld->pos = layoutStartPos;
 
-	scissorPush(round(sciss.expand(3)));
+	scissorPush(round(sciss.expand(2)));
 
 	*yOffset = -(*scrollValue);
 	*wOffset = hasScrollbar ? scrollBarWidth + set.scrollBarPadding : 0;
@@ -1873,7 +1944,8 @@ void Gui::qScrollEnd() {
 	scissorPop();
 }
 
-bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBoxSettings* settings) {
+int Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBoxSettings* settings) {
+	if(!stringCount || !strings) setInactive(true);
 
 	Rect intersection = pfGetRectScissor(scissor, r);
 	bool active = goButtonAction(intersection);
@@ -1884,7 +1956,7 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 	TextBoxSettings set = settings == 0 ? sComboBox : *settings;
 	set.boxSettings.color += colorMod();
 
-	bool updated = false;
+	int updated = false;
 
 	// Mouse Wheel / Arrow Keys.
 	{
@@ -1899,7 +1971,7 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 		if(mod) {
 			*index += mod;
 			if(*index < 0 || *index > stringCount-1) updated = false;
-			else updated = true;
+			else updated = 2;
 
 			clamp(index, 0, stringCount-1);
 			comboBoxData.index = *index;
@@ -1910,30 +1982,46 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 		PopupData pd = {};
 		pd.type = POPUP_TYPE_COMBO_BOX;
 		pd.id = currentId();
-		// pd.r = rectTLDim(rectBL(r), vec2(rectW(r), set.textSettings.font->height*cData.count));
 		pd.r = rectTLDim(r.bl(), vec2(r.w(), 0));
 		pd.settings = sBox;
 		pd.border = vec2(5,5);
+		pd.finished = false;
 
 		popupPush(pd);
 
 		comboBoxIndex = index;
-		comboBoxData = {*index, strings, stringCount};
+		comboBoxData.index = *index;
+
+		int totalSize = 0;
+		for(int i = 0; i < stringCount; i++) totalSize += strLen(strings[i]) + 1;
+
+		comboBoxData.strBuilder.clear();
+		comboBoxData.strBuilder.reserve(totalSize);
+		comboBoxData.strings.clear();
+		comboBoxData.strings.reserve(stringCount);
+
+	   for(int i = 0; i < stringCount; i++) {
+	   	char* dataPosition = comboBoxData.strBuilder.data + comboBoxData.strBuilder.count;
+	   	comboBoxData.strBuilder.pushStr(strings[i], true);
+	   	comboBoxData.strings.push(dataPosition);
+	   }
+		
+		comboBoxData.change = false;
 	}
 
 	// Check if popup is active.
-	bool popupActive = false;
+	PopupData* pd = 0;
 	for(int i = 0; i < popupStackCount; i++) {
 		if(currentId() == popupStack[i].id) {
-			popupActive = true;
+			pd = popupStack + i;
 			break;
 		}
 	}
 
-	if(comboBoxData.finished && popupActive) {
-		comboBoxData.finished = false;
+	if(pd && pd->finished) {
+		*comboBoxIndex = comboBoxData.index;
 		popupPop();
-		updated = true;
+		if(comboBoxData.change) updated = 1;
 	}
 
 	{
@@ -1949,7 +2037,7 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 		float triangleOffset = fontHeight * triangleOffsetMod;
 		float triangleRectWidth = fontHeight * 0.5f;
 
-		char* text = strings[*index];
+		char* text = (stringCount && *index >= 0) ? strings[*index] : 0;
 
 		#if 0
 		// float textWidth = getTextDim(text, set.textSettings.font).w+4;
@@ -1963,8 +2051,7 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 		Rect triangleRect = mainRect.rSetL(triangleRectWidth);
 
 		scissorPush(r.expand(-2));
-
-		drawText(textRect, text, vec2i(-1,0), scissor, set.textSettings);
+		if(text) drawText(textRect, text, vec2i(-1,0), scissor, set.textSettings);
 
 		// Vec2 dir = popupActive ? vec2(0,-1) : vec2(1,0);
 		Vec2 dir = vec2(0,-1);
@@ -1973,25 +2060,116 @@ bool Gui::qComboBox(Rect r, int* index, char** strings, int stringCount, TextBox
 		scissorPop();
 	}
 
+	handleInactive();
+
 	return updated;
 }
 
-bool Gui::qComboBox(Rect r, int* index, void* data, int memberSize, int count, char* (*getName) (void* a), TextBoxSettings* settings) {
+int Gui::qComboBox(Rect r, int* index, void* data, int memberSize, int count, char* (*getName) (void* a), TextBoxSettings* settings) {
 
 	char** names = getTArray(char*, count);
 	for(int i = 0; i < count; i++) {
-		char* name = getName(((char*)data) + i*memberSize);
-		names[i] = getTStringCpy(name);
+		names[i] = getName(((char*)data) + i*memberSize);
 	}
 
 	return qComboBox(r, index, names, count, settings);
 }
 
+int Gui::qComboBox(Rect r, int* index, MemberInfo* mInfo, TextBoxSettings* settings) {
+	auto getName = [](void* i) -> char* {
+		EnumInfo* info = (EnumInfo*)i;
+		return info->nameWithoutTag;
+	}; 
+
+	// Hack, also we're hoping that the enum values are increments.
+	(*index) -= mInfo->enumInfos[0].value;
+	int result = qComboBox(r, index, mInfo->enumInfos, sizeof(EnumInfo), mInfo->enumCount, getName, settings); 
+	(*index) += mInfo->enumInfos[0].value;
+
+	return result;
+}
+
+int Gui::qComboBox(Rect r, int* index, EnumInfo* eInfo, int count, TextBoxSettings* settings) {
+	auto getName = [](void* i) -> char* {
+		EnumInfo* info = (EnumInfo*)i;
+		return info->nameWithoutTag;
+	}; 
+
+	// Hack, also we're hoping that the enum values are increments.
+	(*index) -= eInfo[0].value;
+	int result = qComboBox(r, index, eInfo, sizeof(EnumInfo), count, getName, settings); 
+	(*index) += eInfo[0].value;
+
+	return result;
+}
+
+int Gui::qColorPicker(Rect r, Vec4* color, Vec2i align) {
+	r = round(r);
+	float h = min(r.w(), r.h());
+	Vec2 dim = vec2(h*1.5, h);
+	     if(align.x ==  0) r = rectCenDim(r.c(), dim);
+	else if(align.x == -1) r = rectLDim(r.l(), dim);
+	else if(align.x ==  1) r = rectRDim(r.r(), dim);
+
+	int result = 0;
+
+	Rect rs[] = { r.rSetR(r.h()+1), r.addL(r.h()) };
+	for(int stage = 0; stage < 2; stage++) {
+		Rect r = rs[stage];
+
+		BoxSettings bs = sBox;
+		TextBoxSettings tbs = sButton;
+		if(stage == 0) {
+			bs.color = vec4(color->rgb, 1);
+			tbs.boxSettings = bs;
+		} else {
+			bs.color = vec4(color->a, 1);
+			tbs.boxSettings = bs;
+		}
+
+		bool button = qPButton(r, "", &tbs);
+		if(button) {
+			PopupData pd = {};
+			pd.type = stage == 0 ? POPUP_TYPE_COLOR_PICKER : POPUP_TYPE_ALPHA_PICKER;
+			pd.id = currentId();
+			pd.p = input->mousePosNegative;
+			pd.rSource = r;
+			pd.settings = sBox;
+
+			colorPickerColorStart = *color;
+			colorPickerColor = *color;
+
+			popupPush(pd);
+		}
+
+		// Check if popup is active.
+		PopupData* popupData = 0;
+		for(int i = 0; i < arrayCount(popupStack); i++) {
+			if(currentId() == popupStack[i].id) {
+				popupData = popupStack + i;
+				break;
+			}
+		}
+
+		if(popupData) {
+			result = 1;
+
+			*color = colorPickerColor;
+			if(popupData->finished) {
+				*popupData = {};
+				if(*color != colorPickerColorStart)
+					result = 2;
+			}
+		}
+	}
+
+	return result;
+}
+
 //
 
 void Gui::popupSetup() {
-
-	zLevel = 5;
+	zLevel = 8;
 
 	if(popupStackCount > 0) {
 
@@ -2010,11 +2188,11 @@ void Gui::popupSetup() {
 				}
 			}
 			if(!overPopup) {
+				for(int i = 0; i < popupStackCount; i++) popupStack[i].finished = true;
 				popupStackCount = 0;
 			}
 		}
 		if(input->mouseButtonPressed[0]) test = 1;
-
 
 		// if(goButtonAction(getScreenRect(windowSettings))) {
 		// 	popupStackCount = 0;
@@ -2035,7 +2213,374 @@ void Gui::popupSetup() {
 		test = 0;
 	}
 
+	handleColorPickerPopup();
 	updateComboBoxPopups();
+}
+
+void Gui::handleColorPickerPopup() {
+
+	for(int i = 0; i < popupStackCount; i++) {
+		PopupData* pd = popupStack + i;
+		if(pd->type != POPUP_TYPE_COLOR_PICKER &&
+		   pd->type != POPUP_TYPE_ALPHA_PICKER) continue;
+
+		bool cPicker = pd->type == POPUP_TYPE_COLOR_PICKER;
+
+		float fontHeight = sText.font->height;
+		Vec2 pad = vec2(roundf(fontHeight*0.3f));
+		float eh = roundf(fontHeight * 1.5f);
+		float textPad = roundf(fontHeight * 1.5f);
+
+		Vec2 dim = cPicker ? vec2(fontHeight*11) : 
+		                     vec2(fontHeight*2, fontHeight*11);
+
+		Rect pr = round(rectTDim(pd->rSource.b(), dim));
+		if(cPicker) pr.bottom -= pad.h*2 + eh*3;
+
+		// Clamp rect to window rect.
+		{
+			Vec2 offset = rectInsideRectClamp(pr, theGState->screenRect);
+			pr = pr.trans(offset);
+		}
+
+		setHotAllMouseOver(pr, zLevel);
+		popupStack[i].rCheck = pr;
+
+		// Background.
+		{
+			// Shadow.
+			float padding = sComboBox.sideAlignPadding;
+			Rect shadowRect = pr.trans(vec2(1,-1)*padding*0.5f);
+			pfDrawRect(round(shadowRect), vec4(0,0.8f));
+
+			qBox(pr, &sPopup);
+		}
+
+		scissorPush(pr);
+		defer { scissorPop(); };
+
+		float panelBorder = fontHeight * 0.5f;
+		Rect r = pr.expand(vec2(-panelBorder*2));
+
+		//
+
+		if(input->keysDown[KEYCODE_CTRL] && input->keysPressed[KEYCODE_C]) {
+			if(cPicker) colorPickerColorCopy.rgb = colorPickerColor.rgb;
+			else colorPickerColorCopy.a = colorPickerColor.a;
+		}
+		if(input->keysDown[KEYCODE_CTRL] && input->keysPressed[KEYCODE_V]) {
+			if(cPicker) colorPickerColor.rgb = colorPickerColorCopy.rgb;
+			else colorPickerColor.a = colorPickerColorCopy.a;
+		}
+		if(input->keysDown[KEYCODE_DEL]) colorPickerColor = colorPickerColorStart;
+
+		float ringThickness = fontHeight * 1.5f;
+		float markerRadius = ringThickness/2 / 2;
+		Vec4 cOutline = sBox.borderColor;
+		// Vec4 cOutline = vec4(1,1);
+		// Vec4 cMarker = vec4(1,1);
+		// Vec4 cMarkerOutline = cOutline;
+
+		Vec4 cMarker1 = vec4(1,1);
+		Vec4 cMarker2 = vec4(0,1);
+		float markerThickness1 = 2.0f;
+
+		bool colorChanged = false;
+		bool applyImmediately = true;
+
+		// We want to get line AA so we just draw a bunch of line rings...
+		auto drawMarker = [&](Vec2 p) {
+			p = round(p) + vec2(0.5f,0.5f);
+			float r = markerRadius;
+			dxDrawRing(p, r, cMarker1); r -= 0.25f;
+			dxDrawRing(p, r, cMarker1); r -= 1;
+			dxDrawRing(p, r, cMarker2); r -= 0.5f;
+			dxDrawRing(p, r, cMarker2); r -= 0.5f;
+			dxDrawRing(p, r, cMarker2);
+
+			// dxDrawRing(round(trianglePoint), markerRadius + markerThickness1/2, cMarker1, markerThickness1);
+			// dxDrawRing(round(trianglePoint), markerRadius, cMarker2, markerThickness1);
+		};
+
+		if(cPicker) {
+			QLayout ql = qLayout(r.tl(), vec2(r.w(), eh), pad, textPad, sText.font);
+			r = ql.getRect(r.w());
+
+			{
+				Rect rClose = rectTRDim(r.tr(), vec2(fontHeight*0.9f));
+
+				{
+					TextBoxSettings tbs = sTextBox; 
+					BoxSettings bs = boxSettings(tbs.boxSettings.color);
+					tbs.boxSettings = bs;
+
+					if(qButton(rClose, "", &tbs)) {
+						colorPickerColor = colorPickerColorStart;
+						pd->finished = true;
+						popupStackCount = 0;
+					}
+
+					Vec4 c = sText.color;
+					rClose = round(rClose);
+					rClose = rectCenDim(rClose.c(), vec2(fontHeight * 0.5f));
+					dxDrawCross(rClose.c(), rClose.w(), rClose.w()*0.3f, c);
+				}
+			}
+
+			Vec2 cen = r.c();
+			float height = r.h();
+
+			//
+
+			float triangleOffset = 0.1f * fontHeight;
+
+			// If we don't clamp we can loose hue information which is annoying when picking colors.
+			float minRange = 0.001f;
+			float maxRange = 0.999f;	
+
+			//
+
+			float hue = 0;
+			float saturation = 0;
+			float lightness = 0;
+
+			{
+				Vec3 hsl = rgbToHslf(colorPickerColor.rgb);
+
+				hue = hsl.x;
+				saturation = hsl.y;
+				lightness = hsl.z;
+			}
+
+			// Triangle.
+			{
+				float triangleRadius = r.w() / 2 - ringThickness - triangleOffset;
+				Vec2 dir = norm(vec2(0,1)) * triangleRadius;
+
+				Vec2 tp0 = cen + rotate(dir, degreeToRadian((360/3.0f)*2));
+				Vec2 tp1 = cen + dir;
+				Vec2 tp2 = cen + rotate(dir, degreeToRadian(360/3.0f));
+
+				{
+					bool hot = len(input->mousePosNegative - cen) <= triangleRadius;
+					int id = dragAction(hot);
+					if(isActive(id) || wasActive(id)) {
+						// Convert point to value.
+						Vec2 mp = input->mousePosNegative;
+						Vec2 trianglePoint = closestPointToTriangle(mp, tp0, tp1, tp2);
+
+						lightness = mapRange(trianglePoint.x, tp0.x, tp2.x, minRange, maxRange);
+						lightness = clamp(lightness, minRange, maxRange);
+						float yMax;
+						if(lightness <= 0.5f) yMax = mapRange(lightness, minRange, 0.5f, tp0.y, tp1.y);
+						else yMax = mapRange(lightness, 0.5f, maxRange, tp1.y, tp0.y);
+
+						saturation = mapRange(trianglePoint.y, tp0.y, yMax, minRange, maxRange);
+
+						saturation = clamp(saturation, minRange, maxRange);
+					}
+					if(wasActive(id)) {
+						colorChanged = true;
+					}
+				}
+
+				// Draw triangle.
+				{
+					pfSetGamma(true);
+					defer { pfSetGamma(); };
+
+					dxBeginPrimitiveColored(vec4(1), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					dxPushVertex(pVertex( tp0, hslToRgbf(hue, 0, 0,    1) ));
+					dxPushVertex(pVertex( tp1, hslToRgbf(hue, 1, 0.5f, 1) ));
+					dxPushVertex(pVertex( tp2, hslToRgbf(hue, 1, 1,    1) ));
+					dxEndPrimitive();
+
+					// Outline.
+					dxBeginPrimitiveColored(cOutline, D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP);
+					dxPushVertex(pVertex(tp0));
+					dxPushVertex(pVertex(tp1));
+					dxPushVertex(pVertex(tp2));
+					dxPushVertex(pVertex(tp0));
+					dxEndPrimitive();
+				}
+
+				// Draw triangle point.
+				{
+					Vec2 trianglePoint;
+
+					// Convert value to point.
+					{
+						trianglePoint.x = mapRange(lightness, minRange, maxRange, tp0.x, tp2.x);
+						float yMax;
+						if(lightness <= 0.5f) yMax = mapRange(lightness, minRange, 0.5f, tp0.y, tp1.y);
+						else yMax = mapRange(lightness, 0.5f, maxRange, tp1.y, tp0.y);
+
+						trianglePoint.y = mapRange(saturation, minRange, maxRange, tp0.y, yMax);
+					}
+
+					drawMarker(trianglePoint);
+				}
+			}
+
+			// Circle.
+			{
+				Vec2 cp = cen;
+				float cr = r.w()/2;
+
+				{
+					float distToCenter = len(input->mousePosNegative - cen);
+					bool hot = between(distToCenter, cr-ringThickness, cr);
+
+					int id = dragAction(hot);
+					if(isActive(id) || wasActive(id)) {
+						// Angle to hue.
+
+						Vec2 mp = input->mousePosNegative;
+						Vec2 dir = mp - cp;
+						float angle = angleVec2(vec2(0,1), dir);
+
+						if(dot(dir, vec2(1,0)) < 0) angle = M_PI + M_PI-angle;
+						hue = mapRange(angle, 0.0f, (float)M_2PI, 0.0f, 1.0f);
+
+						if(saturation == 0) saturation = minRange;
+					}
+					if(wasActive(id)) {
+						colorChanged = true;
+					}
+				}
+
+				dxDrawHueRing(cp, cr, ringThickness);
+
+				// Draw hue point.
+				{
+					Vec2 dir = rotate(vec2(0,1), hue*M_2PI);
+					Vec2 huePoint = cen + dir * (cr - ringThickness/2);
+
+					drawMarker(huePoint);
+				}
+
+				// Circle outline.
+				{
+					Vec2 cp = cen;
+					float cr = r.w()/2;
+				
+					dxDrawRing(cp, cr, cOutline);
+					dxDrawRing(cp, cr-ringThickness, cOutline);
+				}
+			}
+
+			Vec3 color = hslToRgbf(hue, saturation, lightness);
+
+			{
+				TextEditSettings tes = sEdit;
+				tes.floatPrecision = 2;
+
+				ql.pad = vec2(0,0);
+
+				float cols[] = { ql.textW("RGB: ", 2), 0, 0, 0};
+				ql.row(cols, arrayCount(cols));
+
+				bool change = false;
+
+				qText(ql.next(), "HSL: ", vec2i(-1,0));
+
+				{
+					setTabRange(3);
+					defer { setTabRange(); };
+
+					if(qTextEdit(ql.next(), &hue, &tes)) change = true;
+					if(qTextEdit(ql.next(), &saturation, &tes)) change = true;
+					if(qTextEdit(ql.next(), &lightness, &tes)) change = true;
+				}
+
+				if(change) {
+					color = hslToRgbf(hue, saturation, lightness);
+					colorChanged = true;
+				}
+
+				ql.pad.h = pad.h;
+				ql.row(cols, arrayCount(cols));
+
+				qText(ql.next(), "RGB: ", vec2i(-1,0));
+
+				{
+					setTabRange(3);
+					defer { setTabRange(); };
+
+					if(qTextEdit(ql.next(), &color.r, &tes)) colorChanged = true;
+					if(qTextEdit(ql.next(), &color.g, &tes)) colorChanged = true;
+					if(qTextEdit(ql.next(), &color.b, &tes)) colorChanged = true;
+				}
+
+				//
+
+				ql.pad.w = pad.w;
+
+				ql.row(0.0f,0.0f);
+
+				float grayScale = (color.r + color.g + color.b) / 3.0f;
+				TextBoxSettings tbs = sButton;
+				tbs.textSettings = sText2;
+
+				float threshold = 0.6f;
+
+				tbs.boxSettings.color = colorPickerColorStart;
+				float grey = rgbToGrayScale(tbs.boxSettings.color.rgb);
+				tbs.textSettings.color.rgb = grey < threshold ? sText2.color.rgb : rgbInvert(sText2.color.rgb);
+				tbs.textSettings.shadowColor.rgb = grey < threshold ? sText2.shadowColor.rgb : rgbInvert(sText2.shadowColor.rgb);
+
+				if(rgbToGrayScale(tbs.boxSettings.color.rgb) > threshold) {
+					tbs.textSettings.color.rgb = rgbInvert(sText2.color.rgb);
+					tbs.textSettings.shadowColor.rgb = rgbInvert(sText2.shadowColor.rgb);
+				}
+
+				if(qButton(ql.next(), "Revert", &tbs)) color = colorPickerColorStart.rgb;
+
+				tbs.boxSettings.color = vec4(color,1);
+				grey = rgbToGrayScale(tbs.boxSettings.color.rgb);
+				tbs.textSettings.color.rgb = grey < threshold ? sText2.color.rgb : rgbInvert(sText2.color.rgb);
+				tbs.textSettings.shadowColor.rgb = grey < threshold ? sText2.shadowColor.rgb : rgbInvert(sText2.shadowColor.rgb);
+
+				if(qButton(ql.next(), "Accept", &tbs)) {
+					pd->finished = true;
+					popupStackCount = 0;
+				}
+			}
+
+			if(applyImmediately || colorChanged) {
+				colorPickerColor.rgb = color;
+			}
+
+		} else {
+			float alpha = colorPickerColor.a;
+
+			pfDrawRectGradientH(r, vec4(0,1), vec4(1,1));
+			pfDrawRectOutline(r.expand(2), cOutline);
+
+			float rBottom = r.bottom + markerRadius + markerThickness1;
+			float rTop = r.top - markerRadius - markerThickness1;
+
+			{
+				int event = goDragAction(r, Gui_Focus_MLeft);
+				if(event > 0) {
+					Vec2 mp = input->mousePosNegative;
+					float a = mapRange(mp.y, rBottom, rTop, 0.0f, 1.0f);
+					clamp(&a, 0.0f, 1.0f);
+
+					alpha = a;
+				}
+				if(event == 2) colorChanged = true;
+			}
+
+			float py = mapRange(alpha, 0.0f, 1.0f, rBottom, rTop);
+
+			drawMarker(vec2(r.cx(), py));
+
+			if(applyImmediately || colorChanged) {
+				colorPickerColor.a = alpha;
+			}
+		}
+	}
 }
 
 void Gui::updateComboBoxPopups() {
@@ -2043,10 +2588,10 @@ void Gui::updateComboBoxPopups() {
 	float popupMaxWidth = 300;
 
 	for(int i = 0; i < popupStackCount; i++) {
-		PopupData pd = popupStack[i];
+		PopupData* pd = popupStack + i;
 		int popupIndex = i;
 
-		if(pd.type == POPUP_TYPE_COMBO_BOX) {
+		if(pd->type == POPUP_TYPE_COMBO_BOX) {
 			ComboBoxData cData = comboBoxData;
 			BoxSettings ps = sPopup;
 
@@ -2058,30 +2603,41 @@ void Gui::updateComboBoxPopups() {
 			// float topBottomPadding = padding*0.3f;
 			float topBottomPadding = 0;
 
-			float eh = fontHeight * 1.2f;
+			float eh = round(fontHeight * 1.2f);
 
 			float border = 0;
 			if(ps.borderColor.a > 0) border = 1;
 
 			float maxWidth = 0;
-			for(int i = 0; i < cData.count; i++) {
+			for(int i = 0; i < cData.strings.count; i++) {
 				float w = getTextDim(cData.strings[i], font).w;
 				maxWidth = max(maxWidth, w);
 			}
-			maxWidth += padding*2 + 4;
+			maxWidth += padding*2 + 4 + sScroll.scrollBarWidth;
 			clampMin(&maxWidth, popupMinWidth);
 
-			float popupWidth = max(maxWidth, pd.r.w());
-			float popupHeight = eh * cData.count + border*2 + topBottomPadding*2;
+			float popupWidth = max(maxWidth, pd->r.w());
+			float popupHeight = eh * cData.strings.count + border*2 + topBottomPadding*2;
 
-			Rect r = rectTDim(pd.r.t()-vec2(0,comboboxPopupTopOffset), vec2(popupWidth, popupHeight));
+			Rect r = rectTDim(pd->r.t()-vec2(0,comboboxPopupTopOffset), vec2(popupWidth, popupHeight));
+			r = round(r);
 
 			// Clamp rect to window rect.
 			{
-				Vec2 offset = rectInsideRectClamp(r, getScreenRect(windowSettings));
+				Rect sr = theGState->screenRect;
+				if(r.h() > sr.h()) {
+					r.top = sr.top;
+					r.bottom = sr.bottom;
+				}
+				if(r.w() > sr.w()) {
+					r.left = sr.left;
+					r.right = sr.right;
+				}
+				Vec2 offset = rectInsideRectClamp(r, sr);
 				r = r.trans(offset);
 			}
-			
+
+			setHotAllMouseOver(r, zLevel);
 			popupStack[popupIndex].rCheck = r;
 
 			// Shadow.
@@ -2091,31 +2647,54 @@ void Gui::updateComboBoxPopups() {
 			// Background.
 			drawBox(r, scissor, sPopup);
 
+			//
 
-			Rect lr = r.expand(vec2(-border*2));
-			Vec2 p = lr.tl() + vec2(0,-topBottomPadding);
+			r = r.expand(-2);
+			
+			static float scrollHeight = 0;
+			float yOffset, wOffset;
+			{
+				static float scrollValue = 0;
 
-			float ew = lr.w();
+				sScroll.scrollBarPadding = 0;
+				sScroll.scrollAmount = eh;
+				qScroll(r, scrollHeight, &scrollValue, &yOffset, &wOffset);
+			}
 
-			Vec4 cButton = sPopup.color;
-			TextBoxSettings tbs = textBoxSettings(sComboBox.textSettings, boxSettings());
-			tbs.sideAlignPadding = padding - border;
+			// Rect lr = r.expand(vec2(-border*2));
+			// Vec2 p = lr.tl() + vec2(0,-topBottomPadding);
 
-			BoxSettings bs = boxSettings(cButton);
-			BoxSettings bsSelected = sEdit.textBoxSettings.boxSettings;
+			Vec2 p = r.tl() + vec2(0,yOffset);
+			float ew = r.w() - wOffset;
 
-			for(int i = 0; i < cData.count; i++) {
-				bool selected = cData.index == i;
-				tbs.boxSettings = selected ? bsSelected : bs;
+			float startY = p.y;
+			defer { qScrollEnd(); };
+			defer { scrollHeight = startY - p.y - 1; };
 
-				Rect br = rectTLDim(p, vec2(ew, eh)); p.y -= eh;
-				// if(selected) br = rectExpand(br, vec2(-padding*0.5f,0));
+			//
 
-				if(qButton(br, cData.strings[i], vec2i(-1,0), &tbs)) {
-					comboBoxData.index = i;
-					comboBoxData.finished = true;
+			{
+				Vec4 cButton = sPopup.color;
+				TextBoxSettings tbs = textBoxSettings(sComboBox.textSettings, boxSettings());
+				tbs.sideAlignPadding = padding - border;
 
-					*comboBoxIndex = comboBoxData.index;
+				BoxSettings bs = boxSettings(cButton);
+				BoxSettings bsSelected = sEdit.textBoxSettings.boxSettings;
+
+				for(int i = 0; i < cData.strings.count; i++) {
+					bool selected = cData.index == i;
+					tbs.boxSettings = selected ? bsSelected : bs;
+
+					Rect br = rectTLDim(p, vec2(ew, eh)); p.y -= eh;
+					// if(selected) br = rectExpand(br, vec2(-padding*0.5f,0));
+
+					if(qButton(br, cData.strings[i], vec2i(-1,0), &tbs)) {
+						// if(comboBoxData.index != i) comboBoxData.change = true;
+						comboBoxData.change = true;
+
+						comboBoxData.index = i;
+						pd->finished = true;
+					}
 				}
 			}
 		}

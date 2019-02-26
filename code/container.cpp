@@ -1,14 +1,19 @@
 
+Meta_Parse_Struct(0);
 template <class T> struct DArray {
 
-	T* data;
-	int count;
-	int reserved;
-	int startSize;
+	T* data; // @V0 @SizeVar(count)
+	int count; // @V0 
+	int reserved; // @V0 
+	int startSize; // @V0 
+
+	bool customAlloc; // @V0 
+	void* (*allocFunc) (int size);
+	void  (*freeFunc) (void* ptr);
 
 	//
 
-	void init();
+	void init(void* (*alloc) (int) = 0, void (*free) (void* ptr) = 0);
 	int  getReservedCount(int newCount);
 	void resize(int newCount);
 	void reserve(int reserveCount);
@@ -16,22 +21,25 @@ template <class T> struct DArray {
 	void copy(T* d, int n);
 	void copy(DArray<T> array);
 	void copy(DArray<T>* array);
-	void dealloc();
+	void free();
 	void freeResize(int n);
 	void push(T element);
+	void push(T* element);
 	void push(T* elements, int n);
+	void pushStr(T* string, bool includeZero = false);
 	void push(DArray* array);
 	void insertMove(T element, int index);
 	void insert(T element, int index);
 	int  find(T value);
+	int  findStr(T value);
 	T*   retrieve(int addedCount);
 
 	bool operator==(DArray<T> array);
 	bool operator!=(DArray<T> array);
 
 	void clear();
-	T    first();
-	T    last();
+	T&   first();
+	T&   last();
 	bool empty();
 	T    pop();
 	void pop(int n);
@@ -40,11 +48,31 @@ template <class T> struct DArray {
 	T&   at(int i);
 	T*   operator+(int i);
 	T*   atr(int i);
+
+	T* begin() { return data; };
+	T* end() { return data+count; };
 };
 
-template <class T> void DArray<T>::init() {
+template <class T> DArray<T> dArray(void* (*alloc) (int) = 0, void (*free) (void* ptr) = 0) {
+	DArray<T> array;
+	array.init(alloc, free);
+	return array;
+}
+
+template <class T> DArray<T> dArray(int reservedCount, void* (*alloc) (int)) {
+	DArray<T> array;
+	array.init(alloc);
+	array.reserve(reservedCount);
+	return array;
+}
+
+template <class T> void DArray<T>::init(void* (*allocFunc) (int) = 0, void (*freeFunc) (void* ptr) = 0) {
 	*this = {};
 	startSize = 100;
+
+	if(allocFunc) customAlloc = true;
+	this->allocFunc = allocFunc;
+	this->freeFunc = freeFunc;
 }
 
 template <class T> int DArray<T>::getReservedCount(int newCount) {
@@ -59,16 +87,23 @@ template <class T> int DArray<T>::getReservedCount(int newCount) {
 template <class T> void DArray<T>::resize(int newCount) {
 	int reservedCount = getReservedCount(newCount);
 
-	T* newData = mallocArray(T, reservedCount);
+	T* newData = customAlloc ? (T*)allocFunc(sizeof(T)*reservedCount) :
+	                           mallocArray(T, reservedCount);
 	copyArray(newData, data, T, count);
 
-	if(data) free(data);
+	if(data) {
+		if(customAlloc) {
+			if(freeFunc) freeFunc(data);
+		} else ::free(data);
+	}
+
 	data = newData;
 	reserved = reservedCount;
 }
 
 template <class T> void DArray<T>::reserve(int reserveCount) {
 	if(reserveCount > reserved) {
+		startSize = reserveCount; // Hack.
 		resize(reserveCount);
 	}
 }
@@ -89,9 +124,9 @@ template <class T> void DArray<T>::copy(DArray<T>* array) {
 	return copy(*array);
 }
 
-template <class T> void DArray<T>::dealloc() {
+template <class T> void DArray<T>::free() {
 	if(data) {
-		free(data);
+		customAlloc ? freeFunc(data) : ::free(data);
 		count = 0;
 		data = 0;
 		reserved = 0;
@@ -99,7 +134,7 @@ template <class T> void DArray<T>::dealloc() {
 }
 
 template <class T> void DArray<T>::freeResize(int n) {
-	dealloc();
+	free();
 	resize(n);
 }
 
@@ -109,11 +144,23 @@ template <class T> void DArray<T>::push(T element) {
 	data[count++] = element;
 }
 
+template <class T> void DArray<T>::push(T* element) {
+	if(count == reserved) resize(count+1);
+
+	data[count++] = *element;
+}
+
 template <class T> void DArray<T>::push(T* elements, int n) {
 	if(count+n-1 >= reserved) resize(count+n);
 
 	copyArray(data+count, elements, T, n);
 	count += n;
+}
+
+template <class T> void DArray<T>::pushStr(T* string, bool includeZero) {
+	int size = strLen(string);
+	if(includeZero) size++;
+	push(string, size);
 }
 
 template <class T> void DArray<T>::push(DArray* array) {
@@ -146,6 +193,14 @@ template <class T> int DArray<T>::find(T value) {
 	return 0;
 }
 
+template <class T> int DArray<T>::findStr(T value) {
+	for(int i = 0; i < count; i++) {
+		if(strCompare(value, data[i])) return i+1;
+	}
+
+	return 0;
+}
+
 template <class T> T* DArray<T>::retrieve(int addedCount) {
 	if(count+addedCount-1 >= reserved) resize(count+addedCount);
 
@@ -165,8 +220,8 @@ template <class T> bool DArray<T>::operator==(DArray<T> array) {
 template <class T> bool DArray<T>::operator!=(DArray<T> array) { return !(*this == array); }
 
 template <class T> void DArray<T>::clear()           { count = 0; }
-template <class T> T    DArray<T>::first()           { return data[0]; }
-template <class T> T    DArray<T>::last()            { return data[count-1]; }
+template <class T> T&   DArray<T>::first()           { return data[0]; }
+template <class T> T&   DArray<T>::last()            { return data[count-1]; }
 template <class T> bool DArray<T>::empty()           { return count == 0; };
 template <class T> T    DArray<T>::pop()             { return data[--count]; }
 template <class T> void DArray<T>::pop(int n)        { count -= n; }
@@ -277,6 +332,8 @@ template <class T> struct LinkedList {
 	Node* head; // list->prev points to last node.
 	int count;
 
+	Node* currentNode;
+
 	bool singly;
 	void* (*alloc) (int size);
 
@@ -284,10 +341,13 @@ template <class T> struct LinkedList {
 
 	void init(bool singly = false, void* (*alloc) (int) = 0);
 	void insert(T element, int index);
+	void append(T* elements, int elementCount);
 	void append(T element);
 	void remove(int index);
 	void remove();
 	void clear();
+
+	T* next();
 };
 
 template <class T> void LinkedList<T>::init(bool singly = false, void* (*alloc) (int) = 0) {
@@ -295,13 +355,15 @@ template <class T> void LinkedList<T>::init(bool singly = false, void* (*alloc) 
 	count = 0;
 	this->singly = singly;
 
+	currentNode = 0;
+
 	// We assume custom allocated memory is not beeing freed.
 	this->alloc = alloc;
 }
 
 template <class T> void LinkedList<T>::insert(T element, int index) {
 	Node* newNode = alloc ? (Node*) alloc(sizeof(Node)) : 
-							(Node*)malloc(sizeof(Node));
+							      (Node*)mallocX(sizeof(Node));
 	newNode->data = element;
 
 	if(!singly) {
@@ -356,6 +418,10 @@ template <class T> void LinkedList<T>::insert(T element, int index) {
 	}
 
 	count++;
+}
+
+template <class T> void LinkedList<T>::append(T* elements, int elementCount) { 
+	for(int i = 0; i < elementCount; i++) insert(elements[i], count); 
 }
 
 template <class T> void LinkedList<T>::append(T element) { return insert(element, count); }
@@ -434,4 +500,11 @@ template <class T> void LinkedList<T>::clear() {
 
 	head = 0;
 	count = 0;
+}
+
+template <class T> T* LinkedList<T>::next() {
+	if(currentNode == 0) currentNode = head;
+	else currentNode = currentNode->next;
+
+	return currentNode;
 }

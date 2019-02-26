@@ -3,16 +3,17 @@ struct AssetInfo {
 	FILETIME lastWriteTime;
 };
 
+Meta_Parse_Struct(0);
 struct Texture {
-	char* name;
-	char* file;
+	char* name; // @String
+	char* file; // @String
 
 	uint type;
 	Vec2i dim;
 
-	D3D11_TEXTURE2D_DESC desc;
-	ID3D11Texture2D* resource;
-	ID3D11ShaderResourceView* view;
+	D3D11_TEXTURE2D_DESC desc; // @Ignore
+	ID3D11Texture2D* resource; // @Ignore
+	ID3D11ShaderResourceView* view; // @Ignore
 
 	uint format;
 
@@ -20,7 +21,9 @@ struct Texture {
 	int spriteCount;
 	Vec2i cellDim;
 
-	AssetInfo assetInfo;
+	AssetInfo assetInfo; // @Ignore
+
+	bool hasAlpha;
 
 	// int channels;
 	// int levels;
@@ -29,28 +32,29 @@ struct Texture {
 	// int channelFormat;
 };
 
+Meta_Parse_Struct(0);
 struct FrameBuffer {
-	char* name;
+	char* name; // @String
 	Vec2i dim;
 
-	DXGI_FORMAT format;
+	DXGI_FORMAT format; // @Ignore
 
 	bool hasRenderTargetView;
 	bool hasShaderResourceView;
 	bool hasDepthStencilView;
 
-	ID3D11Texture2D* texture;
+	ID3D11Texture2D* texture; // @Ignore
 
 	bool isShadow;
 	bool makeDepthView;
 
 	union {
 		struct {
-			ID3D11RenderTargetView* renderTargetView;
-			ID3D11ShaderResourceView* shaderResourceView;
+			ID3D11RenderTargetView* renderTargetView; // @Ignore
+			ID3D11ShaderResourceView* shaderResourceView; // @Ignore
 		};
 
-		ID3D11DepthStencilView* depthStencilView;
+		ID3D11DepthStencilView* depthStencilView; // @Ignore
 	};
 
 	// dim, msaa, format, viewtypes, 
@@ -84,12 +88,6 @@ enum BlendState {
 	Blend_State_Add,
 };
 
-struct PrimitiveVertex {
-	Vec3 pos;
-	Vec4 color;
-	Vec2 uv;
-};
-
 struct MeshVertex {
 	Vec3 pos;
 	Vec2 uv;
@@ -116,80 +114,25 @@ D3D11_INPUT_ELEMENT_DESC mainShaderInputLayout[] = {
 	{ "BLENDINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT,  0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 };
 
-struct Material {
-	char* name;
-	char* file;
-
-	Vec3 Ka;   // ambient
-	Vec3 Kd;   // diffuse
-	Vec3 Ks;   // specular
-	float Ns;  // specularExponent
-	Vec3 Ke;   // emission
-	float Ni;  // refractionIndex
-	float d;   // alpha
-	int illum; // illuminationMode
-
-	Texture map_Ka;
-	Texture map_Kd;
-	Texture map_Ks;
-	Texture bump;
-	Texture disp;
-
-	float heightScale;
+Meta_Parse_Struct(0);
+struct GraphicsSettings {
+	Vec2i cur3dBufferRes;
+	int msaaSamples;
+	float resolutionScale;
+	float aspectRatio;
+	int fieldOfView;
+	float nearPlane;
+	float farPlane;
 };
 
-struct Object {
-	// Mesh* m;
-	char* name;
-	Vec3 pos;
-	Vec3 dim;
-	Vec4 color;
-	Quat rot;
-
-	char* material;
-	bool hasAlpha;
-};
-
-struct Mesh {
-	struct Group {
-		char* name;
-		int offset;
-		int size;
-
-		Material material;
-		bool smoothing;
-	};
-
-	char* name;
-	char* file;
-	char* mtlFile;
-
-	Group* groups;
-	int groupCount;
-
-	ID3D11Buffer* vertexBuffer;
-	int size;
-
-	DArray<MeshVertex> vertices;
-
-	bool swapWinding;
-
-	//
-
-	AnimationPlayer animPlayer;
-
-	Bone* bones;
-	int boneCount;
-	BoneNode boneTree;
-
-	XForm* basePose;
-
-	Animation animations[10];
-	int animationCount;
-
-	//
-
-	AssetInfo assetInfo[2];
+Meta_Parse_Struct(0);
+struct GraphicsMatrices {
+	Mat4 view2d;
+	Mat4 ortho;
+	Mat4 view;
+	Mat4 proj;
+	Mat4 viewInv;
+	Mat4 projInv;
 };
 
 struct DXTimer {
@@ -204,7 +147,7 @@ struct DXTimer {
 
 	bool initialized;
 
-	f64 dt;
+	double dt;
 
 	void init(ID3D11Device* d3dDevice, ID3D11DeviceContext* d3ddc) {
 		this->d3ddc = d3ddc;
@@ -265,7 +208,7 @@ struct DXTimer {
 			// 		return false;
 			// 	}
 
-			dt = (queryDataEnd - queryDataStart) / (f64)queryDataDisjoint.Frequency;
+			dt = (queryDataEnd - queryDataStart) / (double)queryDataDisjoint.Frequency;
 			dt *= 1000; // To ms.
 
 			result = true;

@@ -2,6 +2,9 @@
 inline int colorFloatToInt(float color) { return round(color * 255); };
 inline float colorIntToFloat(int color) { return (1.0f / 255) * color; };
 
+float rgbToGrayScale(Vec3 rgb) { return (rgb.r + rgb.g + rgb.b) / 3.0f; };
+Vec3 rgbInvert(Vec3 rgb) { return vec3(1) - rgb; };
+
 Vec3 rgbToHsl(double r, double g, double b) {
 	Vec3 color;
 

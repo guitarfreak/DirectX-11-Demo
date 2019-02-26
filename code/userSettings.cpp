@@ -15,6 +15,7 @@
 	
 #define App_Session_File   ".\\session.tmp"
 #define Game_Settings_File ".\\settings.tmp"
+#define Gui_Session_File   ".\\guiSettings.tmp"
 #define Saves_Folder       ".\\saves\\"
 #define Save_State1        "saveState1.sav"
 
@@ -24,17 +25,21 @@
 #define DATA_FOLDER(str) "..\\data\\" str
 #endif
 
-#define Gui_Session_File    DATA_FOLDER("guiSettings.tmp")
 #define App_Font_Folder     DATA_FOLDER("Fonts\\")
 #define App_Audio_Folder    DATA_FOLDER("Audio\\")
 #define App_Texture_Folder  DATA_FOLDER("Textures\\")
 #define App_Material_Folder DATA_FOLDER("Materials\\")
 #define App_Mesh_Folder     DATA_FOLDER("Meshes\\")
+#define App_Map_Folder      DATA_FOLDER("Maps\\")
+
+#define Map_File_Extension  ".map"
 
 //
 
 struct AppSessionSettings {
 	Rect windowRect;
+	Vec3 camPos;
+	Vec2 camRot;
 };
 
 void appWriteSessionSettings(char* filePath, AppSessionSettings* at) {
@@ -49,22 +54,4 @@ void saveAppSettings(AppSessionSettings at) {
 	if(fileExists(App_Session_File)) {
 		appWriteSessionSettings(App_Session_File, &at);
 	}
-}
-
-//
-
-struct DebugSessionSettings {
-	Rect menuPanel;
-	int menuPanelActiveSection;
-	Rect profilerPanel;
-	int profilerPanelActiveSection;
-	int panelHierarchy[2];
-};
-
-void debugWriteSessionSettings(DebugSessionSettings* at) {
-	writeDataToFile((char*)at, sizeof(DebugSessionSettings), Gui_Session_File);
-}
-
-void debugReadSessionSettings(DebugSessionSettings* at) {
-	readDataFromFile((char*)at, Gui_Session_File);
 }

@@ -1,94 +1,108 @@
 #pragma once
 
+Meta_Parse_Struct(0);
 union Vec2 {
 	struct {
-		float x, y;
+		float x, y; // @V0
 	};
 
 	struct {
-		float w, h;
+		float w, h; // @Ignore
 	};
 
-	float e[2];
+	struct {
+		float min, max; // @Ignore
+	};
+
+	float e[2]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Vec2i {
 	struct {
-		int x, y;
+		int x, y; // @V0
 	};
 
 	struct {
-		int w, h;
+		int w, h; // @Ignore
 	};
 
-	int e[2];
+	struct {
+		int min, max; // @Ignore
+	};
+
+	int e[2]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Vec3 {
 	struct {
-		float x, y, z;
+		float x, y, z; // @V0
 	};
 
 	struct {
-		float r, g, b;
+		float r, g, b; // @Ignore
 	};
 
 	struct {
-		Vec2 xy;
+		Vec2 xy; // @Ignore
 	};
 
 	struct {
-		float nothing;
-		Vec2 yz;
+		float nothing; // @Ignore
+		Vec2 yz; // @Ignore
 	};
 
-	float e[3];
+	float e[3]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Vec3i {
 	struct {
-		int x, y, z;
+		int x, y, z; // @V0
 	};
 
 	struct {
-		Vec2i xy;
+		Vec2i xy; // @Ignore
 	};
 
 	struct {
-		int nothing;
-		Vec2i yz;
+		int nothing; // @Ignore
+		Vec2i yz; // @Ignore
 	};
 
-	float e[3];
+	float e[3]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Vec4 {
 	struct {
-		float x, y, z, w;
+		float x, y, z, w; // @V0
 	};
 
 	struct {
-		Vec2 xy;
-		Vec2 zw;
+		Vec2 xy; // @Ignore
+		Vec2 zw; // @Ignore
 	};
 
 	struct {
-		Vec3 xyz;
-		float w;
+		Vec3 xyz; // @Ignore
+		float w; // @Ignore
 	};
 
 	struct {
-		float r, g, b, a;
+		float r, g, b, a; // @Ignore
 	};
 
 	struct {
-		Vec3 rgb;
-		float a;
+		Vec3 rgb; // @Ignore
+		float a; // @Ignore
 	};
 
-	float e[4];
+	float e[4]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Mat4 {
 	struct {
 		float xa, xb, xc, xd;
@@ -98,55 +112,68 @@ union Mat4 {
 	};
 
 	struct {
-		float x1, y1, z1, w1;
-		float x2, y2, z2, w2;
-		float x3, y3, z3, w3;
-		float x4, y4, z4, w4;
+		float x1, y1, z1, w1; // @Ignore
+		float x2, y2, z2, w2; // @Ignore
+		float x3, y3, z3, w3; // @Ignore
+		float x4, y4, z4, w4; // @Ignore
 	};
 
-	float e[16];
+	float e[16]; // @Ignore
 
-	float e2[4][4];
+	float e2[4][4]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 union Quat {
 	struct {
-		float w, x, y, z;
+		float w, x, y, z; // @V0
 	};
 
 	struct {
-		float nothing;
-		Vec3 xyz;
+		float nothing; // @Ignore
+		Vec3 xyz; // @Ignore
 	};
 
-	float e[4];
+	float e[4]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 struct XForm {
-	Vec3 trans;
-	Quat rot;
-	Vec3 scale;
+	Vec3 trans; // @V0
+	Quat rot; // @V0
+	Vec3 scale; // @V0
 };
 
+struct Line2 {
+	Vec2 a;
+	Vec2 b;
+};
+
+struct Line3 {
+	Vec3 a;
+	Vec3 b;
+};
+
+Meta_Parse_Struct(0);
 union Rect {
 	struct {
-		Vec2 min;
-		Vec2 max;
+		Vec2 min; // @Ignore
+		Vec2 max; // @Ignore
 	};
 
 	struct {
-		Vec2 center;
-		Vec2 dimension;
+		Vec2 center; // @Ignore
+		Vec2 dimension; // @Ignore
 	};
 
 	struct {
-		float left;
-		float bottom;
-		float right;
-		float top;
+		float left; // @V0
+		float bottom; // @V0
+		float right; // @V0
+		float top; // @V0
 	};
 
-	float e[4];
+	float e[4]; // @Ignore
 
 	float w  ();
 	float h  ();
@@ -200,25 +227,26 @@ union Rect {
 	bool zero();
 };
 
+Meta_Parse_Struct(0);
 union Recti {
 	struct {
-		Vec2i min;
-		Vec2i max;
+		Vec2i min; // @Ignore
+		Vec2i max; // @Ignore
 	};
 
 	struct {
-		Vec2i center;
-		Vec2i dimension;
+		Vec2i center; // @Ignore
+		Vec2i dimension; // @Ignore
 	};
 
 	struct {
-		int left;
-		int bottom;
-		int right;
-		int top;
+		int left; // @V0
+		int bottom; // @V0
+		int right; // @V0
+		int top; // @V0
 	};
 
-	int e[4];
+	int e[4]; // @Ignore
 
 	float w  ();
 	float h  ();
@@ -228,33 +256,62 @@ union Recti {
 	Vec2i c  ();
 };
 
+Meta_Parse_Struct(0);
 union Rect3 {
 	struct {
-		Vec3 min;
-		Vec3 max;
+		Vec3 min; // @V0
+		Vec3 max; // @V0
 	};
 
 	struct {
-		Vec3 cen;
-		Vec3 dim;
+		Vec3 center; // @Ignore
+		Vec3 dimension; // @Ignore
 	};
 
-	float e[6];
+	float e[6]; // @Ignore
+
+	Vec3  dim();
+	Vec3  c  ();
+	XForm xf();
 };
 
+Meta_Parse_Struct(0);
 union Rect3i {
 	struct {
-		Vec3i min;
-		Vec3i max;
+		Vec3i min; // @V0
+		Vec3i max; // @V0
 	};
 
 	struct {
-		Vec3i cen;
-		Vec3i dim;
+		Vec3i center; // @Ignore
+		Vec3i dimension; // @Ignore
 	};
 
-	float e[6];
+	float e[6]; // @Ignore
+
 };
+
+//
+
+inline int randomInt(int from, int to) {
+	return pcg32_boundedrand(to - from + 1) + from;
+}
+
+inline float randomInt01() {
+	return randomInt(0,1);
+}
+
+inline float randomFloat(float from, float to) {
+	return randomInt(from/0.000001f, to/0.000001f) * 0.000001f;
+}
+
+inline float randomFloat01() {
+	return randomFloat(0,1);
+}
+
+inline float randomOffset(float offset) {
+	return randomFloat(-offset, offset);
+}
 
 //
 // @Vec2
@@ -284,12 +341,15 @@ inline Vec2 & operator-=(Vec2& a, Vec2 b) { return a = a - b; };
 inline Vec2 & operator-=(Vec2& a, float b) { return a = a - b; };
 
 inline Vec2 operator/(Vec2 a, float b) { return {a.x/b, a.y/b}; };
+inline Vec2 operator/(float b, Vec2 a) { return {b/a.x, b/a.y}; };
 inline Vec2 operator/(Vec2 a, Vec2 b) { return {a.x/b.x, a.y/b.y}; };
 inline Vec2 & operator/=(Vec2& a, Vec2 b) { return a = a / b; };
 inline Vec2 & operator/=(Vec2& a, float b) { return a = a / b; };
 
 inline bool operator==(Vec2 a, Vec2 b) { return (a.x == b.x) && (a.y == b.y); };
 inline bool operator!=(Vec2 a, Vec2 b) { return !(a==b); };
+inline bool operator<(Vec2 a, Vec2 b) { return (a.x<b.x)&&(a.y<b.y); }
+inline bool operator>(Vec2 a, Vec2 b) { return (a.x>b.x)&&(a.y>b.y); }
 
 inline Vec2 operator+(Vec2 a, Vec2i b) { return {a.x+b.x, a.y+b.y}; }
 
@@ -353,6 +413,24 @@ inline float angleVec2(Vec2 dir1, Vec2 dir2) {
 	return angle;
 }
 
+Vec2 fitDim(Vec2 srcDim, Vec2 dstDim, bool fill = true) {
+	Vec2 filledDim;
+
+	float srcAspect = srcDim.w / srcDim.h;
+	float dstAspect = dstDim.w / dstDim.h;
+	bool scaleWidth = !fill ? srcAspect < dstAspect : srcAspect > dstAspect;
+
+	if(scaleWidth) {
+		filledDim.w = srcDim.w;
+		filledDim.h = dstDim.h * (srcDim.w / dstDim.w);
+	} else {
+		filledDim.h = srcDim.h;
+		filledDim.w = dstDim.w * (srcDim.h / dstDim.h);
+	}
+
+	return filledDim;
+}
+
 //
 
 inline float lenLine(Vec2 p0, Vec2 p1) { return len(p1 - p0); }
@@ -378,25 +456,35 @@ inline Vec2 midOfTwoVectors(Vec2 p0, Vec2 p1, Vec2 p2) {
 	return mid;
 }
 
-inline bool getLineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
-    Vec2 s1 = p1 - p0;
-    Vec2 s2 = p3 - p2;
+inline Vec2 lineNormal(Vec2 p1, Vec2 p2) {
+	float dx = p2.x - p1.x;
+	float dy = p2.y - p1.y;
+	Vec2 normal = vec2(-dy,dx); // or (dy,-dx)
+	normal = norm(normal);
 
-    float s, t;
-
-    s = (-s1.y * (p0.x - p2.x) + s1.x * (p0.y - p2.y)) / (-s2.x * s1.y + s1.x * s2.y);
-    t = ( s2.x * (p0.y - p2.y) - s2.y * (p0.x - p2.x)) / (-s2.x * s1.y + s1.x * s2.y);
-
-    if (s >= 0 && s <= 1 && t >= 0 && t <= 1)
-    {
-        *i = p0 + t*s1;
-        return true;
-    }
-
-    return false;
+	return normal;
 }
 
-float distancePointLine(Vec2 v1, Vec2 v2, Vec2 point, bool infinite = false) {
+inline bool getLineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
+	Vec2 s1 = p1 - p0;
+	Vec2 s2 = p3 - p2;
+
+	float s, t;
+
+	float div = (-s2.x * s1.y + s1.x * s2.y);
+
+	s = (-s1.y * (p0.x - p2.x) + s1.x * (p0.y - p2.y)) / div;
+	t = ( s2.x * (p0.y - p2.y) - s2.y * (p0.x - p2.x)) / div;
+
+	if (s >= 0 && s <= 1 && t >= 0 && t <= 1) {
+		*i = p0 + t*s1;
+		return true;
+	}
+
+	return false;
+}
+
+float distancePointLineX(Vec2 v1, Vec2 v2, Vec2 point, bool infinite = false) {
 	Vec2 diff = v2 - v1;
     if (diff == vec2(0,0))
     {
@@ -418,21 +506,30 @@ float distancePointLine(Vec2 v1, Vec2 v2, Vec2 point, bool infinite = false) {
     return len(diff);
 }
 
+
 Vec2 lineClosestPoint(Vec2 v1, Vec2 v2, Vec2 point) {
 	Vec2 result = {};
-	Vec2 diff = v2 - v1;
-    if (diff == vec2(0,0)) {
-    	result = v1;
-    } else {
-	    float t = ((point.x - v1.x) * diff.x + (point.y - v1.y) * diff.y) / 
-	    		   (diff.x * diff.x + diff.y * diff.y);
 
-	    if 		(t < 0) result = v1;
-	    else if (t > 1) result = v2;
-	    else 			result = v1 + t*diff;
-    }
+	Vec2 dir = v2 - v1;
+	if (dir == vec2(0,0)) {
+		result = v1;
+	} else {
+		float t = ((point.x - v1.x) * dir.x + (point.y - v1.y) * dir.y) / 
+		          (dir.x * dir.x + dir.y * dir.y);
+
+		if      (t < 0) result = v1;
+		else if (t > 1) result = v2;
+		else result = v1 + t*dir;
+	}
 
 	return result;
+}
+
+float distancePointLine(Vec2 v1, Vec2 v2, Vec2 point) {
+	Vec2 cp = lineClosestPoint(v1, v2, point);
+
+	float dist = len(cp - point);
+	return dist;
 }
 
 Vec2 projectPointOnLine(Vec2 p, Vec2 lp0, Vec2 lp1, bool clampDist = false) {
@@ -519,6 +616,16 @@ inline bool lineCircleIntersection(Vec2 lp0, Vec2 lp1, Vec2 cp, float r, Vec2 * 
 	}
 
 	return false;
+}
+
+float floatPrecisionOffset(Vec2 a, Vec2 b, float scale, float min) {
+	float maxVal = max(max(a.x, a.y), max(b.x, b.y));
+	float next = nextafter(maxVal, FLT_MAX);
+	
+	float offset = (next - maxVal)*scale;
+	offset = max(offset, min);
+
+	return offset;
 }
 
 //
@@ -704,7 +811,7 @@ inline bool operator!=(Vec2i a, Vec2i b) { return !(a==b); };
 inline Vec2i clampMin(Vec2i v, Vec2i d) { return {max(v.x, d.x), max(v.y, d.y)}; }
 inline Vec2i clampMax(Vec2i v, Vec2i d) { return {min(v.x, d.x), min(v.y, d.y)}; }
 inline Vec2i clamp(Vec2i v, Recti r) { return {clamp(v.x, r.left, r.right), 
-	                                           clamp(v.y, r.bottom, r.top)}; }
+	                                            clamp(v.y, r.bottom, r.top)}; }
 inline void clamp(Vec2i* v, Recti r) { *v = clamp(*v, r); };
 
 //
@@ -726,6 +833,7 @@ inline Vec3 operator*(Vec3 a, Vec3 b) { return {a.x*b.x, a.y*b.y, a.z*b.z}; };
 inline Vec3 & operator*=(Vec3& a, Vec3 b) { return a = a * b; };
 inline Vec3 & operator*=(Vec3& a, float b) { return a = a * b; };
 
+inline Vec3 operator+(Vec3 a) { return a; };
 inline Vec3 operator+(Vec3 a, float b) { return {a.x+b, a.y+b, a.z+b}; };
 inline Vec3 operator+(Vec3 a, Vec3 b) { return {a.x+b.x, a.y+b.y, a.z+b.z}; };
 inline Vec3 & operator+=(Vec3& a, Vec3 b) { return a = a + b; };
@@ -763,12 +871,68 @@ Vec3 lerp(float percent, Vec3 a, Vec3 b) {
 	return a;
 }
 
+Vec3 min(Vec3 a, Vec3 b) {
+	a.x = min(a.x, b.x);
+	a.y = min(a.y, b.y);
+	a.z = min(a.z, b.z);
+
+	return a;
+}
+
+Vec3 max(Vec3 a, Vec3 b) {
+	a.x = max(a.x, b.x);
+	a.y = max(a.y, b.y);
+	a.z = max(a.z, b.z);
+
+	return a;
+}
+
+Vec3 getRotationToVector(Vec3 start, Vec3 dest, float* angle) {
+	Vec3 side = norm(cross(start, norm(dest)));
+	*angle = dot(start, norm(dest));
+	*angle = acos(*angle)*2;
+
+	return side;
+}	
+
 //
 
 Vec3 projectPointOnLine(Vec3 lPos, Vec3 lDir, Vec3 p) {
 	Vec3 result;
 	result = lPos + ((dot(p-lPos, lDir) / dot(lDir,lDir))) * lDir;
 	return result;
+}
+
+// Copyright 2001 softSurfer, 2012 Dan Sunday
+Vec3 lineClosestPoint(Vec3 p0, Vec3 d0, Vec3 p1, Vec3 d1) {
+    Vec3  u = d0;
+    Vec3  v = d1;
+    Vec3  w = p0 - p1;
+    float a = dot(u,u);         // always >= 0
+    float b = dot(u,v);
+    float c = dot(v,v);         // always >= 0
+    float d = dot(u,w);
+    float e = dot(v,w);
+    float D = a*c - b*b;        // always >= 0
+    float sc, tc;
+
+    const double SMALL_NUM = 0.00000001; // anything that avoids division overflow
+
+    // compute the line parameters of the two closest points
+    if (D < SMALL_NUM) {          // the lines are almost parallel
+        sc = 0.0;
+        tc = (b>c ? d/b : e/c);    // use the largest denominator
+    } else {
+        sc = (b*e - c*d) / D;
+        tc = (a*e - b*d) / D;
+    }
+
+    Vec3 pointA = p0 + sc * u;
+    Vec3 pointB = p1 + tc * v;
+
+    Vec3 mid = (pointA + pointB)/2.0f;
+
+    return mid;
 }
 
 int getBiggestAxis(Vec3 v, int smallerAxis[2] = 0) {
@@ -896,7 +1060,7 @@ inline bool boxIntersection(Vec3 b1, Vec3 d1, Vec3 b2, Vec3 d2) {
 }
 
 Vec3 boxNormals[6] = {vec3(-1,0,0), vec3(1,0,0), vec3(0,-1,0), vec3(0,1,0), vec3(0,0,-1), vec3(0,0,1)};
-float boxRaycast(Vec3 lp, Vec3 ld, Vec3 boxPos, Vec3 boxDim, Vec3* intersection = 0, Vec3* intersectionNormal = 0, bool secondIntersection = false) {
+float lineBoxIntersection(Vec3 lp, Vec3 ld, Vec3 boxPos, Vec3 boxDim, Vec3* intersection = 0, Vec3* intersectionNormal = 0, bool secondIntersection = false) {
 
 	Vec3 boxHalfDim = boxDim/2;
 	Vec3 boxMin = boxPos - boxHalfDim;
@@ -916,15 +1080,13 @@ float boxRaycast(Vec3 lp, Vec3 ld, Vec3 boxPos, Vec3 boxDim, Vec3* intersection 
 	float tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
 	float tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
 
-	float distance;
 	// if tmax < 0, ray (line) is intersecting AABB, but whole AABB is behind us
 	if (tmax < 0) return -1;
 
 	// if tmin > tmax, ray doesn't intersect AABB
 	if (tmin > tmax) return -1;
 
-	distance = secondIntersection ? tmax : tmin;
-
+	float distance = secondIntersection ? tmax : tmin;
 	if(distance < 0) return -1;
 
 	if(intersection) *intersection = lp + ld*distance;
@@ -948,6 +1110,181 @@ Vec3 projectPointOnPlane(Vec3 p, Vec3 planePos, Vec3 planeNormal) {
 	p = p + planePos;
 
 	return p;
+}
+
+// https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
+Vec3 barycentricCoordinates(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
+    Vec3 v0 = b - a, v1 = c - a, v2 = p - a;
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    float denom = d00 * d11 - d01 * d01;
+    float v = (d11 * d20 - d01 * d21) / denom;
+    float w = (d00 * d21 - d01 * d20) / denom;
+    float u = 1.0f - v - w;
+
+    return {v, w, u};
+}
+
+// https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
+Vec3 barycentricCoordinates(Vec2 p, Vec2 a, Vec2 b, Vec2 c) {
+    Vec2 v0 = b - a, v1 = c - a, v2 = p - a;
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    float denom = d00 * d11 - d01 * d01;
+    float v = (d11 * d20 - d01 * d21) / denom;
+    float w = (d00 * d21 - d01 * d20) / denom;
+    float u = 1.0f - v - w;
+
+    return {v, w, u};
+}
+
+// https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+inline bool lineTriangleIntersection(Vec3 lp, Vec3 ld, Vec3 tp0, Vec3 tp1, Vec3 tp2, Vec3* intersection = 0, bool ignoreBackface = false) {
+
+	const float EPSILON = 0.0000001;
+
+	Vec3 edge1, edge2, h, s, q;
+	float a,f,u,v;
+	edge1 = tp1 - tp0;
+	edge2 = tp2 - tp0;
+	h = cross(ld, edge2);
+	a = dot(edge1, h);
+	if (a > -EPSILON && a < EPSILON) return false; // This ray is parallel to this triangle.
+
+	f = 1.0/a;
+	s = lp - tp0;
+	u = f * dot(s, h);
+	if (u < 0.0 || u > 1.0) return false;
+
+	q = cross(s, edge1);
+	v = f * dot(ld, q);
+	if (v < 0.0 || u + v > 1.0) return false;
+	
+	// At this stage we can compute t to find out where the intersection point is on the line.
+	float t = f * dot(edge2, q);
+	
+	if (t > EPSILON) // ray intersection 
+	{
+		if(intersection) *intersection = lp + ld * t;
+
+		Vec3 triangleNormal = cross(tp1 - tp0, tp2 - tp0);
+		if(!ignoreBackface) return true;
+
+		if(dot(triangleNormal, ld) >= 0) return true;
+		else return false;
+	}
+	else // This means that there is a line intersection but not a ray intersection.
+
+	return false;
+}
+
+bool lineQuadIntersection(Vec3 lp, Vec3 ld, Vec3 tp0, Vec3 tp1, Vec3 tp2, Vec3 tp3, Vec3* intersection = 0, bool ignoreBackface = false) {
+
+	bool result;
+
+	result = lineTriangleIntersection(lp, ld, tp0, tp1, tp2, intersection);
+	if(result) return true;
+
+	result = lineTriangleIntersection(lp, ld, tp2, tp3, tp0, intersection);
+	if(result) return true;
+
+	return false;
+}
+
+bool lineCubeIntersection(Vec3 lp, Vec3 ld, Vec3 tp0, Vec3 tp1, Vec3 tp2, Vec3 tp3, Vec3* intersection = 0, bool ignoreBackface = false) {
+
+	bool result;
+
+	result = lineTriangleIntersection(lp, ld, tp0, tp1, tp2, intersection);
+	if(result) return true;
+
+	result = lineTriangleIntersection(lp, ld, tp2, tp3, tp0, intersection);
+	if(result) return true;
+
+	return false;
+}
+
+float linePlaneIntersection(Vec3 lp, Vec3 ld, Vec3 pp, Vec3 pn, Vec3 pu, Vec2 dim, Vec3* intersection = 0, Vec3* intersectionNormal = 0) {
+	// Assuming pu is unit vector.
+
+	float a = dot(pn, ld);
+	if(a == 0) return -1;
+
+	float distance = -(dot(pn, lp) - dot(pn, pp)) / a;
+	if(distance >= 0) {
+		Vec3 ip = lp + ld*distance;
+		ip = ip - pp;
+		float ix = dot(ip, pu);   // ip*cos(angle)
+
+		float lenIp = len(ip);
+		float angle = acos(ix/lenIp);
+		float iy = lenIp*sin(angle); // sin(angle)
+
+		if(abs(ix) > dim.y/2.0f || abs(iy > dim.x/2.0f)) return -1;
+
+		if(intersection) {
+			*intersection = lp + ld*distance;
+			if(intersectionNormal) *intersectionNormal = pn;
+		}
+
+		return distance;
+	}
+
+	return -1;
+}
+
+float linePlaneIntersection(Vec3 lp, Vec3 ld, Vec3 pp, Vec3 pn, Vec3* intersection = 0, Vec3* intersectionNormal = 0) {
+
+	// N * (Q - E) = 0, t = N*(Q-E) / N*D.
+
+	float a = dot(pn, ld);
+	if(a == 0) return -1;
+
+	float distance = dot(pn, (pp-lp)) / a;
+	if(distance >= 0) {
+		if(intersection) *intersection = lp + ld*distance;
+		if(intersectionNormal) 
+			*intersectionNormal = a < 0 ? pn : -pn;
+		return distance;
+	}
+
+	return -1;
+}
+
+float lineSphereIntersection(Vec3 lp, Vec3 ld, Vec3 sp, float sr, Vec3* intersection = 0, Vec3* intersectionNormal = 0, bool secondIntersection = false) {
+	// ld must be unit.
+
+	Vec3 oldP = lp;
+	lp -= sp;
+
+	float dotLdLp = dot(ld,lp);
+	float lenLp = len(lp);
+	float b = dotLdLp*dotLdLp - lenLp*lenLp + sr*sr;
+
+	if(b < 0) return -1;
+
+	// Always choose shorter distance to get intersection that's closest.
+
+	float distance = -(dot(ld, lp));
+	if(secondIntersection) distance += sqrt(b);
+	else distance += -sqrt(b);
+
+	if(distance < 0) return -1;
+
+	if(intersection) {
+		*intersection = oldP + ld*distance;
+		if(intersectionNormal) {
+			(*intersectionNormal) = norm((*intersection) - sp);
+		}
+	}
+
+    return distance;
 }
 
 //
@@ -1023,7 +1360,7 @@ inline bool operator==(Vec4 a, Vec4 b) { return (a.x==b.x) && (a.y==b.y) &&
 inline bool operator!=(Vec4 a, Vec4 b) { return !(a==b); };
 
 //
-//
+// @Mat4
 //
 
 inline Mat4 operator*(Mat4 a, Mat4 b) {
@@ -1038,13 +1375,13 @@ inline Mat4 operator*(Mat4 a, Mat4 b) {
 	return r;
 }
 
+// #include <emmintrin.h>
 inline Vec4 operator*(Mat4 m, Vec4 v) {
 	Vec4 result;
 	result.x = m.xa*v.x + m.xb*v.y + m.xc*v.z + m.xd*v.w;
 	result.y = m.ya*v.x + m.yb*v.y + m.yc*v.z + m.yd*v.w;
 	result.z = m.za*v.x + m.zb*v.y + m.zc*v.z + m.zd*v.w;
 	result.w = m.wa*v.x + m.wb*v.y + m.wc*v.z + m.wd*v.w;
-
 	return result;
 }
 
@@ -1234,21 +1571,15 @@ inline Mat4 orthoMatrix(float l, float b, float r, float t, float n, float f) {
 //
 
 inline void projMatrixZ01(Mat4* m, float fov, float ar, float n, float f) {
-	// ar -> w / h
-	// fov -> vertical
-	*m = { 
-		1/(ar*tan(fov*0.5f)), 0,                 0,       0,
-		0,                    1/(tan(fov*0.5f)), 0,       0,
-		0,                    0,                 f/(n-f), (f*n)/(n-f),
-		0,                    0,                 -1,      0 
-	};
+	float yScale = (1/tan(fov/2.0f));
+	float xScale = yScale / ar;
 
-	// *m = { 
-	// 	1/(ar*tan(fov*0.5f)), 0,                 0,       0,
-	// 	0,                    1/(tan(fov*0.5f)), 0,       0,
-	// 	0,                    0,                 f/(f-n), -(f*n)/(f-n),
-	// 	0,                    0,                 1,      0 
-	// };
+	*m = { 
+		xScale, 0,      0,       0,
+		0,      yScale, 0,       0,
+		0,      0,      f/(n-f), (f*n)/(n-f),
+		0,      0,     -1,       0 
+	};
 }
 
 inline Mat4 projMatrixZ01(float fov, float ar, float n, float f) {
@@ -1320,18 +1651,26 @@ Quat quatDeg(float degrees, Vec3 axis) {
 	return quat(degreeToRadian(degrees), axis);
 }
 
+float quatGetAxisAngle(Quat q, Vec3* axis) {
+	float angle = 2 * acos(q.w);
+	axis->x = q.x / sqrt(1-q.w*q.w);
+	axis->y = q.y / sqrt(1-q.w*q.w);
+	axis->z = q.z / sqrt(1-q.w*q.w);
+	return angle;
+}
+
 // Not the right name for this.
-float quatDot(Quat q) {
+float dot(Quat q) {
 	return (q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
 }
 
-float quatMagnitude(Quat q) {
-	return sqrt(quatDot(q));
+float magnitude(Quat q) {
+	return sqrt(dot(q));
 }
 
-Quat quatNorm(Quat q) {
+Quat norm(Quat q) {
 	Quat result;
-	float m = quatMagnitude(q);
+	float m = magnitude(q);
 	return quat(q.w/m, q.x/m, q.y/m, q.z/m);
 }
 
@@ -1343,12 +1682,10 @@ Quat quatScale(Quat q, float s) {
 	return quat(q.w*s, q.x*s, q.y*s, q.z*s);
 }
 
-Quat quatInverse(Quat q) {
-	return quatScale(quatConjugate(q), (1/quatDot(q)));
+Quat inverse(Quat q) {
+	return quatScale(quatConjugate(q), (1.0f/dot(q)));
 }
 
-// quat*axis -> local rotation.
-// axis*quat -> world rotation.
 Quat operator*(Quat a, Quat b) {
 	Quat r;
 	r.w = (a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z);
@@ -1389,7 +1726,7 @@ bool operator==(Quat q0, Quat q1) {
 	return q0.w==q1.w && q0.x==q1.x && q0.y==q1.y && q0.z==q1.z;
 }
 
-void quatRotationMatrix(Mat4* m, Quat q) {
+void rotationMatrix(Mat4* m, Quat q) {
 	float w = q.w, x = q.x, y = q.y, z = q.z;
 	float x2 = x*x, y2 = y*y, z2 = z*z;
 	float w2 = w*w;
@@ -1399,7 +1736,7 @@ void quatRotationMatrix(Mat4* m, Quat q) {
 			0, 			 0, 		  0, 		   1};
 }
 
-Mat4 quatRotationMatrix(Quat q) {
+Mat4 rotationMatrix(Quat q) {
 	float w = q.w, x = q.x, y = q.y, z = q.z;
 	float x2 = x*x, y2 = y*y, z2 = z*z;
 	float w2 = w*w;
@@ -1413,7 +1750,7 @@ Mat4 quatRotationMatrix(Quat q) {
 
 Mat4 modelMatrix(Vec3 trans, Vec3 scale, float degrees = 0, Vec3 rot = vec3(0,0,0)) {
 	Mat4 tm = translationMatrix(trans);
-	Mat4 rm = quatRotationMatrix(quat(degrees, rot));
+	Mat4 rm = rotationMatrix(quat(degrees, rot));
 	Mat4 sm = scaleMatrix(scale);
 	Mat4 model = tm*rm*sm;
 
@@ -1422,8 +1759,17 @@ Mat4 modelMatrix(Vec3 trans, Vec3 scale, float degrees = 0, Vec3 rot = vec3(0,0,
 
 Mat4 modelMatrix(Vec3 trans, Vec3 scale, Quat rot) {
 	Mat4 tm = translationMatrix(trans);
-	Mat4 rm = quatRotationMatrix(rot);
+	Mat4 rm = rotationMatrix(rot);
 	Mat4 sm = scaleMatrix(scale);
+	Mat4 model = tm*rm*sm;
+
+	return model;
+}
+
+Mat4 modelMatrix(XForm xf) {
+	Mat4 tm = translationMatrix(xf.trans);
+	Mat4 rm = rotationMatrix(xf.rot);
+	Mat4 sm = scaleMatrix(xf.scale);
 	Mat4 model = tm*rm*sm;
 
 	return model;
@@ -1459,6 +1805,12 @@ void rotateAround(Vec3* v, Quat q, Vec3 point) {
 	*v = rotateAround(*v, q, point);
 }
 
+Quat getQuatFromVecs(Vec3 start, Vec3 dest) {
+	float angle;
+	Vec3 axis = getRotationToVector(start, dest, &angle);
+	return quat(angle, axis);
+}	
+
 // From Wikipedia.
 Quat eulerAnglesToQuat(float pitch, float roll, float yaw) {
 	Quat q;
@@ -1486,7 +1838,7 @@ void quatToEulerAngles(Quat q, float* pitch, float* roll, float* yaw) {
 	// pitch (y-axis rotation)
 	float sinp = +2.0 * (q.w * q.y - q.z * q.x);
 	if (fabs(sinp) >= 1)
-		*pitch = copysign(M_PI / 2, sinp); // use 90 degrees if out of range
+		*pitch = copysign((float)M_PI / 2.0f, sinp); // use 90 degrees if out of range
 	else
 		*pitch = asin(sinp);
 
@@ -1504,7 +1856,7 @@ Quat orientationToQuat(Vec3 orientation) {
 	return q;
 }
 
-Quat quatLerp(Quat q1, Quat q2, float t) {
+Quat lerp(Quat q1, Quat q2, float t) {
 	Quat q;
 
 	float tm = 1 - t;
@@ -1513,7 +1865,7 @@ Quat quatLerp(Quat q1, Quat q2, float t) {
 	q.z = tm*q1.z + t*q2.z;
 	q.w = tm*q1.w + t*q2.w;
 
-	q = quatNorm(q);
+	q = norm(q);
 	return q;
 }
 
@@ -1527,14 +1879,92 @@ XForm xForm(Vec3 trans, Vec3 scale) { return { trans, quat(), scale }; }
 XForm xForm(Vec3 trans) { return { trans, quat(), vec3(1.0f) }; }
 XForm xForm() { return { vec3(0.0f), quat(), vec3(1.0f) }; }
 
-XForm xFormCombine(XForm a, XForm b) {
+// Slow...
+inline Vec3 operator*(XForm xf, Vec3 v) {
+	return xf.trans + xf.rot * (xf.scale * v);
+}
+
+inline XForm operator*(XForm a, XForm b) {
 	XForm xf;
 
 	xf.trans = a.trans + a.rot * (a.scale * b.trans);
 	xf.rot = a.rot * b.rot;
-	xf.scale = quatInverse(b.rot) * (a.scale * (b.rot * b.scale));
+	xf.scale = inverse(b.rot) * (a.scale * (b.rot * b.scale));
 
 	return xf;
+}
+
+inline XForm inverse(XForm a) {
+	Quat aRotInv = inverse(a.rot);
+
+	XForm inv;
+	inv.trans = (aRotInv*(-a.trans)) / a.scale;
+	inv.rot   = aRotInv;
+	inv.scale = a.rot * ((aRotInv*vec3(1)) / a.scale);
+	
+	return inv;
+}
+
+// @Optimize.
+inline Rect3 boundingBox(Mat4 mat) {
+	Rect3 bb = {vec3(FLT_MAX), vec3(-FLT_MAX)};
+
+	for(int x = 0; x < 2; x++) {
+		for(int y = 0; y < 2; y++) {
+			for(int z = 0; z < 2; z++) {
+				Vec3 p = vec3(x?-0.5f:0.5f,y?-0.5f:0.5f,z?-0.5f:0.5f);
+				Vec3 rp = (mat * vec4(p,1)).xyz;
+
+				bb.min = min(bb.min, rp);
+				bb.max = max(bb.max, rp);
+			}
+		}
+	}
+
+	return bb;
+}
+
+inline Rect3 boundingBox(XForm xf) {
+	return boundingBox(modelMatrix(xf));
+}
+
+// https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
+/*
+Transforming Axis-Aligned Bounding Boxes
+by Jim Arvo
+from "Graphics Gems", Academic Press, 1990
+*/
+Rect3 transformBoundingBox(Rect3 bb, Mat4 m) {
+	/* Take care of translation by beginning at T. */
+	Rect3 rb;
+	rb.min = rb.max = vec3(m.w1, m.w2, m.w3);
+
+	/* Now find the extreme points by considering the product of the */
+	/* min and max with each component of M.  */
+	for(int i = 0; i < 3; i++)
+	for(int j = 0; j < 3; j++) {
+		float a = m.e2[i][j] * bb.min.e[j];
+		float b = m.e2[i][j] * bb.max.e[j];
+		if(a < b) {
+			rb.min.e[i] += a; 
+			rb.max.e[i] += b;
+		} else { 
+			rb.min.e[i] += b; 
+			rb.max.e[i] += a;
+		}
+	}
+
+	return rb;
+} 
+
+// Name not correct.
+inline XForm aabbToObb(XForm xf, Quat rot) {
+	xf.rot = xf.rot * inverse(rot);
+	Rect3 rbb = boundingBox(xf);
+	XForm xf2 = xForm(rbb.c(), rbb.dim());
+	xf2.rot = xf2.rot * rot;
+
+	return xf2;
 }
 
 //
@@ -1578,6 +2008,13 @@ inline Vec2  Rect::tr   () { return max; }
 inline Vec2  Rect::r    () { return {right, c().y}; }
 inline Vec2  Rect::br   () { return {right, bottom}; }
 inline Vec2  Rect::b    () { return {c().x, bottom}; }
+
+inline Rect operator+(Rect r, Vec2 off) { return {r.min+off, r.max+off}; };
+inline Rect & operator+=(Rect& r, Vec2 off) { return r = r + off; };
+Rect operator*(Rect r, Vec2 dim) { return rectCenDim(r.c(), r.dim()*dim); };
+Rect operator*(Rect r, float s) { return rectCenDim(r.c(), r.dim()*s); };
+Rect operator*=(Rect r, Vec2 dim) { return r = r * dim; };
+Rect operator*=(Rect r, float s) { return r = r * s; };
 
 inline Rect Rect::setC   (Vec2 p)    { return rectCenDim(p, dim()); }
 inline Rect Rect::setDim (Vec2 d)    { return rectCenDim(c(), d); }
@@ -1783,6 +2220,11 @@ inline Rect3 rect3CenDim(Vec3 cen, Vec3 dim) { return {cen-dim/2, cen+dim/2}; };
 
 Rect3 rect3Expand(Rect3 r, Vec3 dim) { return {r.min-dim/2, r.max+dim/2}; };
 
+inline Vec3  Rect3::dim  () { return max - min; };
+inline Vec3  Rect3::c    () { return min + dim()/2; };
+
+inline XForm Rect3::xf   () { return xForm(c(), dim()); }
+
 //
 // @Rect3i
 //
@@ -1791,3 +2233,29 @@ inline Rect3i rect3i(Vec3i min, Vec3i max) { return {min, max}; };
 inline Rect3i rect3iCenDim(Vec3i cen, Vec3i dim) { return {cen-dim/2, cen+dim/2}; };
 
 Rect3i rect3iExpand(Rect3i r, Vec3i dim) { return {r.min-dim/2, r.max+dim/2}; };
+
+//
+
+float boxRaycastRotated(Vec3 lp, Vec3 ld, XForm xForm, Vec3* intersection = 0, Vec3* intersectionNormal = 0, bool secondIntersection = false) {
+
+	bool rotated = xForm.rot == quat() ? false : true;
+
+	Vec3 rotatedPos, rotatedDir;
+	if(rotated) {
+		rotatedPos = rotateAround(lp, inverse(xForm.rot), xForm.trans);
+		rotatedDir = rotateAround(lp + ld, inverse(xForm.rot), xForm.trans);
+		rotatedDir = norm(rotatedDir - rotatedPos);
+	} else {
+		rotatedPos = lp;
+		rotatedDir = ld;
+	}
+
+	float distance = lineBoxIntersection(rotatedPos, rotatedDir, xForm.trans, xForm.scale, intersection, intersectionNormal, secondIntersection);
+	if(distance != -1) {
+		if(intersectionNormal) {
+			if(rotated) *intersectionNormal = xForm.rot * (*intersectionNormal);
+		}
+	}
+
+	return distance;
+}

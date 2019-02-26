@@ -260,8 +260,8 @@ struct QuickRow {
 	int index;
 	int count;
 
-	Rect QuickRow::next();
-	Rect QuickRow::prev();
+	Rect next();
+	Rect prev();
 };
 
 QuickRow quickRow(Rect r, float padding, float* columns, int count) {
@@ -297,4 +297,117 @@ Rect QuickRow::next() {
 
 Rect QuickRow::prev() {
 	return rects[index-1];
+}
+
+//
+
+struct QLayout {
+	Vec2 pos;
+	Vec2 dim;
+	Vec2 pad;
+	float textPad;
+	Font* font;
+
+	char* labels[10];
+	int labelIndex;
+	bool addText;
+
+	QuickRow qr;
+
+	Rect getRect();
+	Rect getRect(float height);
+	Rect getRectW(float width);
+	QuickRow row(float* cols, int count);
+	QuickRow row(float s0, float s1 = -1, float s2 = -1, float s3 = -1, float s4 = -1);
+	QuickRow row(Rect r, float s0, float s1 = -1, float s2 = -1, float s3 = -1, float s4 = -1);
+	QuickRow row(Rect r, float* cols, int count);
+	void seperator(float height, Vec4 cDark, Vec4 cBright);
+
+	Rect next();
+	float text(char* str, int lengthMod = 0);
+	float textW(char* str, int lengthMod = 0);
+	char* nextText();
+};
+
+QLayout qLayout(Vec2 pos, Vec2 dim, Vec2 pad, float textPad = 0, Font* font = 0) {
+	return {pos, dim, pad, textPad, font, {0}, 0, false};
+}
+
+Rect QLayout::getRect() {
+	Rect r = rectTLDim(pos, vec2(dim.w, dim.h)); 
+	pos.y -= dim.h + pad.y;
+
+	return r;
+}
+
+Rect QLayout::getRect(float height) {
+	Rect r = rectTLDim(pos, vec2(dim.w, height)); 
+	pos.y -= height + pad.y;
+
+	return r;
+}
+
+Rect QLayout::getRectW(float width) {
+	Rect r = rectTLDim(pos, vec2(width, dim.h)); 
+	pos.x += width + pad.x;
+
+	return r;
+}
+
+QuickRow QLayout::row(float* cols, int count) {
+	qr = quickRow(getRect(), pad.x, cols, count);
+	return qr;
+}
+
+QuickRow QLayout::row(float s0, float s1, float s2, float s3, float s4) {
+	qr =  quickRow(getRect(), pad.x, s0, s1, s2, s3, s4);
+	return qr;
+}
+
+QuickRow QLayout::row(Rect r, float* cols, int count) {
+	qr = quickRow(r, pad.x, cols, count);
+	return qr;
+}
+
+QuickRow QLayout::row(Rect r, float s0, float s1, float s2, float s3, float s4) {
+	qr = quickRow(r, pad.x, s0, s1, s2, s3, s4);
+	return qr;
+}
+
+void QLayout::seperator(float height, Vec4 cDark, Vec4 cBright) {
+	pos.y -= height/2;
+	dxDrawLineH(pos+vec2(0,0.5f), pos+vec2(dim.w,0)+vec2(0,0.5f), cDark);
+	dxDrawLineH(pos+vec2(0,-0.5f), pos+vec2(dim.w,0)+vec2(0,-0.5f), cBright);
+	pos.y -= height/2+pad.y;
+}
+
+Rect QLayout::next() {
+	return qr.next();
+}
+
+float QLayout::text(char* str, int lengthMod) {
+	// If we didn't read all labels last time we make sure
+	// to reset the index to 0.
+	if(!addText) {
+		addText = true;
+		labelIndex = 0;
+	}
+	float w = textW(str, lengthMod);
+	labels[labelIndex++] = str;
+	return w;
+}
+
+float QLayout::textW(char* str, int lengthMod) {
+	int pad = lengthMod == 0 ? textPad : round(textPad*0.5f);
+	if(lengthMod == 2) pad = 0;
+	return getTextDim(str, font).w + pad;
+}
+
+char* QLayout::nextText() {
+	if(addText) addText = false;
+	// Have to get the labels from top to bottom, 
+	// because the compiler executes the function arguments 
+	// from right to left.
+	char* str = labels[--labelIndex];
+	return str;
 }

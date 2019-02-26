@@ -44,7 +44,7 @@ void StateRecording::init(int capacity, ExtendibleMemoryArray* memory) {
 	this->capacity = capacity;
 	this->memory = memory;
 
-	inputArray = getPArrayDebug(Input, capacity);
+	inputArray = getPArray(Input, capacity);
 }
 
 void StateRecording::update(Input* mainInput) {
@@ -91,7 +91,7 @@ void StateRecording::startRecording() {
 	snapshotMemoryIndex = memory->arrays[memory->index].index;
 	for(int i = 0; i < snapshotCount; i++) {
 		if(snapshotMemory[i] == 0) 
-			snapshotMemory[i] = (char*)malloc(memory->slotSize);
+			snapshotMemory[i] = (char*)mallocX(memory->slotSize);
 
 		memcpy(snapshotMemory[i], memory->arrays[i].data, memory->slotSize);
 	}

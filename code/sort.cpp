@@ -36,7 +36,7 @@ template <class T> void bubbleSort(T* list, int size, bool (*compare) (void* a, 
 }
 
 template <class T> void bubbleSort(T* list, int* indices, int size, bool (*compare) (void* a, void* b)) {
-	SortPair<T>* pairs = (SortPair<T>*)malloc(sizeof(SortPair<T>) * size);
+	SortPair<T>* pairs = (SortPair<T>*)mallocX(sizeof(SortPair<T>) * size);
 	for(int i = 0; i < size; i++) pairs[i] = {list[i], i};
 
 	bubbleSort(pairs, size, compare);
@@ -48,8 +48,8 @@ template <class T> void bubbleSort(T* list, int* indices, int size, bool (*compa
 
 //
 
-template <class T> void mergeSort(T* list, int size, bool (*compare) (void* a, void* b)) {
-	T* buffer = (T*)malloc(sizeof(T)*size);
+template <class T> void mergeSort(T* list, int size, bool (*compare) (T* a, T* b)) {
+	T* buffer = (T*)mallocX(sizeof(T)*size);
 
 	int stageCount = ceil(logBase(size, 2));
 	for(int stage = 0; stage < stageCount; stage++) {
@@ -91,7 +91,7 @@ template <class T> void mergeSort(T* list, int size, bool (*compare) (void* a, v
 }
 
 template <class T> void mergeSort(T* list, int* indices, int size, bool (*compare) (void* a, void* b)) {
-	SortPair<T>* pairs = (SortPair<T>*)malloc(sizeof(SortPair<T>) * size);
+	SortPair<T>* pairs = (SortPair<T>*)mallocX(sizeof(SortPair<T>) * size);
 	for(int i = 0; i < size; i++) pairs[i] = {list[i], i};
 
 	mergeSort(pairs, size, compare);
@@ -104,7 +104,7 @@ template <class T> void mergeSort(T* list, int* indices, int size, bool (*compar
 //
 
 template <class T> void radixSort(T* list, int size, int* (*getKey) (void* a), bool invert = false) {
-	T* buffer = (T*)malloc(sizeof(T)*size);
+	T* buffer = (T*)mallocX(sizeof(T)*size);
 
 	int byteCount = 4; // Hardcoded 32 bit values for now. (int/float.)
 	for(int byteIndex = 0; byteIndex < byteCount; byteIndex++) {
@@ -142,7 +142,7 @@ template <class T> void radixSort(T* list, int size, int* (*getKey) (void* a), b
 }
 
 template <class T> void radixSort(T* list, int* indices, int size, int* (*getKey) (void* a)) {
-	SortPair<T>* pairs = (SortPair<T>*)malloc(sizeof(SortPair<T>) * size);
+	SortPair<T>* pairs = (SortPair<T>*)mallocX(sizeof(SortPair<T>) * size);
 	for(int i = 0; i < size; i++) pairs[i] = {list[i], i};
 
 	radixSort(pairs, size, getKey);

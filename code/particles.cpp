@@ -1,4 +1,70 @@
 
+Meta_Parse_Enum();
+enum Particle_Textures{
+	PARTICLE_TEXTURE_Circle = 0,
+	PARTICLE_TEXTURE_Square,
+	PARTICLE_TEXTURE_Triangle,
+	PARTICLE_TEXTURE_Cloud,
+	PARTICLE_TEXTURE_Ring,
+	PARTICLE_TEXTURE_Bubble1,
+	PARTICLE_TEXTURE_Bubble2,
+	PARTICLE_TEXTURE_Point,
+	PARTICLE_TEXTURE_Star,
+	PARTICLE_TEXTURE_Smoke1,
+	PARTICLE_TEXTURE_Smoke2,
+	PARTICLE_TEXTURE_Fire,
+
+	PARTICLE_TEXTURE_Size, // @Size
+};
+
+struct Particle {
+	Vec3 pos;
+	Vec3 vel;
+	float drag;
+
+	float size;
+	float velSize;
+
+	float rot;
+	float velRot;
+
+	float time;
+	float lifeTime;
+
+	Vec4 color[3];
+
+	//
+
+	float distToCam;
+};
+
+Meta_Parse_Enum();
+enum SpawnRegionType {
+	SPAWN_REGION_SPHERE = 0,
+	SPAWN_REGION_CYLINDER,
+	SPAWN_REGION_BOX,
+
+	SPAWN_REGION_SIZE, // @Size
+};
+
+Meta_Parse_Struct(0);
+struct SpawnRegion {
+	int type; // @V0 @Enum(SpawnRegionType)
+
+	union {
+		struct {
+			float radiusMin;
+			float radius;
+			float height;
+		};
+
+		struct {
+			Vec3 dim; // @V0
+		};
+	};
+};
+
+Meta_Parse_Enum();
 enum FunctionType {
 	FUNC_CONST = 0,
 	FUNC_LINEAR,
@@ -13,147 +79,79 @@ enum FunctionType {
 	FUNC_FOUR_DICE_SQUARED,
 	FUNC_EXTREMES,
 
-	FUNC_SIZE,
+	FUNC_SIZE, // @Size
 };
 
-char* FunctionTypeStrings[] = {
-	"Const",
-	"Linear",
-	"Quadratic",
-	"Cubic",
-	"Quartic",
-	"Two Dice",
-	"Three Dice",
-	"Four Dice",
-	"Two Dice Squared",
-	"Three Dice Squared",
-	"Four Dice Squared",
-	"Extremes",
-};
-
+Meta_Parse_Struct(0);
 template <class T>
 struct ValueRange {
-	T min;
-	T max;
-	int functionType;
+	T min; // @V0
+	T max; // @V0
+	int functionType; // @V0 @Enum(FunctionType)
 
 	float getSample();
 };
 
-struct Particle {
-	Vec3 pos;
-	Vec3 vel;
-	float drag;
-
-	Vec4 color[3];
-
-	float size;
-	float velSize;
-
-	float rot;
-	float velRot;
-
-	float lifeTime;
-	float time;
-
-	//
-
-	float distToCam;
-};
-
+Meta_Parse_Struct(0);
 struct ParticleSettings {
+	int spriteIndex; // @V0 @Enum(Particle_Textures)
+	SpawnRegion region; // @V0
 
-	enum SpawnRegionType {
-		REGION_SPHERE = 0,
-		REGION_CYLINDER,
-		REGION_BOX,
+	float spawnRate; // @V0 // Particles per second.
+	float lifeTime; // @V0
+	float startTime; // @V0
+	float restTime; // @V0
+	ValueRange<float> lifeTimeP; // @V0
+	float fadeInTime; // @V0
+	float fadeOutTime; // @V0 @Tag(Section)
 
-		REGION_SIZE,
-	};
+	ValueRange<float> size; // @V0
+	ValueRange<float> velSize; // @V0
+	ValueRange<float> speed; // @V0
+	ValueRange<float> angleV; // @V0 @Tag(Range, -90, 90)
+	ValueRange<float> angleH; // @V0 @Tag(Range, 0, 360)
+	Vec3 gravity; // @V0
+	ValueRange<float> drag; // @V0
 
-	struct SpawnRegion {
-		int type;
+	bool stretch; // @V0
+	ValueRange<float> stretchMod; // @V0
 
-		union {
-			struct {
-				float radius;
-				float radiusMin;
-				float height;
-			};
+	ValueRange<float> rotation; // @V0 @Tag(Range, -90, 90)
+	ValueRange<float> velRot; // @V0 @Tag(Section)
 
-			struct {
-				Vec3 dim;
-			};
-		};
-	};
+	float colorT; // @V0 @Tag(Range, 0,1) // In percent.
+	ValueRange<Vec4> color[3]; // @V0 // Function is ignored on color 2/3.
 
-	char* texture;
-	int spriteIndex;
-	SpawnRegion region;
-
-	float spawnRate; // Particles per second.
-	float lifeTime;
-	float startTime;
-	float restTime;
-	ValueRange<float> lifeTimeP;
-	float fadeInTime;
-	float fadeOutTime;
-
-	ValueRange<float> size;
-	ValueRange<float> velSize;
-	ValueRange<float> angleV;
-	ValueRange<float> angleH;
-	ValueRange<float> speed;
-	Vec3 gravity;
-	ValueRange<float> drag;
-
-	bool velocityStretch;
-	float velocityStretchMod;
-
-	ValueRange<float> velRot;
-	bool randomRotation;
-
-	float colorT; // In percent.
-	ValueRange<Vec4> color[3]; // Function is ignored on color 2/3.
-
-	float alpha;
-	float brightness;
+	float alpha; // @V0 @Tag(Range, 0,1)
+	float brightness; // @V0 @Tag(Range, 0,5)
 };
 
 struct ParticleGroup;
+Meta_Parse_Struct(1);
 struct ParticleEmitter {
-	bool initialized;
+	DArray<Particle> particles; // @Ignore
 
-	Particle* particles;
-	int particleSize;
-	int particleCount;
-
-	ParticleGroup* group;
-
-	XForm xForm;
+	float time; // @Hide
+	float spawnTime; // @Hide
+	float startTime; // @Hide
+	float finishTime; // @Hide
+	bool finished; // @Hide
 
 	//
 
-	bool loop;
-	bool localSpace; // Not working yet.
+	bool loop; // @V0
+	bool localSpace; // @V0
+	float fadeDistance; // @V1
+	float fadeContrast; // @V1
 
-	ParticleSettings settings;
-
-	//
-
-	float time;
-	float spawnTime;
-	float startTime;
-	float finishTime;
-	bool starting;
-	bool finished;
+	ParticleSettings settings; // @V0
 
 	//
 
-	void init(int size);
-	void particleSim(Particle* p, float dt);
-	void update(float dt, Camera* cam);
-	void draw(Camera* cam);
+	void init();
+	void reset();
+	void update(float dt, XForm xForm, Camera* cam);
+	void draw(XForm xForm, Camera* cam);
 };
 
 /*
@@ -252,67 +250,72 @@ template <class T> float ValueRange<T>::getSample() {
 
 //
 
-void ParticleEmitter::init(int size) {
+ParticleSettings getDefaultParticleSettings() {
+	ParticleSettings s = {};
+
+	// s.texture = getPString("misc\\particles.dds");
+	s.spriteIndex = 0;
+	s.region.type = SPAWN_REGION_BOX;
+	s.region.dim = vec3(1,1,1);
+
+	s.spawnRate   = 400.0f;
+	s.lifeTime    = 0;
+	s.startTime   = 0.0f;
+	s.restTime    = 0.0f;
+	s.lifeTimeP   = valueRange( 0.5f, 1.0f, FUNC_LINEAR );
+	s.fadeInTime  = 0.2f;
+	s.fadeOutTime = 0.5f;
+
+	s.size    = valueRange( 0.04f, 0.08f );
+	s.velSize = valueRange( 0.0f );
+	s.angleV  = valueRange( 90.0f, 90.0f );
+	s.angleH  = valueRange( 0.0f, 360.0f );
+	s.speed   = valueRange( 0.0f );
+	s.gravity = vec3(0,0,0);
+	s.drag    = valueRange( 0.8f, 0.90f );
+
+	s.stretch    = false;
+	s.stretchMod = valueRange( 0.1f,0.2f );
+
+	s.rotation = valueRange( 0.0f,0.0f );
+	s.velRot = valueRange( 0.0f,0.0f );
+
+	s.colorT   = 0.0f;
+	s.color[0] = valueRange( vec4(1.0f,0.5f,0, 1), vec4(0.8,0.4f, 0.0f,1), FUNC_LINEAR );
+
+	s.alpha = 1.0f;
+	s.brightness = 1.0f;
+
+	return s;
+}
+
+void ParticleEmitter::init() {
 	*this = {};
 
-	initialized = true;
+	this->settings = getDefaultParticleSettings();
 
-	particleSize = size;
-	particles = getPArray(Particle, size);
-	particleCount = 0;
+	loop = false;
+	localSpace = true;
+	fadeDistance = 0.1f;
+	fadeContrast = 2;	
 
-	this->xForm = ::xForm();
+	reset();
+}
 
-	{
-		ParticleSettings s = {};
-
-		// s.texture = getPStringCpy("misc\\particles.dds");
-		s.spriteIndex = 0;
-		s.region.type = ParticleSettings::REGION_BOX;
-		s.region.dim = vec3(1,1,1);
-
-		s.spawnRate   = 400.0f;
-		s.lifeTime    = 0;
-		s.startTime   = 0.0f;
-		s.restTime    = 0.0f;
-		s.lifeTimeP   = valueRange( 0.5f, 1.0f, FUNC_LINEAR );
-		s.fadeInTime  = 0.2f;
-		s.fadeOutTime = 0.5f;
-
-		s.size    = valueRange( 0.04f, 0.08f );
-		s.velSize = valueRange( 0.0f );
-		s.angleV  = valueRange( 90.0f, 90.0f );
-		s.angleH  = valueRange( 0.0f, 360.0f );
-		s.speed   = valueRange( 0.0f );
-		s.gravity = vec3(0,0,0);
-		s.drag    = valueRange( 0.95f, 0.98f );
-
-		s.velocityStretch    = false;
-		s.velocityStretchMod = 0.05f;
-
-		s.velRot = valueRange( 0.0f,0.0f );
-		s.randomRotation = false;
-
-		s.colorT   = 0.0f;
-		s.color[0] = valueRange( vec4(1.0f,0.5f,0, 1), vec4(0.8,0.4f, 0.0f,1), FUNC_LINEAR );
-
-		s.alpha = 1.0f;
-		s.brightness = 1.0f;
-
-		this->settings = s;
-	}
-
-	loop = true;
-	localSpace = false;
+void ParticleEmitter::reset() {
+	particles = {};
 
 	time = 0;
 	spawnTime = 0;
+	startTime = 0;
+	finishTime = 0;
+	finished = false;
 }
 
-void ParticleEmitter::particleSim(Particle* p, float dt) {
+inline void particleSim(Particle* p, Vec3 gravityScaled, float dt) {
 	p->pos += p->vel * dt;
-	p->vel += xForm.scale * settings.gravity * dt;
 	p->vel *= pow(p->drag, dt);
+	p->vel += gravityScaled;
 
 	p->size += p->velSize * dt;
 	p->size = max(p->size, 0.0f);
@@ -322,7 +325,74 @@ void ParticleEmitter::particleSim(Particle* p, float dt) {
 	p->time += dt;
 }
 
-void ParticleEmitter::update(float dt, Camera* cam) {
+void particleGetQuad(Particle* p, ParticleSettings* settings, Rect uv, bool localSpace, Camera* cam, Mat4* mat, PrimitiveVertex* verts) {
+	Vec4 c;
+	{
+		float timePercent = p->time / p->lifeTime;
+
+		if(settings->colorT != 0) {
+			float t;
+			Vec4 color[2];
+			if(timePercent < settings->colorT) {
+				color[0] = p->color[0];
+				color[1] = p->color[1];
+				t = timePercent / settings->colorT;
+			} else {
+				color[0] = p->color[1];
+				color[1] = p->color[2];
+				t = (timePercent - settings->colorT) / (1 - settings->colorT);
+			}
+
+			c = { lerp(t, color[0].r, color[1].r), 
+	            lerp(t, color[0].g, color[1].g), 
+	            lerp(t, color[0].b, color[1].b), 
+	            lerp(t, color[0].a, color[1].a), };
+
+		} else c = p->color[0];
+
+		if(p->time < settings->fadeInTime)
+			c.a *= p->time / settings->fadeInTime;
+		else if(p->lifeTime - p->time < settings->fadeOutTime) 
+			c.a *= (p->lifeTime - p->time) / settings->fadeOutTime;
+
+		c.a *= settings->alpha;
+		c.rgb *= settings->brightness;
+	}
+
+	Vec3 pos = p->pos;
+	if(localSpace) {
+		pos = ((*mat) * vec4(pos,1)).xyz;
+
+		// p.vel = xForm.rot * (xForm.scale * p.vel);
+		// float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
+		// p.size = (minScale * p.size);
+	}
+
+	Vec3 right, up;
+	if(settings->stretch) {
+		// Use camPpos instead of look when stretching by velocity.
+		Vec3 vel = p->vel * p->rot;
+
+		Vec3 look = norm(pos - cam->pos);
+		right = vel - look * dot(look, vel);
+		if(len(right) < p->size) right = norm(right) * p->size;
+		up = quat(-M_PI_2, look) * (norm(right)*p->size);
+
+	} else {
+		Quat q = quat(p->rot, cam->look);
+		right  = q * (p->size*cam->right);
+		up     = norm(cross(right, cam->look)) * p->size;
+	}
+
+	dxGetQuad( verts, 
+	           pos - right - up, 
+	           pos - right + up,
+	           pos + right + up,
+	           pos + right - up,
+	           c, uv );
+}
+
+void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 	TIMER_BLOCK();
 
 	// Reset.
@@ -338,8 +408,36 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 	}
 
 	// Sim.
-	for(int i = 0; i < particleCount; i++) {
-		particleSim(particles + i, dt);
+	Vec3 gravityScaled = xForm.scale * settings.gravity;
+	{
+		struct ThreadData {
+			Particle* particles;
+			int count;
+			Vec3 gravityScaled;
+			float dt;
+		};
+
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK_NAMED("ParticleSim");
+			ThreadData* d = (ThreadData*)data;
+
+			for(int i = 0; i < d->count; i++) {
+				particleSim(d->particles + i, d->gravityScaled, d->dt);
+			}
+		};
+
+		DArray<ThreadData> threadData = dArray<ThreadData>(theThreadQueue->threadCount+1, getTMemory);
+
+		int count = particles.count;
+		if(count) {
+			Vec2i* ranges = arrayDivideRanges(count, theThreadQueue->threadCount+1);
+
+			for(int i = 0; i < theThreadQueue->threadCount+1; i++) {
+				threadData.push({particles.data + ranges[i].x, ranges[i].y, gravityScaled * dt, dt});
+				threadQueueAdd(theThreadQueue, threadFunc, threadData.data + threadData.count-1);
+			}
+			threadQueueComplete(theThreadQueue);
+		}
 	}
 
 	if(startTime < settings.startTime) {
@@ -362,9 +460,9 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 		float spawnTimeRest = spawnTime - spawnRate;
 		spawnTime = (spawnCountF - spawnCount) * spawnRate;
 
-		if(particleCount + spawnCount > particleSize) {
-			spawnCount = particleSize - particleCount;
-		}
+		// if(particles.count + spawnCount > particleSize) {
+		// 	spawnCount = particleSize - particleCount;
+		// }
 
 		for(int i = 0; i < spawnCount; i++) {
 			Particle p = {};
@@ -373,9 +471,9 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 
 			Vec3 offset;
 			{
-				ParticleSettings::SpawnRegion region = settings.region;
+				SpawnRegion region = settings.region;
 				switch(region.type) {
-					case ParticleSettings::REGION_SPHERE: {
+					case SPAWN_REGION_SPHERE: {
 						Vec3 rp = randomSpherePoint();
 
 						if(!region.radiusMin) {
@@ -385,7 +483,7 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 						}
 					} break;
 
-					case ParticleSettings::REGION_CYLINDER: {
+					case SPAWN_REGION_CYLINDER: {
 						Vec3 rp = randomDiskPoint();
 
 						if(!region.radiusMin) {
@@ -397,7 +495,7 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 						offset.z += randomOffset(region.height / 2.0f);
 					} break;
 
-					case ParticleSettings::REGION_BOX: {
+					case SPAWN_REGION_BOX: {
 						offset = randomBoxPoint(region.dim / 2.0f);
 					} break;
 				}
@@ -413,16 +511,20 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 				        quatDeg(angleV, vec3(1,0,0)) * vec3(0,1,0);
 			}
 
-			p.vel = angle * lerp(settings.speed.getSample(), settings.speed.min, settings.speed.max);
+			p.vel = norm(angle) * lerp(settings.speed.getSample(), settings.speed.min, settings.speed.max);
 
 			p.size = lerp(settings.size.getSample(), settings.size.min, settings.size.max);
 			p.velSize = lerp(settings.velSize.getSample(), settings.velSize.min, settings.velSize.max);
 
 			p.drag = 1 - lerp(settings.drag.getSample(), settings.drag.min, settings.drag.max);
 
-			p.rot = settings.randomRotation ? randomFloat(0,M_2PI) : 0;
-			p.velRot = degreeToRadian(lerp(settings.velRot.getSample(), settings.velRot.min, settings.velRot.max));
-			p.velRot *= randomInt01() ? 1.0f : -1.0f;
+			p.rot = degreeToRadian(lerp(settings.rotation.getSample(), settings.rotation.min, settings.rotation.max));
+
+			if(!settings.stretch) {
+				p.velRot = degreeToRadian(lerp(settings.velRot.getSample(), settings.velRot.min, settings.velRot.max));
+			} else {
+				p.velRot = lerp(settings.stretchMod.getSample(), settings.stretchMod.min, settings.stretchMod.max);
+			}
 
 			{
 				float t = settings.color[0].getSample();
@@ -435,29 +537,27 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 				}
 			}
 
-			// Modify based on emitter xform.
-			{
+			if(!localSpace) {
 				p.pos = xForm.trans + xForm.rot * (xForm.scale * p.pos);
-				p.vel = xForm.rot * (xForm.scale * p.vel);
+				// p.vel = xForm.rot * (xForm.scale * p.vel);
 
-				float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
-				p.size = (minScale * p.size);
+				// float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
+				// p.size = (minScale * p.size);
 			}
 
-			particleSim(&p, spawnTimeRest);
+			particleSim(&p, gravityScaled * spawnTimeRest, spawnTimeRest);
 			spawnTimeRest -= spawnRate;
 
-			particles[particleCount++] = p;
+			particles.push(p);
 		}
 	}
 
 	// Remove dead.
-	for(int i = 0; i < particleCount; i++) {
+	for(int i = 0; i < particles.count; i++) {
 		Particle* p = particles + i;
 
 		if(p->time >= p->lifeTime) {
-			particles[i] = particles[particleCount-1];
-			particleCount--;
+			particles.remove(i);
 			i--;
 		}
 	}	
@@ -466,23 +566,22 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 	{
 		TIMER_BLOCK_NAMED("ParticleSort");
 
-		for(int i = 0; i < particleCount; i++) {
+		for(int i = 0; i < particles.count; i++) {
 			Particle* p = particles + i;
 
 			// p->distToCam = len(p->pos - cam->pos);
 			p->distToCam = dot(p->pos - cam->pos, cam->look);
 		}
 
-		auto cmp = [](void* a, void* b) {
-			return ((Particle*)a)->distToCam > ((Particle*)b)->distToCam;
+		auto cmp = [](const void* a, const void* b) -> int { 
+			return ((Particle*)a)->distToCam > ((Particle*)b)->distToCam ? -1 : 1;
 		};
-
-		mergeSort(particles, particleCount, cmp);
+		qsort(particles.data, particles.count, sizeof(Particle), cmp);
 	}
 
 	if(settings.lifeTime > 0) {
 		// Wait rest time.
-		if((time >= settings.lifeTime) && particleCount == 0) finishTime += dt;
+		if((time >= settings.lifeTime) && particles.count == 0) finishTime += dt;
 
 		// Reset.
 		if(finishTime > settings.restTime) {
@@ -491,24 +590,15 @@ void ParticleEmitter::update(float dt, Camera* cam) {
 	}
 }
 
-void ParticleEmitter::draw(Camera* cam) {
+void ParticleEmitter::draw(XForm xForm, Camera* cam) {
 	TIMER_BLOCK();
 
-	dxSetShader(Shader_Particle);
+	Mat4 mat = modelMatrix(xForm);
 
-	dxSetBlendState(Blend_State_PreMultipliedAlpha);
-	// dxSetBlendState(Blend_State_Add);
-	dxDepthTest(false); 
-	dxBindFrameBuffer("3dMsaa", 0);
-	dxSetTexture(dxGetFrameBuffer("ds3d")->shaderResourceView, 7);
-
+	ParticleShaderVars* vars = dxGetShaderVars(Particle);
+	vars->fadeDistance = (fadeDistance / vars->farPlane) * 2.0f;
+	vars->fadeContrast = fadeContrast;
 	dxPushShaderConstants(Shader_Particle);
-
-	defer { 
-		dxSetBlendState(Blend_State_Blend); 
-		dxDepthTest(true); 
-		dxBindFrameBuffer("3dMsaa", "ds3d"); 
-	};
 
 	{
 		// Set texture.
@@ -534,177 +624,69 @@ void ParticleEmitter::draw(Camera* cam) {
 			dxSetTexture(tex->view, 0);
 		}
 
-		PrimitiveVertex* v = dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		{
+			pushMarkerTMemory();
+			defer{ popMarkerTMemory(); };
+			DArray<PrimitiveVertex> verts = dArray<PrimitiveVertex>(particles.count*6, getTMemory);
 
-		for(int i = 0; i < particleCount; i++) {
-			Particle* p = particles + i;
-
-			// Color.
-
-			Vec4 c;
 			{
-				float timePercent = p->time / p->lifeTime;
+				struct ThreadData {
+					Particle* particles;
+					int count;
+					PrimitiveVertex* verts;
 
-				if(settings.colorT != 0) {
-					float t;
-					Vec4 color[2];
-					if(timePercent < settings.colorT) {
-						color[0] = p->color[0];
-						color[1] = p->color[1];
-						t = timePercent / settings.colorT;
-					} else {
-						color[0] = p->color[1];
-						color[1] = p->color[2];
-						t = (timePercent - settings.colorT) / (1 - settings.colorT);
+					ParticleSettings* settings;
+					Rect uv;
+					bool localSpace;
+					Camera* cam;
+					Mat4* mat;
+				};
+
+				auto threadFunc = [](void* data) {
+					TIMER_BLOCK_NAMED("ParticleGetQuads");
+					ThreadData* d = (ThreadData*)data;
+
+					int index = 0;
+					for(int i = 0; i < d->count; i++) {
+						Particle* p = d->particles + i;
+
+						particleGetQuad(p, d->settings, d->uv, d->localSpace, d->cam, d->mat, d->verts + index);
+						index += 6;
 					}
+				};
 
-					c = { lerp(t, color[0].r, color[1].r), 
-			            lerp(t, color[0].g, color[1].g), 
-			            lerp(t, color[0].b, color[1].b), 
-			            lerp(t, color[0].a, color[1].a), };
+				DArray<ThreadData> threadData = dArray<ThreadData>(theThreadQueue->threadCount+1, getTMemory);
 
-				} else {
-					c = p->color[0];
+				int count = particles.count;
+				if(count) {
+					Vec2i* ranges = arrayDivideRanges(count, theThreadQueue->threadCount+1);
+					for(int i = 0; i < theThreadQueue->threadCount+1; i++) {
+						int index = ranges[i].x;
+						threadData.push({particles.data + index, ranges[i].y, verts.data + index * 6, &settings, uv, localSpace, cam, &mat});
+
+						threadQueueAdd(theThreadQueue, threadFunc, threadData.data + threadData.count-1);
+					}
+					threadQueueComplete(theThreadQueue);
 				}
-
-				if(p->time < settings.fadeInTime)
-					c.a *= p->time / settings.fadeInTime;
-				else if(p->lifeTime - p->time < settings.fadeOutTime) 
-					c.a *= (p->lifeTime - p->time) / settings.fadeOutTime;
-
-				c.a *= settings.alpha;
-				c.rgb *= settings.brightness;
 			}
 
-			Vec3 right, up;
+			if(particles.count)
 			{
-				if(settings.velocityStretch) {
-					// Vec3 vel = p->vel * settings.velocityStretchMod;
-					// right = vel - cam->look * dot(cam->look, vel);
+				dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-					// // Clamp right to pSize.
-					// // if(len(right) < p->size) right = norm(right) * p->size;
-					// // up    = quat(-M_PI_2, cam->look) * (norm(right)*p->size);
+				int count = particles.count * 6;
+				int maxCount = (theGState->primitiveVertexBufferMaxCount/6) * 6;
 
-					// // Clamp up to right.
-					// // if(len(right) < p->size) {
-					// // 	up    = quat(-M_PI_2, cam->look) * (right);
-					// // } else {
-					// // 	up    = quat(-M_PI_2, cam->look) * (norm(right)*p->size);
-					// // }
-
-					// // Dont clamp.
-					// up = quat(-M_PI_2, cam->look) * (norm(right)*p->size);
-
-					// Use camPpos instead of look when stretching by velocity.
-					Vec3 vel = p->vel * settings.velocityStretchMod;
-
-					Vec3 look = norm(p->pos - cam->pos);
-					right = vel - look * dot(look, vel);
-					if(len(right) < p->size) right = norm(right) * p->size;
-					up = quat(-M_PI_2, look) * (norm(right)*p->size);
-
-				} else {
-					Quat q = quat(p->rot, cam->look);
-					right  = q * (p->size*cam->right);
-					up     = q * (p->size*cam->up);
+				int index = 0;
+				while(count - index > 0) {
+					int pushCount = min(count - index, maxCount);
+					dxPushVerts(verts.data + index, pushCount);
+					index += pushCount;
+					if(count - index > 0) dxFlush();
+					else dxEndPrimitive();
 				}
 			}
 
-			dxPushQuad( p->pos - right - up, 
-			            p->pos - right + up,
-			            p->pos + right + up,
-			            p->pos + right - up,
-			            c, uv );
-
-			if(theGState->pVertexCount >= theGState->primitiveVertexBufferMaxCount-12) {
-				dxEndPrimitive();
-				dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			}
 		}
-
-		dxEndPrimitive();
-	}
-
-	#if 0
-	// Debug draw emitter.
-	{
-		dxDrawCube(pos, vec3(0.05f), vec4(1,1,1,1));
-
-		float lineLength = 0.2f;
-		Vec3 dirs[] = { vec3(1,0,0), vec3(0,1,0), vec3(0,0,1) };
-		for(int i = 0; i < arrayCount(dirs); i++) {
-			Vec3 dir = rot * dirs[i];
-			dxDrawLine(pos, pos + dir*lineLength, vec4(dirs[i], 1));
-		}
-	}
-	#endif
-}
-
-//
-
-// This could be replaced by some sort of entity group system.
-// But we're not using entities for that right now.
-struct ParticleGroup {
-	ParticleEmitter emitters[5];
-	int emitterCount;
-
-	XForm xForm;
-
-	// Shrug.
-	float distToCam;
-
-	void init(XForm xForm);
-	void add(ParticleEmitter* emitter);
-	void add(ParticleEmitter* emitter, XForm xForm);
-	void update(float dt, Camera* cam);
-	void draw(Camera* cam);
-};
-
-void ParticleGroup::init(XForm xForm) {
-	*this = {};
-	this->xForm = xForm;
-}
-
-void ParticleGroup::add(ParticleEmitter* emitter) {
-	emitters[emitterCount++] = *emitter;
-}
-
-void ParticleGroup::add(ParticleEmitter* emitter, XForm xForm) {
-	emitter->xForm = xForm;
-	return add(emitter);
-}
-
-void ParticleGroup::update(float dt, Camera* cam) {
-
-	// Temporarily transform from local space to world space.
-	XForm oldForms[10];
-	for(int i = 0; i < emitterCount; i++) {
-		oldForms[i] = emitters[i].xForm;
-
-		emitters[i].xForm = xFormCombine(xForm, emitters[i].xForm);
-	}
-	defer {
-		for(int i = 0; i < emitterCount; i++) emitters[i].xForm = oldForms[i];
-	};
-
-	int finishedCount = 0;
-	for(int i = 0; i < emitterCount; i++) {
-		ParticleEmitter* e = emitters + i;
-		if(e->finished) finishedCount++; 
-	}
-	bool everyoneFinished = finishedCount == emitterCount;
-
-	for(int i = 0; i < emitterCount; i++) {
-		ParticleEmitter* e = emitters + i;
-
-		if(!e->finished || everyoneFinished) e->update(dt, cam);
-	}
-}
-
-void ParticleGroup::draw(Camera* cam) {
-	for(int i = emitterCount-1; i >= 0; i--) {
-		ParticleEmitter* e = emitters + i;
-		e->draw(cam);
 	}
 }

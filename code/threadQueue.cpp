@@ -75,7 +75,7 @@ void threadInit(ThreadQueue* queue, int numOfThreads, int jobCount) {
     queue->writeIndex = 0;
     queue->readIndex = 0;
     // queue->semaphore = CreateSemaphore(0, 0, 255, "Semaphore");
-    queue->semaphore = CreateSemaphoreEx(0, 0, 255, "Semaphore", 0, SEMAPHORE_ALL_ACCESS);
+    queue->semaphore = CreateSemaphoreExA(0, 0, 255, "Semaphore", 0, SEMAPHORE_ALL_ACCESS);
 
     queue->threadCount = numOfThreads;
 
@@ -123,11 +123,11 @@ bool threadQueueAdd(ThreadQueue* queue, void (*function)(void*), void* data, int
 	    memcpy(job->dataBuffer, data, dataSize);
     }
 
-    InterlockedIncrement(&queue->completionGoal);
+    InterlockedIncrement((long*)&queue->completionGoal);
     // printf("GOAL: %i \n", queue->completionCount);
 
     _ReadWriteBarrier(); // doesn't work on 32 bit?
-    InterlockedExchange(&queue->writeIndex, newWriteIndex);
+    InterlockedExchange((long*)&queue->writeIndex, newWriteIndex);
 
     ReleaseSemaphore(queue->semaphore, 1, 0);
 
@@ -153,8 +153,8 @@ void threadQueueComplete(ThreadQueue* queue) {
     // if(queue->readIndex != queue->writeIndex) 
     // 	printf("Threadqueue copmletion error.\n");
 
-    InterlockedExchange(&queue->completionGoal, 0);
-    InterlockedExchange(&queue->completionCount, 0);
+    InterlockedExchange((long*)&queue->completionGoal, 0);
+    InterlockedExchange((long*)&queue->completionCount, 0);
 }
 
 int threadQueueOpenJobs(ThreadQueue* queue) {

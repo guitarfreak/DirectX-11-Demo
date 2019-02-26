@@ -83,6 +83,7 @@ enum Keycode {
 #define WIN_KEY_F_START 0x70
 #define WIN_KEY_F_END 0x7B
 
+Meta_Parse_Struct(0);
 struct Input {
 	bool firstFrame;
 	Vec2 mousePos;
