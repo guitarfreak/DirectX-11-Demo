@@ -35,7 +35,7 @@ In active development.
 * Entity transform widgets.
 * Save/Load maps.
 * Command history, Undo/Redo.
-* Introspection/Serialization with preprocessing step.
+* Introspection/Serialization/Versioning with preprocessing step.
 
 #### Controls
 
