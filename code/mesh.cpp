@@ -74,7 +74,7 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 			bb.max.z = max(bb.max.z, p.z);
 		}
 		
-		m->boundingBox = bb;
+		m->aabb = bb;
 	}
 
 	int size = parser->vertexBuffer.count;
@@ -341,73 +341,6 @@ void dxDrawObject(XForm xForm, Vec4 color, char* meshName, char* materialName, b
 
 		gs->d3ddc->Draw(g->size, g->offset);
 	}
-}
-
-float raycastMesh(Vec3 rayPos, Vec3 rayDir, Mesh* mesh, XForm xf) {
-
-	AnimationPlayer* player = &mesh->animPlayer;
-	
-	float shortestDistance = FLT_MAX;
-	float dist = 1;
-	if(!player->init) {
-		Rect3 bb = mesh->boundingBox;
-		XForm bbxf = xForm(bb.c(), bb.dim());
-		bbxf = xf * bbxf;
-
-		dist = boxRaycastRotated(rayPos, rayDir, bbxf);
-
-	} else {
-		for(int i = 0; i < mesh->boneCount; i++) {
-			Rect3 bb = mesh->boneBoundingBoxes[i];
-			XForm bbxf = xForm(bb.c(), bb.dim());
-			XForm bbBone = player->xforms[i];
-			Mat4 mat = player->mats[i];
-
-			bbxf = player->xforms[i] * bbxf;
-			bbxf = xf * bbxf;
-
-			dist = boxRaycastRotated(rayPos, rayDir, bbxf);
-			if(dist != -1) break;
-		}
-	}
-
-	if(dist != -1) {
-		DArray<MeshVertex> verts = mesh->vertices;
-		Mat4 model = modelMatrix(xf);
-
-		for(int i = 0; i < verts.count/3; i++) {
-			Vec3 ps[3];
-
-			for(int j = 0; j < 3; j++) {
-				MeshVertex* v = mesh->vertices.data + (i*3 + j);
-				Vec3 p;
-
-				if(player->init) {
-					p = {};
-					for(int k = 0; k < 4; k++) {
-						float weight = v->blendWeights.e[k];
-						if(weight == 0.0f) break;
-
-						int index = v->blendIndices[k];
-						p += (weight * (player->mats[index] * vec4(v->pos, 1))).xyz;
-					}
-				} else p = v->pos;
-
-				ps[j] = (model * vec4(p,1)).xyz;
-			}
-
-			Vec3 intersection;
-			bool result = lineTriangleIntersection(rayPos, rayDir, ps[0], ps[1], ps[2], &intersection, false);
-			if(result) {
-				float dist = len(intersection - rayPos);
-				if(dist < shortestDistance) {
-					shortestDistance = dist;
-				}
-			}
-		}
-	}
-
-	return shortestDistance;
 }
 
 void dxDrawLine(Vec3 a, Vec3 b, Vec4 color);

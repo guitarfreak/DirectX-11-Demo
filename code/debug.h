@@ -9,6 +9,9 @@ struct DebugSessionSettings {
 	bool drawGrid;
 	bool drawGroupHandles;
 	bool drawParticleHandles;
+	bool drawSelection;
+	bool drawManifold;
+	bool drawBlockers;
 };
 
 void debugWriteSessionSettings(DebugSessionSettings* at) {
@@ -37,6 +40,9 @@ struct DebugState {
 
 	double dt;
 	double time;
+
+	int timeMode;
+	bool timeStop;
 
 	// Stats.
 
@@ -80,12 +86,16 @@ struct DebugState {
 	ProfilerPanelInfo profilerPanelInfo;
 	MapPanelInfo mapPanelInfo;
 	EntityPanelInfo entityPanelInfo;
+	ManifoldPanelInfo manifoldPanelInfo;
 
 	EntityUI entityUI;
 
 	bool drawGrid;
 	bool drawGroupHandles;
 	bool drawParticleHandles;
+	bool drawSelection;
+	bool drawManifold;
+	bool drawBlockers;
 
 	//
 

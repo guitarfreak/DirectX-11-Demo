@@ -146,6 +146,8 @@ struct ParticleEmitter {
 
 	ParticleSettings settings; // @V0
 
+	bool markedForUpdate; // @Ignore
+
 	//
 
 	void init();
@@ -410,33 +412,10 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 	// Sim.
 	Vec3 gravityScaled = xForm.scale * settings.gravity;
 	{
-		struct ThreadData {
-			Particle* particles;
-			int count;
-			Vec3 gravityScaled;
-			float dt;
-		};
+		TIMER_BLOCK_NAMED("ParticleSim");
 
-		auto threadFunc = [](void* data) {
-			TIMER_BLOCK_NAMED("ParticleSim");
-			ThreadData* d = (ThreadData*)data;
-
-			for(int i = 0; i < d->count; i++) {
-				particleSim(d->particles + i, d->gravityScaled, d->dt);
-			}
-		};
-
-		DArray<ThreadData> threadData = dArray<ThreadData>(theThreadQueue->threadCount+1, getTMemory);
-
-		int count = particles.count;
-		if(count) {
-			Vec2i* ranges = arrayDivideRanges(count, theThreadQueue->threadCount+1);
-
-			for(int i = 0; i < theThreadQueue->threadCount+1; i++) {
-				threadData.push({particles.data + ranges[i].x, ranges[i].y, gravityScaled * dt, dt});
-				threadQueueAdd(theThreadQueue, threadFunc, threadData.data + threadData.count-1);
-			}
-			threadQueueComplete(theThreadQueue);
+		for(auto& it : particles) {
+			particleSim(&it, gravityScaled * dt, dt);
 		}
 	}
 
@@ -539,10 +518,13 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 
 			if(!localSpace) {
 				p.pos = xForm.trans + xForm.rot * (xForm.scale * p.pos);
-				// p.vel = xForm.rot * (xForm.scale * p.vel);
+			}
 
-				// float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
-				// p.size = (minScale * p.size);
+			{
+				float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
+				p.vel = xForm.rot * (xForm.scale * p.vel);
+				p.velSize = minScale * p.velSize;
+				p.size = (minScale * p.size);
 			}
 
 			particleSim(&p, gravityScaled * spawnTimeRest, spawnTimeRest);
@@ -632,9 +614,8 @@ void ParticleEmitter::draw(XForm xForm, Camera* cam) {
 			{
 				struct ThreadData {
 					Particle* particles;
-					int count;
 					PrimitiveVertex* verts;
-
+					
 					ParticleSettings* settings;
 					Rect uv;
 					bool localSpace;
@@ -644,30 +625,17 @@ void ParticleEmitter::draw(XForm xForm, Camera* cam) {
 
 				auto threadFunc = [](void* data) {
 					TIMER_BLOCK_NAMED("ParticleGetQuads");
-					ThreadData* d = (ThreadData*)data;
+					ThreadHeader* h = (ThreadHeader*)data;
+					ThreadData* d = (ThreadData*)h->data;
 
-					int index = 0;
-					for(int i = 0; i < d->count; i++) {
-						Particle* p = d->particles + i;
-
-						particleGetQuad(p, d->settings, d->uv, d->localSpace, d->cam, d->mat, d->verts + index);
-						index += 6;
+					for(int i = 0; i < h->count; i++) {
+						Particle* p = d->particles + h->index + i;
+						particleGetQuad(p, d->settings, d->uv, d->localSpace, d->cam, d->mat, d->verts + (h->index+i) * 6);
 					}
 				};
 
-				DArray<ThreadData> threadData = dArray<ThreadData>(theThreadQueue->threadCount+1, getTMemory);
-
-				int count = particles.count;
-				if(count) {
-					Vec2i* ranges = arrayDivideRanges(count, theThreadQueue->threadCount+1);
-					for(int i = 0; i < theThreadQueue->threadCount+1; i++) {
-						int index = ranges[i].x;
-						threadData.push({particles.data + index, ranges[i].y, verts.data + index * 6, &settings, uv, localSpace, cam, &mat});
-
-						threadQueueAdd(theThreadQueue, threadFunc, threadData.data + threadData.count-1);
-					}
-					threadQueueComplete(theThreadQueue);
-				}
+				ThreadData td = {particles.data, verts.data, &settings, uv, localSpace, cam, &mat};
+				splitThreadTask(particles.count, &td, threadFunc);
 			}
 
 			if(particles.count)

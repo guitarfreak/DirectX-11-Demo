@@ -110,8 +110,8 @@ inline float logBase(float v, float base) { return log(v) / log(base); }
 inline int evenDivide(int size, int count, int* index) {
 	if(size == 0 || count == 0) return 0;
 
-	float div = (float)size / count;
-	*index = (div - floor(div)) * count;
-	if(*index == 0) *index = count;
+	double div = (double)size / count;
+	*index = round((div - floor(div)) * count);
+	if((*index) == 0) *index = count;
 	return ceil(div);
 }

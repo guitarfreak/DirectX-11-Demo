@@ -2,14 +2,13 @@
 
 ToDo:
 - For shipping mode, pack all data into one file
-- Make true fullscreen work.
+- Make true fullscreen work?
 - Audio debug screen.
-- Clean up obj loader.
+- Clean up obj loader. Or replace with AssImp.
 - Ground/heightmap, blended textures, grass, shore, ocean/water, horizon.
 - Proximity grid.
-- Movement.
 
-- Lookup things on ShaderToy.
+- Lookup water on ShaderToy.
 
 - Load assets better.
 - Hot reloading for all assets.
@@ -30,14 +29,14 @@ ToDo:
 - Make null strings work on entities instead of allocating empty strings everywhere.
 - Storing only mesh name on Entity is wrong for animated meshes.
 
-- Put in WalkManifold and movement.
+- Fix figure default pose.
+- Particle brightness mipmap border problem.
+- Manifold:
+  - make cells go from 0 to 1 everywhere to get fixed precision.
+  - Fix walk edges.
 
-- Modes: game, level edit, game pause, debug while game running
-- levelEdit/ingame
-- freecam/playercam
-- running/paused
-  levelEdit -> paused && freeCam;
-  ingame    -> 
+- Better/smoother movement: Acceleration, drag.
+- Make Camera use transform rotation instead of "camRot".
 
 Bugs:
 - Black shadow spot where sun hits material with displacement map.
@@ -105,6 +104,8 @@ ProfilerTimer* theTimer;
 
 // Internal.
 
+#include "userSettings.cpp"
+
 #include "types.h"
 #include "misc.cpp"
 #include "string.cpp"
@@ -132,8 +133,6 @@ ProfilerTimer* theTimer;
 #include "mesh.h"
 #include "font.h"
 
-#include "userSettings.cpp"
-
 #include "objLoader.cpp"
 #include "animation.cpp"
 
@@ -154,8 +153,9 @@ ProfilerTimer* theTimer;
 #include "particles.cpp"
 #include "entity.h"
 #include "audio.cpp"
-#include "walkManifold.cpp"
+#include "walkManifold.h"
 #include "gjk.cpp"
+#include "walkManifold.cpp"
 
 #include "assetReload.cpp"
 #include "stateRecord.cpp"
@@ -266,7 +266,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		{
 			ds->recState.update(&ad->input);
 			if(ds->recState.playbackPaused && !ds->recState.justPaused) goto endOfMainLabel; // @Hack
-		} 
+		}
 
 		if(!init) {
 			handleMouseCapturing(input, &ad->mouseEvents, ds->mouseOverPanel, &ds->gui, &ws->lastMousePosition, windowHandle, sd->killedFocus);
@@ -285,14 +285,26 @@ extern "C" APPMAINFUNCTION(appMain) {
 		ad->newGameMode = -1;
 	}
 
-	if(ad->gameMode == GAME_MODE_MENU) {
-		menuUpdate(ad, ws, ds->fontHeightScaled, &ad->toggleFullscreen, isRunning);
-
-	} else if(ad->gameMode == GAME_MODE_LOAD) {
+	if(ad->gameMode == GAME_MODE_LOAD) {
 		gameLoad(ad);
 		historyReset(&ds->entityUI.history);
 
+		// No need for loading screen right now so we switch immediately to main game mode.
+		ad->gameMode = GAME_MODE_MAIN;
+	}
+
+	if(ad->gameMode == GAME_MODE_MENU) {
+		menuUpdate(ad, ws, ds->fontHeightScaled, &ad->toggleFullscreen, isRunning);
+
 	} else if(ad->gameMode == GAME_MODE_MAIN) {
+		if(ds->timeMode != 0) {
+			float t = pow(2.0f, abs(ds->timeMode));
+			if(ds->timeMode < 0) t = 1.0f/t;
+			ad->dt *= t;
+		}
+
+		if(ds->timeStop) ad->dt = 0;
+
 		gameLoop(ad, ds, ws, ds->showUI, init, reload);
 	}
 

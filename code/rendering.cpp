@@ -47,6 +47,13 @@ void dxLineAA(int mode = 2) {
 	dxSetRasterizer();
 }
 
+void dxDepthBias(int bias = 0, float slopeScaledBias = 0, float biasClamp = 0) {
+	theGState->rasterizerState.DepthBias = bias;
+	theGState->rasterizerState.DepthBiasClamp = biasClamp;
+	theGState->rasterizerState.SlopeScaledDepthBias = slopeScaledBias;
+	dxSetRasterizer();
+}
+
 void dxScissor(Rect r) {
 	D3D11_RECT dRect = {r.left, -r.top, r.right, -r.bottom};
 	theGState->d3ddc->RSSetScissorRects(1, &dRect);

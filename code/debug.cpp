@@ -82,9 +82,19 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		dxLineAA(1);
 	}
 
+	{
+		int mode = ds->timeMode;
+		if(input->keysPressed[KEYCODE_PAGEUP]) ds->timeMode++;
+		if(input->keysPressed[KEYCODE_PAGEDOWN]) ds->timeMode--;
+		if(input->keysPressed[KEYCODE_END]) ds->timeMode = 0;
+		if(input->keysPressed[KEYCODE_PAUSE]) ds->timeStop = !ds->timeStop;
+
+		clamp(&ds->timeMode, -8, 3);
+	}
+
 	//
 
-	updateEntityUI(ds, &ad->entityManager);
+	updateEntityUI(ds, &ad->entityManager, ad->levelEdit);
 
 	{
 		Font* font = getFont("LiberationSans-Regular.ttf", ds->fontHeight, "LiberationSans-Bold.ttf", "LiberationSans-Italic.ttf");
@@ -123,6 +133,9 @@ void debugMain(DebugState* ds, AppMemory* appMemory, AppData* ad, bool reload, b
 		settings.drawGrid = ds->drawGrid;
 		settings.drawGroupHandles = ds->drawGroupHandles;
 		settings.drawParticleHandles = ds->drawParticleHandles;
+		settings.drawSelection = ds->drawSelection;
+		settings.drawManifold = ds->drawManifold;
+		settings.drawBlockers = ds->drawBlockers;
 
 		debugWriteSessionSettings(&settings);
 	}

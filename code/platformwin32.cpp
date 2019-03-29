@@ -41,7 +41,7 @@ struct SystemData {
 	HINSTANCE instance; // @Ignore
 	HDC deviceContext; // @Ignore
 	HWND windowHandle; // @Ignore
-	
+
 	HANDLE folderHandles[5]; // @Ignore
 	int folderHandleCount; // @Ignore
 
@@ -65,41 +65,40 @@ struct SystemData {
 //
 
 LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-
 	SystemData* sd = (SystemData*)GetWindowLongPtrA(window, GWLP_USERDATA);
 
-    switch(message) {
-        case WM_DESTROY: {
-            PostMessage(window, message, wParam, lParam);
-        } break;
+	switch(message) {
+		case WM_DESTROY: {
+			PostMessage(window, message, wParam, lParam);
+		} break;
 
-        case WM_CLOSE: {
-            PostMessage(window, message, wParam, lParam);
-        } break;
+		case WM_CLOSE: {
+			PostMessage(window, message, wParam, lParam);
+		} break;
 
-        case WM_QUIT: {
-            PostMessage(window, message, wParam, lParam);
-        } break;
+		case WM_QUIT: {
+			PostMessage(window, message, wParam, lParam);
+		} break;
 
-        // #ifdef ENABLE_CUSTOM_WINDOW_FRAME
-        // case WM_NCACTIVATE: {
-        // 	sd->vsyncTempTurnOff = true;
-        // 	SwitchToFiber(sd->mainFiber);
-        // } break;
-        // #endif
+		// #ifdef ENABLE_CUSTOM_WINDOW_FRAME
+		// case WM_NCACTIVATE: {
+		// 	sd->vsyncTempTurnOff = true;
+		// 	SwitchToFiber(sd->mainFiber);
+		// } break;
+		// #endif
 
-        case WM_SIZE: {
-        	if(wParam == SIZE_MAXIMIZED) sd->maximized = true;
-        	else if(wParam == SIZE_RESTORED) sd->maximized = false;
+		case WM_SIZE: {
+			if(wParam == SIZE_MAXIMIZED) sd->maximized = true;
+			else if(wParam == SIZE_RESTORED) sd->maximized = false;
 
-        	// sd->vsyncTempTurnOff = true;
-        	sd->input->resize = true;
-        } break;
+			// sd->vsyncTempTurnOff = true;
+			sd->input->resize = true;
+		} break;
 
 		// case WM_NCPAINT: {
 		//     HDC hdc;
 		//     hdc = GetDCEx(window, (HRGN)wParam, DCX_WINDOW|DCX_INTERSECTRGN);
-		//     // Paint into this DC 
+		//     // Paint into this DC
 		//     ReleaseDC(window, hdc);
 
 		//     // sd->vsyncTempTurnOff = true;
@@ -108,55 +107,65 @@ LRESULT CALLBACK mainWindowCallBack(HWND window, UINT message, WPARAM wParam, LP
 		// 	return 0;
 		// } break;
 
-        case WM_PAINT: {
-        	PAINTSTRUCT ps;
-        	HDC hdc = BeginPaint(window, &ps); 
-        	EndPaint(window, &ps);
+		case WM_PAINT: {
+			PAINTSTRUCT ps;
+			HDC hdc = BeginPaint(window, &ps);
+			EndPaint(window, &ps);
 
-        	sd->vsyncTempTurnOff = true;
-        	SwitchToFiber(sd->mainFiber);
+			#if USE_FIBERS
+			sd->vsyncTempTurnOff = true;
+			SwitchToFiber(sd->mainFiber);
 
-        	return 0;
-        } break;
+			return 0;
+			#endif
+		} break;
 
-        case WM_SETFOCUS: {
-        	sd->setFocus = true;
-        	sd->windowIsFocused = true;
-        	// sd->vsyncTempTurnOff = true;
-        	// SwitchToFiber(sd->mainFiber);
-        } break;
+		case WM_SETFOCUS: {
+			sd->setFocus = true;
+			sd->windowIsFocused = true;
 
-        case WM_KILLFOCUS: {
-		    sd->killedFocus = true;
-        	sd->windowIsFocused = false;
+			#if USE_FIBERS
+			sd->vsyncTempTurnOff = true;
+			SwitchToFiber(sd->mainFiber);
+			#endif
+		} break;
 
-        	sd->vsyncTempTurnOff = true;
-        	SwitchToFiber(sd->mainFiber);
-        } break;
+		case WM_KILLFOCUS: {
+			sd->killedFocus = true;
+			sd->windowIsFocused = false;
 
-        case WM_TIMER: {
-        	sd->vsyncTempTurnOff = true;
-        	SwitchToFiber(sd->mainFiber);
-        } break;
+			#if USE_FIBERS
+			sd->vsyncTempTurnOff = true;
+			SwitchToFiber(sd->mainFiber);
+			#endif
+		} break;
 
-        // Make alt+enter not beep....
-        case WM_MENUCHAR: {
-            if(LOWORD(wParam) & VK_RETURN) 
-            	return MAKELRESULT(0, MNC_CLOSE);
-            return DefWindowProc(window, message, wParam, lParam);
-        } break;
+		#if USE_FIBERS
+		case WM_TIMER: {
+			sd->vsyncTempTurnOff = true;
+			SwitchToFiber(sd->mainFiber);
+		} break;
+		#endif
 
-        default: {
-            return DefWindowProc(window, message, wParam, lParam);
-        } break;
-    }
+		// Make alt+enter not beep....
+		case WM_MENUCHAR: {
+			if(LOWORD(wParam) & VK_RETURN)
+				return MAKELRESULT(0, MNC_CLOSE);
+			return DefWindowProc(window, message, wParam, lParam);
+		} break;
 
-    return 1;
+		default: {
+			return DefWindowProc(window, message, wParam, lParam);
+		} break;
+	}
+
+	return 1;
 }
 
 BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData);
+void CALLBACK updateInput(SystemData* sd);
 
-void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, Vec2i res, int style, int , int monitor = 0) {
+void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, Vec2i res, int style, int, int monitor = 0) {
 	systemData->windowsData = wData;
 
 	EnumDisplayMonitors(0, 0, monitorEnumProc, ((LPARAM)ws));
@@ -192,70 +201,73 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	}
 	ws->res = vec2i(ww, wh);
 
-    WNDCLASS windowClass = {};
-    windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS;
-     
-    windowClass.lpfnWndProc = mainWindowCallBack;
-    windowClass.hInstance = systemData->instance;
-    windowClass.lpszClassName = "App";
-    // windowClass.hCursor = LoadCursor(0, IDC_ARROW);
-    windowClass.hCursor = 0;
+	WNDCLASS windowClass = {};
+	windowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS;
 
-    if(!RegisterClass(&windowClass)) {
-        DWORD errorCode = GetLastError();
-        int dummy = 2;   
-    }
+	windowClass.lpfnWndProc = mainWindowCallBack;
+	windowClass.hInstance = systemData->instance;
+	windowClass.lpszClassName = "App";
+	// windowClass.hCursor = LoadCursor(0, IDC_ARROW);
+	windowClass.hCursor = 0;
 
-    // systemData->windowClass = windowClass;
-    systemData->windowHandle = CreateWindowEx(0, windowClass.lpszClassName, "", ws->style, wx,wy,ww,wh, 0, 0, systemData->instance, 0);
+	if(!RegisterClass(&windowClass)) {
+		DWORD errorCode = GetLastError();
+		int dummy = 2;
+	}
 
-    HWND windowHandle = systemData->windowHandle;
-    if(!windowHandle) {
-        DWORD errorCode = GetLastError();
-    }
+	// systemData->windowClass = windowClass;
+	systemData->windowHandle = CreateWindowEx(0, windowClass.lpszClassName, "", ws->style, wx,wy,ww,wh, 0, 0, systemData->instance, 0);
 
-    SetWindowLongPtr(windowHandle, GWLP_USERDATA, (LONG_PTR)systemData);
+	HWND windowHandle = systemData->windowHandle;
+	if(!windowHandle) {
+		DWORD errorCode = GetLastError();
+	}
 
-    #ifndef HID_USAGE_PAGE_GENERIC
-    #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
-    #endif
-    #ifndef HID_USAGE_GENERIC_MOUSE
-    #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
-    #endif
+	SetWindowLongPtr(windowHandle, GWLP_USERDATA, (LONG_PTR)systemData);
 
-    RAWINPUTDEVICE Rid[1];
-    Rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC; 
-    Rid[0].usUsage = HID_USAGE_GENERIC_MOUSE; 
-    Rid[0].hwndTarget = windowHandle;
-    Rid[0].dwFlags = RIDEV_INPUTSINK;   
-    // Rid[0].dwFlags = 0;   
-    bool r = RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
-    assert(r);
+	#ifndef HID_USAGE_PAGE_GENERIC
+	#define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
+	#endif
+	#ifndef HID_USAGE_GENERIC_MOUSE
+	#define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
+	#endif
 
-    systemData->mainFiber = ConvertThreadToFiber(0);
-    // systemData->messageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)updateInput, systemData);
+	RAWINPUTDEVICE Rid[1];
+	Rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
+	Rid[0].usUsage = HID_USAGE_GENERIC_MOUSE;
+	Rid[0].hwndTarget = windowHandle;
+	Rid[0].dwFlags = RIDEV_INPUTSINK;
+	// Rid[0].dwFlags = 0;
+	bool r = RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
+	assert(r);
 
-    SYSTEM_INFO sysinfo;
-    GetSystemInfo(&sysinfo);
-    systemData->coreCount = sysinfo.dwNumberOfProcessors;
 
-    // Set icon.
-    {
-    	char* rs = MAKEINTRESOURCE(1);
-    	HANDLE hbicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
-    	if(hbicon) SendMessage(windowHandle, WM_SETICON, ICON_BIG, (LPARAM)hbicon);
+	#if USE_FIBERS
+	systemData->mainFiber = ConvertThreadToFiber(0);
+	systemData->messageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)updateInput, systemData);
+	#endif
 
-    	HANDLE hsicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
-    	if(hsicon) SendMessage(windowHandle, WM_SETICON, ICON_SMALL, (LPARAM)hsicon);
-    }
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo(&sysinfo);
+	systemData->coreCount = sysinfo.dwNumberOfProcessors;
 
-    // Set minimal sleep timer resolution.
-    {
-    	TIMECAPS timecaps;
-    	timeGetDevCaps(&timecaps, sizeof(TIMECAPS));
-    	int error = timeBeginPeriod(timecaps.wPeriodMin);
-    	if(error != TIMERR_NOERROR) printf("Timer error.\n");
-    }
+	// Set icon.
+	{
+		char* rs = MAKEINTRESOURCE(1);
+		HANDLE hbicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+		if(hbicon) SendMessage(windowHandle, WM_SETICON, ICON_BIG, (LPARAM)hbicon);
+
+		HANDLE hsicon = LoadImage(GetModuleHandle(0), rs, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+		if(hsicon) SendMessage(windowHandle, WM_SETICON, ICON_SMALL, (LPARAM)hsicon);
+	}
+
+	// Set minimal sleep timer resolution.
+	{
+		TIMECAPS timecaps;
+		timeGetDevCaps(&timecaps, sizeof(TIMECAPS));
+		int error = timeBeginPeriod(timecaps.wPeriodMin);
+		if(error != TIMERR_NOERROR) printf("Timer error.\n");
+	}
 
 	SetFocus(windowHandle);
 	systemData->windowIsFocused = true;
@@ -283,56 +295,56 @@ BOOL CALLBACK monitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
 }
 
 Rect getWindowWindowRect(HWND windowHandle) {
-	RECT r; 
+	RECT r;
 	GetWindowRect(windowHandle, &r);
 	Rect windowRect = rect(r.left, r.bottom, r.right, r.top);
-	
+
 	return windowRect;
 }
 
 void getWindowProperties(HWND windowHandle, int* viewWidth, int* viewHeight, int* width, int* height, int* x, int* y) {
-    RECT cr; 
-    GetClientRect(windowHandle, &cr);
-    *viewWidth = cr.right - cr.left;
-    *viewHeight = cr.bottom - cr.top;
+	RECT cr;
+	GetClientRect(windowHandle, &cr);
+	*viewWidth = cr.right - cr.left;
+	*viewHeight = cr.bottom - cr.top;
 
-    if(width && height) {
-    	RECT wr; 
-    	GetWindowRect(windowHandle, &wr);
-    	*width = wr.right - wr.left;
-    	*height = wr.bottom - wr.top;
-    }
+	if(width && height) {
+		RECT wr;
+		GetWindowRect(windowHandle, &wr);
+		*width = wr.right - wr.left;
+		*height = wr.bottom - wr.top;
+	}
 
-    if(x && y) {
-    	WINDOWPLACEMENT placement;
-    	GetWindowPlacement(windowHandle, &placement);
-    	RECT r; 
-    	r = placement.rcNormalPosition; 
-    	*x = r.left;
-    	*y = r.top;    	
-    }
+	if(x && y) {
+		WINDOWPLACEMENT placement;
+		GetWindowPlacement(windowHandle, &placement);
+		RECT r;
+		r = placement.rcNormalPosition;
+		*x = r.left;
+		*y = r.top;
+	}
 }
 
 void setWindowProperties(HWND windowHandle, int width, int height, int x, int y) {
-    WINDOWPLACEMENT placement;
-    GetWindowPlacement(windowHandle, &placement);
-    RECT r = placement.rcNormalPosition;
+	WINDOWPLACEMENT placement;
+	GetWindowPlacement(windowHandle, &placement);
+	RECT r = placement.rcNormalPosition;
 
-    if(width != -1) r.right = r.left + width;
-    if(height != -1) r.bottom = r.top + height;
-    if(x != -1) {
-        int width = r.right - r.left;
-        r.left = x;
-        r.right = x + width;
-    }
-    if(y != -1) {
-        int height = r.bottom - r.top;
-        r.top = y;
-        r.bottom = y + height;
-    }
+	if(width != -1) r.right = r.left + width;
+	if(height != -1) r.bottom = r.top + height;
+	if(x != -1) {
+		int width = r.right - r.left;
+		r.left = x;
+		r.right = x + width;
+	}
+	if(y != -1) {
+		int height = r.bottom - r.top;
+		r.top = y;
+		r.bottom = y + height;
+	}
 
-    placement.rcNormalPosition = r;
-    SetWindowPlacement(windowHandle, &placement);
+	placement.rcNormalPosition = r;
+	SetWindowPlacement(windowHandle, &placement);
 }
 
 enum WindowMode {
@@ -368,25 +380,25 @@ void updateResolution(HWND windowHandle, WindowSettings* ws) {
 void setWindowMode(HWND hwnd, WindowSettings* wSettings, int mode) {
 	if(mode == WINDOW_MODE_FULLBORDERLESS && !wSettings->fullscreen) {
 		wSettings->previousWindowRect = getWindowWindowRect(hwnd);
-		
+
 		wSettings->g_wpPrev = {};
 
 		DWORD dwStyle = getWindowStyle(hwnd);
 		if (dwStyle & WS_OVERLAPPEDWINDOW) {
-		  MONITORINFO mi = { sizeof(mi) };
-		  if (GetWindowPlacement(hwnd, &wSettings->g_wpPrev) &&
-		      GetMonitorInfo(MonitorFromWindow(hwnd,
-		                     MONITOR_DEFAULTTOPRIMARY), &mi)) {
-		    SetWindowLong(hwnd, GWL_STYLE,
-		                  dwStyle & ~WS_OVERLAPPEDWINDOW);
-			setWindowStyle(hwnd, dwStyle & ~WS_OVERLAPPEDWINDOW);
+			MONITORINFO mi = { sizeof(mi) };
+			if (GetWindowPlacement(hwnd, &wSettings->g_wpPrev) &&
+			        GetMonitorInfo(MonitorFromWindow(hwnd,
+			                       MONITOR_DEFAULTTOPRIMARY), &mi)) {
+				SetWindowLong(hwnd, GWL_STYLE,
+				              dwStyle & ~WS_OVERLAPPEDWINDOW);
+				setWindowStyle(hwnd, dwStyle & ~WS_OVERLAPPEDWINDOW);
 
-		    SetWindowPos(hwnd, HWND_TOP,
-		                 mi.rcMonitor.left, mi.rcMonitor.top,
-		                 mi.rcMonitor.right - mi.rcMonitor.left,
-		                 mi.rcMonitor.bottom - mi.rcMonitor.top,
-		                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-		  }
+				SetWindowPos(hwnd, HWND_TOP,
+				             mi.rcMonitor.left, mi.rcMonitor.top,
+				             mi.rcMonitor.right - mi.rcMonitor.left,
+				             mi.rcMonitor.bottom - mi.rcMonitor.top,
+				             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+			}
 		}
 
 		wSettings->fullscreen = true;
@@ -418,7 +430,7 @@ bool windowIsMinimized(HWND windowHandle) {
 	return IsIconic(windowHandle);
 }
 
-bool windowIsMaximized(HWND windowHandle) {	
+bool windowIsMaximized(HWND windowHandle) {
 	WINDOWPLACEMENT placement = {sizeof(WINDOWPLACEMENT)};
 	GetWindowPlacement(windowHandle, &placement);
 	if(placement.showCmd == SW_SHOWMAXIMIZED) return true;
@@ -426,11 +438,11 @@ bool windowIsMaximized(HWND windowHandle) {
 }
 
 void makeWindowTopmost(SystemData* sd) {
-    SetWindowPos(sd->windowHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	SetWindowPos(sd->windowHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 }
 
 void showWindow(HWND windowHandle) {
-    ShowWindow(windowHandle, SW_SHOW);
+	ShowWindow(windowHandle, SW_SHOW);
 }
 
 Rect getScreenRect(Vec2i res) {
@@ -444,13 +456,13 @@ Rect getScreenRect(WindowSettings* ws) {
 // @Time.
 
 void sleep(int milliseconds) {
-    Sleep(milliseconds);
+	Sleep(milliseconds);
 }
 
 uint getTicks() {
-    uint result = GetTickCount();
+	uint result = GetTickCount();
 
-    return result;
+	return result;
 }
 
 __int64 getCycleStamp() {
@@ -465,7 +477,7 @@ struct Timer {
 
 	void init() {
 		LARGE_INTEGER frequency;
-		QueryPerformanceFrequency(&frequency); 
+		QueryPerformanceFrequency(&frequency);
 
 		this->frequency = (double)frequency.QuadPart;
 	}
@@ -505,9 +517,9 @@ struct SectionTimer {
 	int sectionCount;
 	double totalTime;
 
-	void start(Timer* timer) { 
+	void start(Timer* timer) {
 		this->timer = timer;
-		timer->start(); 
+		timer->start();
 		sectionCount = 0;
 		totalTime = 0;
 	}
@@ -555,52 +567,52 @@ void shellExecuteNoWindow(char* command) {
 	PROCESS_INFORMATION pi = {};
 	si.cb = sizeof(si);
 
-	if (CreateProcess(NULL, command, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-	    WaitForSingleObject(pi.hProcess, INFINITE);
-	    CloseHandle(pi.hProcess);
-	    CloseHandle(pi.hThread);
+	if(CreateProcess(NULL, command, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+		WaitForSingleObject(pi.hProcess, INFINITE);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
 	}
 }
 
 // Don't forget to close after opening it.
 char* getClipboard() {
-    BOOL result = OpenClipboard(0);
-    HANDLE clipboardHandle = GetClipboardData(CF_TEXT);
-    // char* data = GlobalLock(clipboardHandle);
-    char* data = (char*)clipboardHandle;
+	BOOL result = OpenClipboard(0);
+	HANDLE clipboardHandle = GetClipboardData(CF_TEXT);
+	// char* data = GlobalLock(clipboardHandle);
+	char* data = (char*)clipboardHandle;
 
-    return data;
+	return data;
 }
 
 void closeClipboard() {
-    CloseClipboard();
+	CloseClipboard();
 }
 
 void setClipboard(char* text) {
-    int textSize = strLen(text) + 1;
-    HANDLE clipHandle = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, textSize);
-    char* pointer = (char*)GlobalLock(clipHandle);
-    memcpy(pointer, (char*)text, textSize);
-    GlobalUnlock(clipHandle);
+	int textSize = strLen(text) + 1;
+	HANDLE clipHandle = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, textSize);
+	char* pointer = (char*)GlobalLock(clipHandle);
+	memcpy(pointer, (char*)text, textSize);
+	GlobalUnlock(clipHandle);
 
-    OpenClipboard(0);
-    EmptyClipboard();
-    SetClipboardData(CF_TEXT, clipHandle);
-    CloseClipboard();
+	OpenClipboard(0);
+	EmptyClipboard();
+	SetClipboardData(CF_TEXT, clipHandle);
+	CloseClipboard();
 }
 
 void* mallocWithBaseAddress(void* baseAddress, int sizeInBytes) {
-    void* mem = VirtualAlloc(baseAddress, (size_t)sizeInBytes, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    DWORD error = GetLastError();
+	void* mem = VirtualAlloc(baseAddress, (size_t)sizeInBytes, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+	DWORD error = GetLastError();
 
-    return mem;
+	return mem;
 }
 
 void atomicAdd(volatile unsigned int* n) { InterlockedIncrement(n); }
 void atomicSub(volatile unsigned int* n) { InterlockedDecrement(n); }
 
 void swapBuffers(SystemData* systemData) {
-    SwapBuffers(systemData->deviceContext);
+	SwapBuffers(systemData->deviceContext);
 }
 
 int getSystemFontHeight(HWND windowHandle) {
@@ -640,16 +652,16 @@ void printMemoryUsage() {
 	float PrivateUsage = pmc.PrivateUsage/1024.0f/1024.0f;
 
 	// printf("%f %f\n", commited/1024.0f/1024.0f, workingSet/1024.0f/1024.0f);
-	printf("%f %f %f %f %f %f %f %f %f\n", 
-	       PeakWorkingSetSize, 
-	       WorkingSetSize, 
-	       QuotaPeakPagedPoolUsage, 
-	       QuotaPagedPoolUsage, 
-	       QuotaPeakNonPagedPoolUsage, 
-	       QuotaNonPagedPoolUsage, 
-	       PagefileUsage, 
-	       PeakPagefileUsage, 
+	printf("%f %f %f %f %f %f %f %f %f\n",
+	       PeakWorkingSetSize,
+	       WorkingSetSize,
+	       QuotaPeakPagedPoolUsage,
+	       QuotaPagedPoolUsage,
+	       QuotaPeakNonPagedPoolUsage,
+	       QuotaNonPagedPoolUsage,
+	       PagefileUsage,
+	       PeakPagefileUsage,
 	       PrivateUsage
-	       );
+	      );
 }
 #endif

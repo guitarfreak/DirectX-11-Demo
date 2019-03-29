@@ -67,14 +67,15 @@ void setupMemoryAndGlobals(AppMemory* appMemory, ThreadQueue* threadQueue, Memor
 }
 
 void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws, WindowsData windowsData) {
-	
 	*ad = {};
 
 	int windowStyle = WS_OVERLAPPEDWINDOW;
 	// int windowStyle = WS_OVERLAPPEDWINDOW & ~WS_SYSMENU;
 	initSystem(sd, ws, windowsData, vec2i(1920*0.85f, 1080*0.85f), windowStyle, 1);
 
+	#if USE_FIBERS
 	sd->messageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)updateInput, sd);
+	#endif
 
 	HWND windowHandle = sd->windowHandle;
 	SetWindowText(windowHandle, APP_NAME);
@@ -87,7 +88,7 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 
 	#ifndef SHIPPING_MODE
 	#if WINDOW_TOPMOST_DEBUG
-	if(!IsDebuggerPresent()) {
+	if (!IsDebuggerPresent()) {
 		makeWindowTopmost(sd);
 	}
 	#endif
@@ -98,12 +99,11 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 	ad->gSettings.fieldOfView = 60;
 	ad->gSettings.msaaSamples = 4;
 	ad->gSettings.resolutionScale = 1;
-	ad->gSettings.nearPlane = 0.2f;
+	ad->gSettings.nearPlane = 0.1f;
 	ad->gSettings.farPlane = 50;
 	ad->dt = 1/(float)ws->frameRate;
 
 	pcg32_srandom(0, __rdtsc());
-	
 }
 
 void addFrameBuffers();
@@ -514,31 +514,68 @@ void appSessionInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 }
 
 void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
-
 	ad->audioState.masterVolume = 0.5f;
+
+	bool freeCam;
+	#if SHIPPING_MODE
+	freeCam = false;
+	#else
+	freeCam = true;
+	#endif
+	
+	ad->levelEdit = freeCam;
+	ad->freeCam = freeCam;
 
 	ad->gameMode = GAME_MODE_LOAD;
 	ad->newGameMode = -1;
 	ad->menu.activeId = 0;
 
-	// #if SHIPPING_MODE
-	// ad->captureMouse = true;
-	// #else 
+	#if SHIPPING_MODE
+	ad->mouseEvents.captureMouse = false;
+	ad->mouseEvents.debugMouse = false;
+	ad->mouseEvents.debugMouseFixed = true;
+	#else 
 	ad->mouseEvents.captureMouse = false;
 	ad->mouseEvents.debugMouse = true;
-	// #endif
+	ad->mouseEvents.debugMouseFixed = false;
+	#endif
 
 	ad->volumeFootsteps = 0.2f;
 	ad->volumeGeneral = 0.5f;
 	ad->volumeMenu = 0.7f;
 
 	ad->mouseSensitivity = 0.2f;
-
 	ad->redrawSkyBox = true;
+	ad->playerHeight = 1.8f;
+
+	ad->entityManager = {};
+
+	{
+		WalkManifoldSettings s;
+
+		s.cellSize = 0.15f;
+		s.playerRadius = 0.22f;
+		s.playerHeight = ad->playerHeight + 0.5f;
+		s.legHeight = s.playerHeight * 0.4f;
+		s.edgeSearchIterations = 14;
+		s.lineFlattenPercent = 0.07f;
+		s.maxLineCollisionCount = 5;
+
+		s.depthTest = true;
+		s.drawOutsideGrid = false;
+		s.drawLinesNoCleanup = false;
+		s.cGrid = vec4(1,0.8f);
+		s.cGridOutside = vec4(1,0.05f);
+		s.cBlockerLine = vec4(0,1,1,1);
+		s.cBlockerLineNoCleanup = vec4(1,0,0,1);
+		s.cWalkEdge = vec4(1,0,1,1);
+
+		ad->manifold.init(&s);
+
+		ad->manifoldGridRadius = 12;
+	}
 
 	// Entity.
-
-	ad->playerMode = false;
 
 	// Load game settings.
 	{

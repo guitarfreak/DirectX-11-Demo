@@ -14,9 +14,12 @@ void initDebugUI(DebugState* ds, bool init) {
 
 		for(int i = 0; i < Panel_Type_Size; i++) settings.panelHierarchy[i] = i;
 
-		settings.drawGrid = true;
-		settings.drawGroupHandles = true;
-		settings.drawParticleHandles = true;
+		settings.drawGrid = false;
+		settings.drawGroupHandles = false;
+		settings.drawParticleHandles = false;
+		settings.drawSelection = false;
+		settings.drawManifold = false;
+		settings.drawBlockers = false;
 
 		debugWriteSessionSettings(&settings);
 	}
@@ -60,13 +63,21 @@ void initDebugUI(DebugState* ds, bool init) {
 		strCpy(pi->nameFilter, "");
 	}
 
+	{
+		ManifoldPanelInfo* pi = &ds->manifoldPanelInfo;
+		*pi = {};
+		pi->zoom = 1;
+	}
+
 	ds->drawGrid = settings.drawGrid;
 	ds->drawGroupHandles = settings.drawGroupHandles;
 	ds->drawParticleHandles = settings.drawParticleHandles;
+	ds->drawSelection = settings.drawSelection;
+	ds->drawManifold = settings.drawManifold;
+	ds->drawBlockers = settings.drawBlockers;
 }
 
 void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
-
 	if(ds->panelInit) initDebugUI(ds, true);
 
 	ThreadQueue* threadQueue = theThreadQueue;
@@ -74,6 +85,12 @@ void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
 
 	Gui* gui = &ds->gui;
 	Font* font = gui->sText.font;
+
+	{
+		if(!ad->levelEdit) {
+			ds->panels[Panel_Type_Map].isActive = false;
+		}
+	}
 
 	{
 		// Panel selection row.
@@ -127,21 +144,15 @@ void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
 			// Icons.
 			p.x += iconListGap;
 
-			QLayout ql = qLayout(p, vec2(0,eh), vec2(0,0));
-			// ql.row(eh, eh, eh);
-
-			// TextBoxSettings tbsInactive = textBoxSettings(gui->sText2, boxSettings(cInactive));
-			// TextBoxSettings tbsActive   = textBoxSettings(gui->sText2, boxSettings(cActive));
 			TextBoxSettings tbs = textBoxSettings(gui->sText2, boxSettings(vec4(0,0,0,0)));
 
-			bool* switches[] = {&ds->drawGrid, &ds->drawParticleHandles, &ds->drawGroupHandles};
-			char* textures[] = {"icons\\grid.dds", "icons\\particles.dds", "icons\\groups.dds"};
+			bool* switches[] = {&ds->drawGrid, &ds->drawParticleHandles, &ds->drawGroupHandles, &ds->drawSelection, &ds->drawManifold, &ds->drawBlockers};
+			char* textures[] = {"icons\\grid.dds", "icons\\particles.dds", "icons\\groups.dds", "icons\\selection.dds", "icons\\manifold.dds", "icons\\blocker.dds"};
 
 			for(auto& it : switches) {
 				bool* var = it;
 
-				// @Hack.
-				Rect r = ql.getRectW(eh);
+				Rect r = rectTLDim(p, vec2(eh)); p.x += eh;
 				if(gui->qPButton(r, "", vec2i(0,0), &tbs)) *var = !(*var);
 
 				Vec4 color = *var ? vec4(1,1) : vec4(0.5f,1);
@@ -151,13 +162,29 @@ void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
 				dxDrawRect(r, color, dxGetTexture(textures[i])->view);
 			}
 
-			// r = rectTLDim(p, vec2(eh, eh)); p.x += eh;
-			// if(gui->qPButton(ql.getRectW(eh), "")) ds->drawGrid = !ds->drawGrid;
-			// if(gui->qPButton(ql.getRectW(eh), "")) ds->drawParticleHandles = !ds->drawParticleHandles;
-			// if(gui->qPButton(ql.getRectW(eh), "")) ds->drawGroupHandles = !ds->drawGroupHandles;
-			// dxDrawRect(r, vec4(1,0,0,1));
-			// dxDrawRect(r, vec4(0,1,0,1));
-			// dxDrawRect(r, vec4(0,0,1,1));
+			p.x += iconListGap;
+			{
+				float t = pow(2.0f, abs(ds->timeMode));
+				if(ds->timeMode < 0) t = 1.0f/t;
+				if(ds->timeStop) t = 0;
+
+				char* text = fString("Time Scale: %.2f", t);
+				float labelWidth = getTextDim(text, font).w + textPad;
+				Rect r = rectTLDim(p, vec2(labelWidth,eh)); p.x += r.w();
+				gui->qTextBox(r, text, &tbsInactive);
+
+				p.x += iconListGap;
+				r = rectTLDim(p, vec2(eh,eh)); p.x += r.w();
+				if(gui->qButton(r, "-", &tbsInactive)) ds->timeMode--;
+				r = rectTLDim(p, vec2(eh,eh)); p.x += r.w();
+				if(gui->qButton(r, "_", &tbsInactive)) ds->timeMode = 0;
+				r = rectTLDim(p, vec2(eh,eh)); p.x += r.w();
+				if(gui->qButton(r, "+", &tbsInactive)) ds->timeMode++;
+
+				r = rectTLDim(p, vec2(eh,eh)); p.x += r.w();
+				TextBoxSettings* set = ds->timeStop ? &tbsActive : &tbsInactive;
+				if(gui->qButton(r, "P", set)) ds->timeStop = !ds->timeStop;
+			}
 		};
 
 		{
@@ -790,8 +817,23 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 		bgRect.bottom += 1;
 		gui->qBox(round(bgRect), &bs);
 
+		// {
+		// 	printf("Start\n");
+		// 	int bufferCount = prof->slotBufferCount;
+		// 	for(int i = 0; i < bufferCount; ++i) {
+		// 		GraphSlot* slot = prof->slotBuffer + ((firstIndex+i)%prof->slotBufferMax);
+		// 		if(slot->threadIndex)
+		// 			printf("%i ", slot->threadIndex);
+		// 	}
+		// 	printf("End\n");
+		// }
+
 		Vec2 pos = bgRect.tl();
 		for(int threadIndex = 0; threadIndex < threadQueue->threadCount+1; threadIndex++) {
+
+			// if(threadIndex == threadQueue->threadCount-1) {
+			// 	__debugbreak();
+			// }
 
 			// Horizontal lines to distinguish thread bars.
 			if(threadIndex > 0) {
@@ -896,7 +938,7 @@ void inputRecordingPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 
 	// rec, stop rec, play, not play, pause, resume, step, set breakpoint
 
-	gui->qText(ql.getRect(), fString("Active Threads: %b.", !threadQueueFinished(threadQueue)), vec2i(-1,0));
+	gui->qText(ql.getRect(), fString("Active Threads: %b.", !threadQueue->finished()), vec2i(-1,0));
 	gui->qText(ql.getRect(), fString("Recorded Frames: %i of %i.", rec->recordIndex, rec->capacity), vec2i(-1,0));
 
 	// rec, stop, pause, play
@@ -1331,7 +1373,7 @@ void mapPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd) {
 		EntityManager* em = &ad->entityManager;
 		bool loadedMap = false;
 
-		int mapIndex = pi->maps.findStr(em->currentMap)-1;
+		int mapIndex = pi->maps.findStr(em->currentMap);
 
 		{
 			ql.row(ql.text("Refresh"), 0);
@@ -1862,7 +1904,7 @@ void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd) {
 
 				if(filtered) {
 					if(eui->selectedObjects.count) {
-						int index = eui->selectedObjects.find(id);
+						int index = eui->selectedObjects.findI(id);
 						if(index) {
 							eui->selectedObjects.remove(index-1);
 							updatedSelectedEntities = true;
@@ -2236,6 +2278,251 @@ void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd) {
 			if(historyAdd) {
 				eui->objectsEdited = true;
 				eui->objectNoticeableChange = true;
+			}
+		}
+	}
+}
+
+void manifoldPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd) {
+	ManifoldPanelInfo* pi = &ds->manifoldPanelInfo;
+
+	Font* font = gui->sText.font;
+	QuickRow qr;
+	Rect r;
+
+	EntityUI* eui = &ds->entityUI;
+	EntityManager* em = &ad->entityManager;
+
+	int unionMemberIndex = 0;
+	MemberInfo* unionMemberInfo = 0;
+	{
+		StructInfo* sInfo = getStructInfo(getType(Entity));
+		for(int i = 0; i < sInfo->memberCount; i++) {
+			MemberInfo* mInfo = sInfo->list + i;
+			if(mInfo->uInfo.type != -1) break;
+
+			unionMemberInfo = mInfo;
+			unionMemberIndex = i;
+		}
+	}
+
+	bool allSelectedSameType = true;
+	for(int i = 1; i < eui->selectedObjects.count; i++) {
+		Entity* e = getEntity(em, eui->selectedObjects[i]);
+		if(e->type != getEntity(em, eui->selectedObjects[0])->type) {
+			allSelectedSameType = false;
+			break;
+		}
+	}
+
+	QLayout ql = qLayout(pd.p, vec2(pd.dim.w, pd.dim.h), pd.pad, pd.textPad, gui->sText.font);
+
+	static float scrollHeight = 0;
+	float yOffset, wOffset;
+	{
+		static float scrollValue = 0;
+		Rect pr = pd.pri.setT(ql.pos.y);
+
+		gui->sScroll.scrollBarPadding = pd.pad.x;
+		gui->sScroll.scrollAmount = pd.dim.h + pd.pad.y;
+		gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+	}
+
+	ql = qLayout(ql.pos + vec2(0,yOffset), vec2(pd.dim.w - wOffset, round(pd.dim.h*0.9f)), pd.pad);
+	ql.font = font;
+	ql.textPad = pd.textPad*0.5f;
+
+	float startY = ql.pos.y;
+
+	defer { gui->qScrollEnd(); };
+	defer { scrollHeight = startY - ql.pos.y - pd.pad.y; };
+	
+	{
+		StructInfo* si = getStructInfo(getType(WalkManifoldSettings));
+
+		float tWidth = -FLT_MAX;
+		for(int i = 0; i < si->memberCount; i++) {
+			MemberInfo* mi = si->list + i;
+			tWidth = max(getTextDim(mi->name, ql.font).w, tWidth);
+		}
+		tWidth += ql.font->height*0.5f;
+
+		ql.row(tWidth, 0);
+		gui->qText(ql.next(), "GridRadius", vec2i(-1,0));
+		gui->qSlider(ql.next(), &ad->manifoldGridRadius, 5, 50);
+
+		ql.row(tWidth, ql.dim.h, 0);
+		gui->qText(ql.next(), "CellUI", vec2i(-1,0));
+		gui->qCheckBox(ql.next(), &pi->drawCurrentCell);
+		gui->qSlider(ql.next(), &pi->zoom, 0.5f, 4);
+
+
+		ql.seperator(pd.separatorHeight, pd.cSeparatorDark, pd.cSeparatorBright);
+
+		WalkManifoldSettings* s = &ad->manifold.settings;
+		for(int i = 0; i < si->memberCount; i++) {
+			MemberInfo* mi = si->list + i;
+			char* data = getMember(si, (char*)s, i).data;
+
+			ql.row(tWidth, 0);
+			gui->qText(ql.next(), mi->name, vec2i(-1,0));
+
+			if(memberHasTag(mi, "Range")) {
+				char** tags = memberGetTag(mi, "Range");
+
+				if(mi->type == TYPE_float) {
+					gui->qSlider(ql.next(), (float*)data, strToFloat(tags[0]), strToFloat(tags[1]));
+				} else if(mi->type == TYPE_int) {
+					gui->qSlider(ql.next(), (int*)data, strToInt(tags[0]), strToInt(tags[1]));
+				}
+			}
+
+			switch(mi->type) {
+				case TYPE_float: gui->qTextEdit(ql.next(),    (float*)data); break;
+				case TYPE_int:   gui->qTextEdit(ql.next(),    (int*)data); break;
+				case TYPE_bool:  gui->qCheckBox(ql.next(),    (bool*)data); break;
+				case TYPE_Vec4:  gui->qColorPicker(ql.next(), (Vec4*)data); break;
+				default: break;
+			}
+		}
+	}
+
+	if(pi->drawCurrentCell) {
+		dxScissorState(false); defer { dxScissorState(true); };
+
+		TextSettings set = ds->gui.sText2;
+		TextSettings set2 = ds->gui.sText2;
+		set2.color.a = 0.03f;
+		float fh = set.font->height;
+
+		WalkLayer* layer = ad->currentWalkLayer;
+		if(!layer) return;
+
+		WalkCell* cell = layer->cell;
+
+		Rect sr = theGState->screenRect;
+		float size = round(fh*20 * pi->zoom);
+		Rect pr = rectTRDim(sr.tr() - round(vec2(fh*0.25f,fh*2)), vec2(size));
+
+		Vec4 cBG = vec4(0.15,1);
+		Vec4 cGrid = vec4(1,0.01f);
+		dxDrawRect(pr, cBG);
+
+		for(int x = 0; x < 3; x++) {
+			for(int y = 0; y < 3; y++) {
+				Vec2i coord = (cell->coord-vec2i(1,-1)) + vec2i(x,-y);
+				Vec2 d = pr.dim() / 3.0f;
+				Rect r = rectTLDim(pr.tl() + vec2(x,-y)*d, d);
+				dxDrawRectOutline(r, cGrid);
+
+				WalkCell* _cell = ad->manifold.getCellGlobal(coord.x, coord.y);
+				WalkLayer* la = ad->manifold.getWalkLayer(_cell, layer);
+				if(!la) continue;
+
+				int layerIndex = (la - _cell->layers.data) + 1;
+				drawText(fString("(%i, %i), (%i/%i)", PVEC2(coord), layerIndex, _cell->layers.count), r.tl(), vec2i(-1,1), set2); 
+
+				int i = -1;
+				for(auto it : la->lines) {
+					i++;
+
+					Line2 l = {it.a.xy, it.b.xy};
+					l.a = mapRange(l.a, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+					l.b = mapRange(l.b, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+
+					float c = (float)(i+1) / (la->lines.count);
+					dxDrawArrow(l.a, l.b, 1.5f, hslToRgbf(c*0.5f + 0.5f,1.0,0.7f,1),3);
+				}
+
+				Line2 walkLines[2];
+				int walkLineCount = 0;
+				if(la->pointCount == 2) walkLines[walkLineCount++] = {la->points[0].xy, la->points[1].xy};
+				else if(la->pointCount == 3) {
+					walkLines[walkLineCount++] = {la->points[0].xy, la->points[2].xy};
+					walkLines[walkLineCount++] = {la->points[2].xy, la->points[1].xy};
+				}
+
+				for(int i = 0; i < walkLineCount; i++) {
+					Line2 l = walkLines[i];
+					l.a = mapRange(l.a, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+					l.b = mapRange(l.b, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+
+					float c = (float)(i+1) / (la->lines.count);
+					dxDrawArrow(l.a, l.b, 1.0f, hslToRgbf(0.250f,0.7,0.5f,1), 3);
+				}
+
+				if(x == 1 && y == 1) {
+					Vec2 p = ad->freeCam ? ad->camera->xf.trans.xy : ad->player->xf.trans.xy;
+					Vec2 pp = mapRange(p, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+
+					if(ad->playerMoveDir != vec2(0,0)) {
+						Vec2 pp2 = mapRange(p + ad->playerMoveDir, la->poles[0].pos.xy, la->poles[2].pos.xy, r.min, r.max);
+						dxDrawLine(pp, pp2, vec4(1,1,1,0.5f));
+					}
+
+					dxDrawCircle(pp, 2, vec4(1,1,1,1));
+				}
+			}
+		}
+
+		float lh  = round(fh * 1.1f);
+		float sh  = round(fh * 0.50f);
+		float pad = round(fh * 0.5f);
+
+		Vec2 p = pr.bl();
+		float height = (6 + cell->layers.count*3 + layer->pointCount + layer->lines.count) * lh + 5*sh;
+		Rect r = rectTLDim(p, vec2(pr.w(),height));
+		dxDrawRect(r, vec4(0.15,1));
+
+		p.x += round(fh*0.25f);
+		p.y -= sh;
+
+		{
+			{
+				drawText("Poles:", p, vec2i(-1,1), set); p.y -= lh;
+				p.x += pad; defer { p.x -= pad; p.y -= sh; };
+
+				drawText(fString("{%f, %f}, {%f, %f}", PVEC2(layer->poles[1].pos.xy), PVEC2(layer->poles[2].pos.xy)), p, vec2i(-1,1), set); p.y -= lh;
+				drawText(fString("{%f, %f}, {%f, %f}", PVEC2(layer->poles[0].pos.xy), PVEC2(layer->poles[3].pos.xy)), p, vec2i(-1,1), set); p.y -= lh;
+			}
+
+			{
+				drawText("Cell layer samples:", p, vec2i(-1,1), set); p.y -= lh;
+				p.x += pad; defer { p.x -= pad; p.y -= sh; };
+
+				for(auto& it : cell->layers) {
+					drawText(fString("ZRange: %f, %f", PVEC2(it.zRange)), p, vec2i(-1,1), set); p.y -= lh;
+					char* s[4];
+					for(int i = 0; i < 4; i++) {
+						LayerPole& p = it.poles[i];
+						if(p.valid) s[i] = fString("%f", p.pos.z);
+						else s[i] = "_______";
+					}
+
+					{
+						p.x += pad; defer { p.x -= pad; };
+						drawText(fString("%s, %s", s[1], s[2]), p, vec2i(-1,1), set); p.y -= lh;
+						drawText(fString("%s, %s", s[0], s[3]), p, vec2i(-1,1), set); p.y -= lh;
+					}
+				}
+			}
+
+			{
+				drawText("Walk edge points:", p, vec2i(-1,1), set); p.y -= lh;
+				p.x += pad; defer { p.x -= pad; p.y -= sh; };
+
+				for(int i = 0; i < layer->pointCount; i++) {
+					drawText(fString("{%f, %f, %f}", PVEC3(layer->points[i])), p, vec2i(-1,1), set); p.y -= lh;
+				}
+			}
+
+			{
+				drawText("Blocker lines:", p, vec2i(-1,1), set); p.y -= lh;
+				p.x += pad; defer { p.x -= pad; p.y -= sh; };
+
+				for(auto& l : layer->lines) {
+					drawText(fString("{%f, %f}, {%f, %f}", PVEC2(l.a), PVEC2(l.b)), p, vec2i(-1,1), set); p.y -= lh;
+				}
 			}
 		}
 	}

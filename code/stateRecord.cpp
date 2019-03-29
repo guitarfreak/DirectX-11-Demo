@@ -71,7 +71,7 @@ void StateRecording::update(Input* mainInput) {
 
 void StateRecording::updateReloadMemory() {
 	if(reloadMemory) {
-		threadQueueComplete(theThreadQueue);
+		theThreadQueue->complete();
 
 		memory->index = snapshotCount-1;
 		memory->arrays[memory->index].index = snapshotMemoryIndex;
@@ -85,7 +85,7 @@ void StateRecording::updateReloadMemory() {
 }
 
 void StateRecording::startRecording() {
-	if(state != REC_STATE_INACTIVE || !threadQueueFinished(theThreadQueue)) return;
+	if(state != REC_STATE_INACTIVE || !theThreadQueue->finished()) return;
 
 	snapshotCount = memory->index+1;
 	snapshotMemoryIndex = memory->arrays[memory->index].index;
@@ -101,7 +101,7 @@ void StateRecording::startRecording() {
 }
 
 void StateRecording::startPlayback() {
-	if(state == REC_STATE_INACTIVE && !threadQueueFinished(theThreadQueue)) return;
+	if(state == REC_STATE_INACTIVE && !theThreadQueue->finished()) return;
 
 	playbackIndex = 0;
 

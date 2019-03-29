@@ -185,9 +185,8 @@ void renderMenuBackground() {
 	dxSetShader(Shader_Primitive);
 	dxBindFrameBuffer("MenuBackground");
 
-	float darkenMod = 0.4f;
-	// dxDrawRect(sr, vec4(darkenMod,1), dxGetFrameBuffer(cBuf)->shaderResourceView);
-	dxDrawRect(sr, vec4(vec3(1,0.5f,0.5f)*darkenMod,1), dxGetFrameBuffer(cBuf)->shaderResourceView);
+	float darkenMod = 0.5f;
+	dxDrawRect(sr, vec4(darkenMod,1), dxGetFrameBuffer(cBuf)->shaderResourceView);
 }
 
 //
@@ -202,7 +201,7 @@ void menuUpdate(AppData* ad, WindowSettings* ws, float fontHeightScaled, bool* t
 
 	//
 
-	Rect sr = getScreenRect(ws);
+	Rect sr = theGState->screenRect;
 	Vec2 top = sr.t();
 	float rHeight = sr.h();
 	float rWidth = sr.w();
@@ -210,7 +209,7 @@ void menuUpdate(AppData* ad, WindowSettings* ws, float fontHeightScaled, bool* t
 	int titleFontHeight = fontHeightScaled * 6.0f;
 	int optionFontHeight = titleFontHeight * 0.45f;
 	Font* titleFont = getFont("Merriweather-Regular.ttf", titleFontHeight);
-	Font* font = getFont("LiberationSans-Regular.ttf", optionFontHeight);
+	Font* font = getFont("Merriweather-Regular.ttf", optionFontHeight);
 
 	Vec4 cBackground = vec4(hslToRgbf(0.93f,0.5f,0.13f),1);
 	Vec4 cTitle = vec4(1,1);
@@ -277,10 +276,10 @@ void menuUpdate(AppData* ad, WindowSettings* ws, float fontHeightScaled, bool* t
 
 	// Draw blurred Background.
 	{
-		FrameBuffer* fb = dxGetFrameBuffer("MenuBackground");
+		// FrameBuffer* fb = dxGetFrameBuffer("MenuBackground");
 
-		Vec2 filledDim = fitDim(sr.dim(), vec2(fb->dim));
-		dxDrawRect(rectCenDim(sr.c(), filledDim), vec4(1,1), fb->shaderResourceView);
+		// Vec2 filledDim = fitDim(sr.dim(), vec2(fb->dim));
+		// dxDrawRect(rectCenDim(sr.c(), filledDim), vec4(1,1), fb->shaderResourceView);
 	}
 
 	if(menu->screen == MENU_SCREEN_MAIN) {

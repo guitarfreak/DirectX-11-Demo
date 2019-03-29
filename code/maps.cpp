@@ -5,13 +5,13 @@ void defaultMap(EntityManager* em) {
 
 	// Init player.
 	{
-		Entity player = entity(ET_Player, xForm(vec3(20,20,40), vec3(1)), "Player");
+		Entity player = entity(ET_Player, xForm(vec3(0,0,0.0f), vec3(1)), false, "Player", "entityUI_group\\obj.obj", "Matte\\mat.mtl", vec4(0.25, 0.43, 0.9,1));
 		addEntity(em, &player);
 	}
 
 	// Debug cam.
 	{
-		Entity freeCam = entity(ET_Camera, xForm(vec3(-2,-10,2.5f), vec3(0.0f)), "Camera");
+ 		Entity freeCam = entity(ET_Camera, xForm(vec3(-2,-10,2.5f), vec3(0.0f)), false, "Camera");
 		freeCam.camRot = vec2(M_PI, 0.0f);
 		addEntity(em, &freeCam);
 	}
@@ -39,7 +39,7 @@ void defaultMap(EntityManager* em) {
 	}
 
 	{
-		Entity platform = entity(ET_Object, xForm(vec3(-2.5,0,-0.05f), vec3(15,10,0.1f)), false, 0, "cube\\obj.obj", "Matte\\mat.mtl", vec4(1.0f));
+		Entity platform = entity(ET_Object, xForm(vec3(0,0,-0.05f), vec3(15,10,0.1f)), false, "walkmesh", "cube\\obj.obj", "Matte\\mat.mtl", vec4(1.0f));
 		addEntity(em, platform);
 	}
 }
@@ -59,7 +59,7 @@ void saveMap(EntityManager* em, char* mapName) {
 void loadMap(EntityManager* em, char* mapName) {
 	TIMER_BLOCK();
 
-	char* filePath = fString("%s%s%s", App_Map_Folder, mapName, Map_File_Extension);
+ 	char* filePath = fString("%s%s%s", App_Map_Folder, mapName, Map_File_Extension);
 
 	SData sData;
 	readSDataFromFile(&sData, filePath);
@@ -69,10 +69,17 @@ void loadMap(EntityManager* em, char* mapName) {
 
 	em->entities.clear();
 	em->entities.resize(entityCount);
-	em->indices.resize(entityCount);
-	em->indices.count = entityCount;
 
 	serializeData(&sData, getType(DArray_Entity), (char*)&em->entities, "EntityList", 0, 0, 0, true);
+
+	int biggestId = 0;
+	for(auto& e : em->entities) {
+		if(e.id > biggestId) biggestId = e.id;
+	}
+
+	em->indices.resize(biggestId);
+	em->indices.count = biggestId;
+	memset(em->indices.data, -1, sizeof(int)*em->indices.count);
 
 	for(int i = 0; i < em->entities.count; i++) {
 		Entity* e = em->entities.data + i;

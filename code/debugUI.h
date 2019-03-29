@@ -6,6 +6,7 @@ enum PanelTypes {
 	Panel_Type_Animation,
 	Panel_Type_Map,
 	Panel_Type_Entity,
+	Panel_Type_Manifold,
 
 	Panel_Type_Size,
 };
@@ -16,7 +17,8 @@ char* panelStrings[] = {
 	"Introspection", 
 	"Animation", 
 	"Map", 
-	"Entity"
+	"Entity",
+	"Manifold"
 };
 
 struct PanelSettings {
@@ -44,6 +46,7 @@ void introspectionPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd)
 void animationPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 void mapPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
+void manifoldPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 
 #define Select_Panel_Function() \
 	case Panel_Type_Profiler:       profilerPanel(ds, gui, pd); break; \
@@ -52,6 +55,7 @@ void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 	case Panel_Type_Animation:      animationPanel(ad, ds, gui, pd); break; \
 	case Panel_Type_Map:            mapPanel(ad, ds, gui, pd); break; \
 	case Panel_Type_Entity:         entityPanel(ad, ds, gui, pd); break; \
+	case Panel_Type_Manifold:       manifoldPanel(ad, ds, gui, pd); break; \
 
 #define Set_Init_Panel_Properties() \
 	settings.panels[Panel_Type_Profiler].r       = { rectCenDim(sr.c(), vec2(fh*40, fh*29)) }; \
@@ -60,6 +64,7 @@ void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 	settings.panels[Panel_Type_Animation].r      = { rectCenDim(sr.c(), vec2(fh*15, fh*12)) }; \
 	settings.panels[Panel_Type_Map]              = { rectBLDim(sr.bl(), vec2(fh*15, min(fh*13, sr.h()))), vec2i(-1,-1) }; \
 	settings.panels[Panel_Type_Entity]           = { rectBLDim(sr.tr(), vec2(fh*20, min(fh*35, sr.h()))), vec2i(1,1) }; \
+	settings.panels[Panel_Type_Manifold]         = { rectCenDim(sr.c(), vec2(fh*20, min(fh*25, sr.h()))) }; \
 
 struct IntrospectionPanelInfo {
 	float scrollHeight;
@@ -88,4 +93,9 @@ struct EntityPanelInfo {
 	int typeFilterIndex;
 	char nameFilter[50];
 	float camDistFilter;
+};
+
+struct ManifoldPanelInfo {
+	bool drawCurrentCell;
+	float zoom;
 };

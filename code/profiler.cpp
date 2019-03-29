@@ -33,8 +33,8 @@ struct Profiler {
 
 	// Helpers for building slotBuffer and timings
 	// over multiple frames.
-	GraphSlot tempSlots[16][8]; // threads, stackIndex
-	int tempSlotCount[16];
+	GraphSlot tempSlots[32][8]; // threads, stackIndex
+	int tempSlotCount[32];
 
 	bool noCollating;
 
@@ -94,7 +94,7 @@ void Profiler::update(int timerInfoCount, ThreadQueue* threadQueue) {
 		for(int i = timer->lastBufferIndex; i < timer->bufferIndex; ++i) {
 			TimerSlot* slot = timer->timerBuffer + i;
 			
-			int threadIndex = threadIdToIndex(threadQueue, slot->threadId);
+			int threadIndex = threadQueue->threadIdToIndex(slot->threadId);
 
 			if(slot->type == TIMER_TYPE_BEGIN) {
 				int index = tempSlotCount[threadIndex];
@@ -152,7 +152,7 @@ void Profiler::update(int timerInfoCount, ThreadQueue* threadQueue) {
 
 	timer->lastBufferIndex = timer->bufferIndex;
 
-	if(threadQueueFinished(threadQueue)) {
+	if(threadQueue->finished()) {
 		timer->bufferIndex = 0;
 		timer->lastBufferIndex = 0;
 	}

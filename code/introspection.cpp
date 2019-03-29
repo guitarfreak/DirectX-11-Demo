@@ -79,6 +79,11 @@ bool memberIsUnionized(MemberInfo* mInfo, char* structBase) {
 	return structUnionType == mInfo->uInfo.type;
 }
 
+MemberInfoData getMember(StructInfo* sInfo, char* data, int index) {
+	MemberInfo* mi = sInfo->list + index;
+	return {*mi, data + mi->offset};
+}
+
 MemberInfoData getMember(MemberInfo* mInfo, char* data, int index) {
 	// assert(mInfo->arrayCount == 0);
 
@@ -545,14 +550,15 @@ char* memberToStr(MemberInfo* mInfo, void* structBase, int expandLevel = 0, char
 	return typeInfoToStr(tt, expandLevel, maxArrayCount, maxElementCount, maxTextWidth, font);
 }
 
-char* structToStr(int type, void* data, int expandLevel = 0, char* name = "", int maxArrayCount = 0, int maxElementCount = 0) {
+char* structToStr(int type, void* data, int expandLevel = 0, char* name = "", int maxArrayCount = 0, int maxElementCount = 0, bool ignoreHiddenMembers = false) {
 	TypeTraverse tt;
 	tt.start(type, (char*)data, name);
+	tt.ignoreHiddenMembers = ignoreHiddenMembers;
 
 	return typeInfoToStr(tt, expandLevel, maxArrayCount, maxElementCount);
 }
 
 void printStruct(int type, void* data, int expandLevel = 0, char* name = "", int maxArrayCount = 0, int maxElementCount = 0) {
-	printf(structToStr(type, data, expandLevel, name, maxArrayCount, maxElementCount));
+	printf(structToStr(type, data, expandLevel, name, maxArrayCount, maxElementCount, true));
 	printf("\n");
 }

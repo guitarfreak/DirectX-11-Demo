@@ -2230,9 +2230,11 @@ void Gui::handleColorPickerPopup() {
 		Vec2 pad = vec2(roundf(fontHeight*0.3f));
 		float eh = roundf(fontHeight * 1.5f);
 		float textPad = roundf(fontHeight * 1.5f);
+		Vec2 panelBorder = vec2(fontHeight * (cPicker ? 0.5f : 0.7f), fontHeight * 0.5f);
+		panelBorder = round(panelBorder);
 
 		Vec2 dim = cPicker ? vec2(fontHeight*11) : 
-		                     vec2(fontHeight*2, fontHeight*11);
+		                     vec2(fontHeight*2.3f, fontHeight*11);
 
 		Rect pr = round(rectTDim(pd->rSource.b(), dim));
 		if(cPicker) pr.bottom -= pad.h*2 + eh*3;
@@ -2259,8 +2261,7 @@ void Gui::handleColorPickerPopup() {
 		scissorPush(pr);
 		defer { scissorPop(); };
 
-		float panelBorder = fontHeight * 0.5f;
-		Rect r = pr.expand(vec2(-panelBorder*2));
+		Rect r = pr.expand(-panelBorder*2);
 
 		//
 
@@ -2557,8 +2558,8 @@ void Gui::handleColorPickerPopup() {
 			pfDrawRectGradientH(r, vec4(0,1), vec4(1,1));
 			pfDrawRectOutline(r.expand(2), cOutline);
 
-			float rBottom = r.bottom + markerRadius + markerThickness1;
-			float rTop = r.top - markerRadius - markerThickness1;
+			float rBottom = r.bottom;
+			float rTop = r.top;
 
 			{
 				int event = goDragAction(r, Gui_Focus_MLeft);
@@ -2574,7 +2575,10 @@ void Gui::handleColorPickerPopup() {
 
 			float py = mapRange(alpha, 0.0f, 1.0f, rBottom, rTop);
 
-			drawMarker(vec2(r.cx(), py));
+			float s = panelBorder.w*0.3f;
+			float b = round(panelBorder.w*0.5f) + s*0.0f;
+			pfDrawTriangle(vec2(r.left  - b, py), s, vec2(1,0),  cMarker1);
+			pfDrawTriangle(vec2(r.right + b, py), s, vec2(-1,0), cMarker1);
 
 			if(applyImmediately || colorChanged) {
 				colorPickerColor.a = alpha;

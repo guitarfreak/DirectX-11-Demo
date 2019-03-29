@@ -110,6 +110,12 @@ void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c) {
 	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(c);
 }
 
+void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c, Vec4 color) {
+	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(a, color);
+	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b, color);
+	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(c, color);
+}
+
 void dxPushRect(Rect r, Rect uv) {
 	GraphicsState* gs = theGState;
 	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.bl(), uv.tl());
@@ -128,6 +134,15 @@ void dxPushRect(Rect r, Vec4 c, Rect uv) {
 	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.br(), c, uv.tr());
 	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tl(), c, uv.bl());
 	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tr(), c, uv.br());
+}
+
+void dxPushQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Vec4 color, Rect uv = rect()) {
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(a,theGState->zLevel), color, uv.bl() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(b,theGState->zLevel), color, uv.tl() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(c,theGState->zLevel), color, uv.tr() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(c,theGState->zLevel), color, uv.tr() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(d,theGState->zLevel), color, uv.br() };
+	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(a,theGState->zLevel), color, uv.bl() };
 }
 
 void dxPushLine(Vec3 a, Vec3 b, Vec4 c) {
@@ -495,6 +510,32 @@ void dxDrawCross(Vec2 p, float size, float size2, Vec4 color) {
 	dxEndPrimitive(vc);
 }
 
+void dxDrawArrow(Vec2 start, Vec2 end, float thickness, Vec4 color, float headScale = 2.0f) {
+	float hw = thickness/2;
+
+	Vec2 startToEnd = end-start;
+	Vec2 down = norm(rotateRight(startToEnd));
+
+	float headWidth = thickness*headScale;
+	float headHeight = thickness*headScale;
+
+	float length = len(startToEnd);
+	bool tooSmall = false;
+	if(length < headHeight) tooSmall = true;
+
+	Vec2 dir = norm(startToEnd);
+	if(!tooSmall) end -= dir * headHeight;
+
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	defer { dxEndPrimitive(); };
+
+	dxPushQuad(start + down*hw, start - down*hw, end - down*hw, end + down*hw, vec4(1));
+
+	if(!tooSmall) {
+		dxPushTriangle(end - down*headWidth/2, end + dir*headHeight, end + down*headWidth/2, vec4(1));
+	}
+}
+
 // @3d
 
 void dxDrawLine(Vec3 a, Vec3 b, Vec4 color) {
@@ -661,7 +702,7 @@ void dxDrawRing(Vec3 pos, Vec3 normal, float r, float thickness, Vec4 color, flo
 		segmentCount = (ceil(segmentCount / 4.0f)) * 4.0f;
 	}
 
-	Vec3 otherVector = normal == vec3(1,0,0)? vec3(0,1,0) : vec3(1,0,0);
+	Vec3 otherVector = normal == vec3(1,0,0) || normal == vec3(-1,0,0) ? vec3(0,1,0) : vec3(1,0,0);
 	Vec3 up = norm(cross(normal, otherVector));
 	float ri = r - thickness;
 	

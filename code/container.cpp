@@ -3,11 +3,11 @@ Meta_Parse_Struct(0);
 template <class T> struct DArray {
 
 	T* data; // @V0 @SizeVar(count)
-	int count; // @V0 
-	int reserved; // @V0 
-	int startSize; // @V0 
+	int count; // @V0 @Hide 
+	int reserved; // @V0 @Hide
+	int startSize; // @V0 @Hide
 
-	bool customAlloc; // @V0 
+	bool customAlloc; // @V0 @Hide
 	void* (*allocFunc) (int size);
 	void  (*freeFunc) (void* ptr);
 
@@ -27,12 +27,16 @@ template <class T> struct DArray {
 	void push(T* element);
 	void push(T* elements, int n);
 	void pushStr(T* string, bool includeZero = false);
+	void push(DArray  array);
 	void push(DArray* array);
 	void insertMove(T element, int index);
 	void insert(T element, int index);
-	int  find(T value);
+	T*   find(T value);
+	T*   find(bool (*func) (T* e));
+	int  findI(T value);
 	int  findStr(T value);
 	T*   retrieve(int addedCount);
+	void zeroMemory();
 
 	bool operator==(DArray<T> array);
 	bool operator!=(DArray<T> array);
@@ -63,6 +67,14 @@ template <class T> DArray<T> dArray(int reservedCount, void* (*alloc) (int)) {
 	DArray<T> array;
 	array.init(alloc);
 	array.reserve(reservedCount);
+	return array;
+}
+
+template <class T> DArray<T> dArray(DArray<T>& da, void* (*alloc) (int)) {
+	DArray<T> array;
+	array.init(alloc);
+	array.reserve(da.count);
+	array.copy(&da);
 	return array;
 }
 
@@ -163,6 +175,10 @@ template <class T> void DArray<T>::pushStr(T* string, bool includeZero) {
 	push(string, size);
 }
 
+template <class T> void DArray<T>::push(DArray array) {
+	push(array.data, array.count);
+}
+
 template <class T> void DArray<T>::push(DArray* array) {
 	push(array->data, array->count);
 }
@@ -185,20 +201,33 @@ template <class T> void DArray<T>::insert(T element, int index) {
 	data[index] = element;
 }
 
-template <class T> int DArray<T>::find(T value) {
+template <class T> T* DArray<T>::find(T value) {
 	for(int i = 0; i < count; i++) {
-		if(value == data[i]) return i+1;
+		if(value == data[i]) return data + i;
 	}
-
 	return 0;
+}
+
+template <class T> T* DArray<T>::find(bool (*func) (T* e)) {
+	for(int i = 0; i < count; i++) {
+		bool result = func(data + i);
+		return data + i;
+	}
+	return 0;
+}
+
+template <class T> int DArray<T>::findI(T value) {
+	for(int i = 0; i < count; i++) {
+		if(value == data[i]) return i;
+	}
+	return -1;
 }
 
 template <class T> int DArray<T>::findStr(T value) {
 	for(int i = 0; i < count; i++) {
-		if(strCompare(value, data[i])) return i+1;
+		if(strCompare(value, data[i])) return i;
 	}
-
-	return 0;
+	return -1;
 }
 
 template <class T> T* DArray<T>::retrieve(int addedCount) {
@@ -208,6 +237,10 @@ template <class T> T* DArray<T>::retrieve(int addedCount) {
 	count += addedCount;
 
 	return p;
+}
+
+template <class T> void DArray<T>::zeroMemory() {
+	memset(data, 0, sizeof(T)*count);
 }
 
 template <class T> bool DArray<T>::operator==(DArray<T> array) {

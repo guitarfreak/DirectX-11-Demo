@@ -18,13 +18,26 @@ void initMemoryArray(MemoryArray * memory, int slotSize, void* baseAddress = 0) 
 }
 
 void* getMemoryArray(int size, MemoryArray * memory = 0) {
-    if(!memory) memory = theMemoryArray;
-    assert(memory->index + size <= memory->size);
+	if(!memory) memory = theMemoryArray;
+	assert(memory->index + size <= memory->size);
 
-    void * location = memory->data + memory->index;
-    memory->index += size;
+	// void* location = memory->data + memory->index;
+	// memory->index += size;
+	// return location;
 
-    return location;
+	void* location;
+	while(true) {
+		volatile uint currentIndex = memory->index;
+		volatile uint newIndex = memory->index + size;
+		uint oldIndex = InterlockedCompareExchange((long volatile*)&memory->index, newIndex, currentIndex);
+
+		if(oldIndex == currentIndex) {
+			location = memory->data + oldIndex;
+			break;
+		}
+	}
+
+	return location;
 }
 
 void freeMemoryArray(int size, MemoryArray * memory = 0) {

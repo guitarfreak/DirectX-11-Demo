@@ -1,6 +1,6 @@
 #pragma once 
 
-#define TIMER_INFO_SIZE 32
+#define TIMER_INFO_SIZE 100
 
 struct TimerInfo {
 	bool initialised;

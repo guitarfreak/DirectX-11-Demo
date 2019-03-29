@@ -8,7 +8,7 @@ Ni 1.00
 Ks 0.1 0.1 0.1
 newmtl typeBlinn3SG
 illum 4
-Ns 20
+Ns 200
 Kd 1 1 1
 Ka 1 1 1
 Tf 1.00 1.00 1.00

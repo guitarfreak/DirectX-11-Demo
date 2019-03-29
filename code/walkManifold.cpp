@@ -1,545 +1,925 @@
 
-struct WalkMesh {
-	XForm form; // Only box for now.
-};
-
-struct Pole {
-	Vec3 pos;
-	bool inside;
-	int meshIndex;
-
-	int* blockers;
-	int blockerCount;
-};
-
-enum BlockerType {
-	BLOCKERTYPE_RECT = 0,
-	BLOCKERTYPE_CIRCLE,
-	BLOCKERTYPE_LINE,
-};
-
-struct Blocker {
-	int type;
-
-	union {
-		XForm form;
-		Vec3 linePoints[2];
-	};
-};
-
-struct WalkCell {
-	struct BlockerPointList {
-		int blockerIndex;
-		Vec3 points[2];
-		int pointCount;
-	};
-
-	Pole* poles[4]; // bl, tl, tr, br.
-
-	int pointCount;
-	Vec3 points[3];
-
-	BlockerPointList* blockerPoints;
-	int blockerPointCount;
-
-	Line3* lines;
-	int lineCount;
-};
-
-struct WalkManifold {
-	WalkMesh* meshes;
-	int meshCount;
-
-	Blocker* blockers;
-	int blockerCount;
-
-	float playerRadius;
-	Vec2 zRange; // Temp.
-	float legHeight;
-	float cellSize;
-	int edgeSearchIterations;
-
-	Recti grid;
-	Vec2i gridDim;  // Temp.
-	Vec2i cellsDim; // Temp.
-
-	Pole* poles;
-	int poleCount;
-
-	WalkCell* cells;
-	int cellCount;
-
-	//
-
-	Vec3 off; // Temp.
-
-	//
-
-	void init(Vec3 playerPos, Recti grid, float playerRadius, float legHeight, float cellSize, WalkMesh* meshes, int meshCount, Blocker* blockers, int blockerCount);
-	void rasterize();
-	Vec3 move(Vec2 playerPos, Vec2 newPos);
-	bool raycast(Vec3 pos, Vec3 rayDir, Vec3* inter);
-	void debugDraw();
-
-	//
-
-	bool lineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i);
-	Vec2 gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord);
-
-	WalkCell* getWalkCell(Vec2i cellCoord);
-	Vec2i getWalkCell(Vec2 pos);
-	float calcWalkCellZ(Vec2 pos, WalkCell* cell);
-	Vec3 calcWalkCellZPos(Vec2 pos, WalkCell* cell);
-	Vec3 calcWalkCellPos(Vec2 pos);
-	bool poleMeshIntersection(Vec2 pos, WalkMesh* mesh, float* z);
-	bool poleBlockerIntersection(Vec3 pos, Blocker* blocker);
-	Vec3 calcWalkEdgePoint(Vec3 a, Vec3 b, WalkMesh* mesh, bool checkZ);
-	Vec3 calcWalkEdgePoint(Pole* p1, Pole* p2);
-	Vec3 calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker);
-	void addWalkEdgePoint(Pole* p1, Pole* p2, WalkCell* cell, Vec3 edgePoint);
-	void addWalkEdgePointBlocker(WalkCell* cell, Vec3 edgePoint, int blockerIndex, bool pushSecond);
-	int lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, Line3 lastLine, Vec2* cp);
-};
-
-bool WalkManifold::lineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
-
-	// If line is inside other line. (This might not be sufficient.)
-	if(distancePointLine(p2, p3, p0) == 0 && 
-	   distancePointLine(p2, p3, p1) == 0) {
-		*i = p0;
-		return true;
-	}
-
-	bool result = getLineIntersection(p0, p1, p2, p3, i);
-	return result;
-}
-
-Vec2 WalkManifold::gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord) {
-
-	Vec2i cellDirs[] = { {-1,0}, {1,0}, {0,-1}, {0,1}, };
-	int cellEdgeIndexOpposite[] = {1,0,3,2};
-
-	Vec2i newPosCell = getWalkCell(np);
-
-	WalkCell* cell = &cells[aIndex(cellsDim.w, cellCoord->x-grid.left, cellCoord->y-grid.bottom)];
-
-	Rect cellRect = rect(vec2(*cellCoord)*cellSize, vec2(*cellCoord+1)*cellSize);
-
-	Vec2 dir = np - p;
-
-	if(dir.x == 0 && dir.y == 0) return np;
-
-	Vec2 dirNorm = norm(dir);
-
-	Vec2 dirFrac = 1.0f / dirNorm;
-	float t[] = {
-		(cellRect.left   - p.x) * dirFrac.x,
-		(cellRect.right  - p.x) * dirFrac.x,
-		(cellRect.bottom - p.y) * dirFrac.y,
-		(cellRect.top    - p.y) * dirFrac.y,
-	};
-
-	int i = 0;
-	int indices[2];
-
-	if(dir.x < 0) indices[i++] = 0;
-	if(dir.x > 0) indices[i++] = 1;
-	if(dir.y < 0) indices[i++] = 2;
-	if(dir.y > 0) indices[i++] = 3;
-
-	int index = -1;
-
-	float dist;
-	if(i == 1) {
-		dist = t[indices[0]];
-		index = indices[0];
-
-	} else if(i == 2) {
-		if(t[indices[0]] < t[indices[1]]) {
-			dist = t[indices[0]];
-			index = indices[0];
-		} else {
-			dist = t[indices[1]];
-			index = indices[1];
-		}
-	}
-
-	if(dist < len(dir)) {
-		p += dirNorm * dist;
-		*cellCoord += cellDirs[index];
-
-		return p;
-	}
-
-	assert(newPosCell == *cellCoord);
-
-	return np;
-}
-
-void WalkManifold::init(Vec3 playerPos, Recti grid, float playerRadius, float legHeight, float cellSize, WalkMesh* meshes, int meshCount, Blocker* blockers, int blockerCount) {
-
+void WalkManifold::init(WalkManifoldSettings* settings) {
 	*this = {};
+	this->settings = *settings;
+}
 
-	this->grid = grid;
+void WalkManifold::setup(Vec3 playerPos, int gridRadius, WalkMesh* meshes, int meshCount, Blocker* blockers, int blockerCount) {
+	Vec2i gridPos;
+	gridPos.x = playerPos.x / settings.cellSize;
+	gridPos.y = playerPos.y / settings.cellSize;
+	this->grid = recti(gridPos - gridRadius, gridPos + gridRadius);
+
 	this->gridDim = vec2i(grid.w() + 1, grid.h() + 1);
 	this->cellsDim = vec2i(grid.w(), grid.h());
 
-	this->playerRadius = playerRadius;
-	this->zRange = vec2(playerPos.z - legHeight, playerPos.z + legHeight);
-	this->legHeight = legHeight;
-	this->cellSize = cellSize;
+	this->playerZ = playerPos.z;
+	this->zRange = vec2(playerPos.z - settings.legHeight, playerPos.z + settings.legHeight);
+	this->zHeightIgnore = playerPos.z + settings.playerHeight;
 
-	// this->edgeSearchIterations = 16;
-	this->edgeSearchIterations = 10;
+	Vec2i edgePoles[4] = {{0,3}, {0,1}, {1,2}, {3,2}};
+	copyArray(this->edgePoles, edgePoles, Vec2i, arrayCount(edgePoles));
 
 	this->meshes = meshes;
 	this->meshCount = meshCount;
 	this->blockers = blockers;
 	this->blockerCount = blockerCount;
 
-	poleCount = gridDim.w * gridDim.h;
-	poles = getTArray(Pole, poleCount);
+	int poleCount = gridDim.w * gridDim.h;
+	poles = dArray<Pole>(getTMemory);
+	poles.retrieve(poleCount);
+	poles.zeroMemory();
 
-	cellCount = cellsDim.w * cellsDim.h;
-	cells = getTArray(WalkCell, cellCount);
-	memset(cells, 0, sizeof(WalkCell)*cellCount);
+	int cellCount = cellsDim.w * cellsDim.h;
+	cells = dArray<WalkCell>(getTMemory);
+	cells.retrieve(cellCount);
+	cells.zeroMemory();
 
-	off = vec3(0,0,0.01f);
+	allBlockers = dArray<Blocker>(getTMemory);
+
+	for(int i = 0; i < cellCount; i++) {
+		cells[i].mutex = CreateMutex(0, false, 0);
+	}
+
+	WalkManifoldSettings& s = settings;
+	// Make sure player radius is at least cell square diagonal.
+	// Should bring the camera near plane into this calculation. 
+	s.playerRadius = max(s.playerRadius, s.cellSize*1.45f);
+	s.playerHeight = max(s.playerHeight, s.legHeight);
 }
 
 void WalkManifold::rasterize() {
+	TIMER_BLOCK();
 
-	// Set poles for walk cells.
-	for(int y = 0; y < cellsDim.h; y++) {
-		for(int x = 0; x < cellsDim.w; x++) {
+	// Set poles on cells.
+	{
+		TIMER_BLOCK_NAMED("SetCellPoles");
 
-			WalkCell* cell = &cells[aIndex(cellsDim.w, x, y)];
+		for(int y = 0; y < cellsDim.h; y++) {
+			for(int x = 0; x < cellsDim.w; x++) {
+				WalkCell* cell = getCell(x, y);
+				cell->coord = vec2i(x,y) + grid.min;
+				Pole* ps[] = { getPole(x,y), getPole(x,y+1), getPole(x+1,y+1), getPole(x+1,y) };
+				for(int i = 0; i < 4; i++) cell->poles[i] = ps[i];
+			}
+		}
+	}
 
-			Pole* ps[] = {
-				&poles[aIndex(gridDim.w, x, y)],
-				&poles[aIndex(gridDim.w, x, y+1)],
-				&poles[aIndex(gridDim.w, x+1, y+1)],
-				&poles[aIndex(gridDim.w, x+1, y)],
+	// Get potential walk meshes for pole intersections.
+	{
+		TIMER_BLOCK_NAMED("GatherPoleMeshes");
+
+		for(int i = 0; i < meshCount; i++) {
+			WalkMesh* mesh = meshes + i;
+			Vec2 mi = mesh->aabb.min.xy / settings.cellSize;
+			Vec2 ma = mesh->aabb.max.xy / settings.cellSize;
+
+			Recti pr = recti(ceil(mi.x), ceil(mi.y), floor(ma.x), floor(ma.y));
+			if(!rectGetIntersection(&pr, grid, pr)) continue;
+
+			for(int y = pr.bottom; y <= pr.top; y++) {
+				for(int x = pr.left; x <= pr.right; x++) {
+					Pole* pole = getPole(x - grid.left,y - grid.bottom);
+					if(!pole->potentialMeshes.count) pole->potentialMeshes = dArray<int>(5, getTMemory);
+					pole->potentialMeshes.push(i);
+				}
+			}
+		}
+	}
+
+	// Sample walk meshes for poles.
+	{
+		TIMER_BLOCK_NAMED("WalkPoles");
+
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
+
+			for(int i = 0; i < h->count; i++) {
+				int x, y;
+				aCoord(wm->gridDim.w, h->index + i, &x, &y);
+				Pole* pole = wm->getPole(x,y);				
+
+				pole->pos = vec2((wm->grid.left + x)*wm->settings.cellSize, (wm->grid.bottom + y)*wm->settings.cellSize);;
+				pole->samples = dArray<MeshSample>(5, getTMemory);
+				DArray<MeshSample>& samples = pole->samples;
+
+				for(auto meshIndex : pole->potentialMeshes) {
+					float sample;
+					if(wm->poleMeshIntersection(pole->pos, wm->meshes + meshIndex, &sample)) 
+						samples.push({sample, meshIndex});
+				}
+
+				// Sort samples.
+				auto cmp = [](const void* a, const void* b) -> int { 
+					return ((MeshSample*)a)->z < ((MeshSample*)b)->z ? -1 : 1;
+				};
+				qsort(samples.data, samples.count, sizeof(MeshSample), cmp);
+
+				// Reject samples that don't fit the player.
+				for(int i = 0; i < samples.count-1; i++) {
+					MeshSample* s0 = samples.data + i;
+					MeshSample* s1 = samples.data + i+1;
+
+					if(s1->z - s0->z < wm->settings.playerHeight) s0->z = -FLT_MAX;
+				}
+
+				for(int i = 0; i < samples.count; i++) {
+					if(samples[i].z == -FLT_MAX) {
+						samples.remove(i);
+						i--;
+					}
+				}
+			}
+		};
+
+		splitThreadTask(poles.count, this, threadFunc);
+	}
+
+	{
+		TIMER_BLOCK_NAMED("MarkWalkPoles");
+
+		for(auto& cell : cells) {
+			for(auto& layer : cell.layers) {
+				if(!layer.poles[0].valid && !layer.poles[1].valid &&
+				   !layer.poles[2].valid && !layer.poles[3].valid) {
+					layer.outside = true;
+				}
+			}
+		}
+	}
+
+	{
+		TIMER_BLOCK_NAMED("CreateLayers");
+
+		for(auto& cell : cells) {
+			cell.layers = dArray<WalkLayer>(3, getTMemory);
+
+			int maxSampleCount = 0;
+			int startPoleIndex = 0;
+			for(int i = 0; i < arrayCount(cell.poles); i++) {
+				Pole* pole = cell.poles[i];
+				if(pole->samples.count > maxSampleCount) {
+					maxSampleCount = pole->samples.count;
+					startPoleIndex = i;
+				}
+			}
+
+			for(int i = 0; i < 4; i++) {
+				int poleIndex = (i + startPoleIndex) % 4;
+				Pole* pole = cell.poles[poleIndex];
+
+				for(int sampleIndex = 0; sampleIndex < pole->samples.count; sampleIndex++) {
+					MeshSample& sample = pole->samples[sampleIndex];
+
+					WalkLayer* layer = 0;
+					float minDist = FLT_MAX;
+					for(auto& la : cell.layers) {
+						if(la.poles[poleIndex].valid) continue;
+
+						float dist = la.zRange.max < sample.z ? sample.z - la.zRange.max : 
+						            (la.zRange.min > sample.z ? la.zRange.min - sample.z : 0);
+
+						// If next sample fits better, skip.
+						if(sampleIndex+1 < pole->samples.count) {
+							MeshSample& sample2 = pole->samples[sampleIndex+1];
+							float dist2 = la.zRange.max < sample2.z ? sample2.z - la.zRange.max : 
+							             (la.zRange.min > sample2.z ? la.zRange.min - sample2.z : 0);
+							if(dist2 < dist) continue;
+						}
+
+						if(dist < minDist && dist < settings.playerHeight) {
+							minDist = dist;
+							layer = &la;
+							continue;
+						}
+					}
+
+					if(!layer) {
+						WalkLayer la = {};
+						for(int i = 0; i < 4; i++) la.poles[i].pos.xy = cell.poles[i]->pos;
+						la.poles[poleIndex].valid = true;
+						la.poles[poleIndex].pos.z = sample.z;
+						la.poles[poleIndex].sample = &sample;
+
+						la.zRange = vec2(sample.z);
+						la.cell = &cell;
+						cell.layers.push(la);
+
+					} else {
+						layer->poles[poleIndex] = {true, vec3(pole->pos, sample.z), &sample};
+						layer->zRange.min = min(layer->zRange.min, sample.z);
+						layer->zRange.max = max(layer->zRange.max, sample.z);
+					}
+				}
+			}
+
+			auto cmp = [](const void* a, const void* b) -> int { 
+				Vec2 zr0 = ((WalkLayer*)a)->zRange;
+				Vec2 zr1 = ((WalkLayer*)b)->zRange;
+				return ((zr0.min + zr0.max)/2.0f) < ((zr1.min + zr1.max)/2.0f) ? -1 : 1;
 			};
-
-			for(int i = 0; i < 4; i++) cell->poles[i] = ps[i];
+			qsort(cell.layers.data, cell.layers.count, sizeof(WalkLayer), cmp);
 		}
 	}
 
-	// Sample poles.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
+	// Calc walk edges.
+	{
+		TIMER_BLOCK_NAMED("WalkEdges");
 
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
 
-			Vec2 pos = vec2((grid.left + x)*cellSize, (grid.bottom + y)*cellSize);
-			*pole = {vec3(pos, -FLT_MAX), false, -1, 0, 0};
+			// Maybe these are not necessary anymore.
+			DArray<WalkLayer*> pushedLayers = dArray<WalkLayer*>(3, getTMemory);
 
-			for(int i = 0; i < meshCount; i++) {
-				float sample;
-				if(poleMeshIntersection(pos, meshes + i, &sample)) {
-					if(sample >= zRange.x && sample <= zRange.y) {
-						pole->inside = true;
+			for(int i = 0; i < h->count; i++) {
+				int x, y;
+				aCoord(wm->cellsDim.w, h->index + i, &x, &y);
+				WalkCell* cell = wm->getCell(x,y);
+
+				pushedLayers.clear();
+
+				for(int layerIndex = cell->layers.count-1; layerIndex >= 0; layerIndex--) {
+					WalkLayer* layer = cell->layers + layerIndex;
+
+					for(int edgeIndex = 0; edgeIndex < 4; edgeIndex++) {
+						Vec2i is = wm->edgePoles[edgeIndex];
+						LayerPole* p[2] = {layer->poles + is.e[0], layer->poles + is.e[1]};
+
+						if(!p[0]->valid && !p[1]->valid) continue;
+						if( p[0]->valid &&  p[1]->valid && abs(p[0]->pos.z - p[1]->pos.z) <= wm->settings.legHeight) continue;
+
+						// Check if we have adjacent layers on top or right that will take care of those
+						// walk edge points or if we have to calculate them ourselves.
+						if(edgeIndex > 1 && wm->adjacentLayerSharesEdge(layer, vec2i(x,y), edgeIndex)) continue;
+
+						// Probably a bad way to handle this:
+						// mode  1||2  -> selects direction to go after player z height test
+						// mode <0||>0 -> selected what the pole direction is.
+						int playerHeightMode = 0;
+						for(int i = 0; i < 2; i++) {
+							if(p[i]->valid) continue;
+							if(!(layerIndex < cell->layers.count-1)) continue;
+
+							WalkLayer* aboveLayer = cell->layers + layerIndex+1;
+							LayerPole* abovePole = aboveLayer->poles + is.e[i];
+
+							if(abovePole->valid) {
+								p[i] = abovePole;
+								playerHeightMode = (abs(p[(i+1)%2]->pos.z - p[i]->pos.z) < wm->settings.playerHeight) ? 1 : 2;
+								if(i == 0) playerHeightMode *= -1;
+							}
+						}
+
+						Vec3 edgePoint = wm->calcWalkEdgePoint(p[0], p[1], playerHeightMode);
+						PointInfo pi = {p[0], p[1], edgeIndex, playerHeightMode};
+
+						wm->addWalkEdgePoint(layer, edgePoint, pi);
+
+						if(edgeIndex < 2) {
+							WalkLayer* layer2;
+							if(wm->adjacentLayerSharesEdge(layer, vec2i(x,y), edgeIndex, &layer2)) {
+								if(!pushedLayers.find(layer2)) {
+									pi.edgeIndex = (pi.edgeIndex+2)%4;
+									wm->addWalkEdgePoint(layer2, edgePoint, pi);
+									pushedLayers.push(layer2);
+								}
+							}
+						}
 					}
-					pole->pos.z = max(sample, pole->pos.z);
-					pole->meshIndex = i;
+				}
+			}
+		};
+
+		splitThreadTask(cells.count, this, threadFunc);
+	}
+
+	{
+		for(int i = 0; i < blockerCount; i++) allBlockers.push(blockers[i]);
+
+		// Add walk edges as line blockers.
+		for(auto& cell : cells) {
+			for(auto& layer : cell.layers) {
+				if(layer.pointCount) {
+					if(layer.pointCount == 1) {
+						Blocker b = {BLOCKERTYPE_LINE};
+						b.linePoints[0] = layer.points[0];
+						b.linePoints[1] = layer.points[0];
+						allBlockers.push(b);
+
+					} else if(layer.pointCount == 2) {
+						Blocker b = {BLOCKERTYPE_LINE};
+						b.linePoints[0] = layer.points[0];
+						b.linePoints[1] = layer.points[1];
+						allBlockers.push(b);
+
+					} else if(layer.pointCount == 3) {
+						{
+							Blocker b = {BLOCKERTYPE_LINE};
+							b.linePoints[0] = layer.points[0];
+							b.linePoints[1] = layer.points[2];
+							allBlockers.push(b);
+						}
+						{
+							Blocker b = {BLOCKERTYPE_LINE};
+							b.linePoints[0] = layer.points[2];
+							b.linePoints[1] = layer.points[1];
+							allBlockers.push(b);
+						}
+					} 
 				}
 			}
 		}
 	}
 
-	// Calc cells.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
+	{
+		TIMER_BLOCK_NAMED("GatherPoleBlockers");
 
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
+		for(auto& it : allBlockers) {
+			Rect3 aabb;
+			if(it.type == BLOCKERTYPE_RECT) {
+				aabb = transformBoundingBox(rect3(vec3(-0.5f), vec3(0.5f)), modelMatrix(it.xf));
 
-			for(int stage = 0; stage < 2; stage++) {
+			} else if(it.type == BLOCKERTYPE_CIRCLE) {
+				float xy = max(it.xf.scale.x, it.xf.scale.y) * 0.5f;
+				aabb = rect3(it.xf.trans - vec3(xy, xy, it.xf.scale.z*0.5f), it.xf.trans + vec3(xy, xy, it.xf.scale.z*0.5f));
 
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1) pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
+			} else if(it.type == BLOCKERTYPE_LINE) {
+				Vec3 mi = min(it.linePoints[0], it.linePoints[1]);
+				Vec3 ma = max(it.linePoints[0], it.linePoints[1]);
+				aabb = rect3(mi, ma);
 
-				if(!pole2) continue;
+				it.ab = it.linePoints[1] - it.linePoints[0];
+			}
 
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
+			it.aabb = aabb;
 
-				WalkCell* cell2 = 0;
-				if      (stage == 0 && (y > 0 && x < gridDim.w-1))  cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
+			aabb.min -= settings.playerRadius;
+			aabb.max += settings.playerRadius;
 
-				if(pole->inside != pole2->inside) {
+			Vec2 mi = aabb.min.xy / settings.cellSize;
+			Vec2 ma = aabb.max.xy / settings.cellSize;
 
-					Pole* p1 = pole->inside ? pole : pole2; 
-					Pole* p2 = pole->inside ? pole2 : pole;
+			Recti pr = recti(ceil(mi.x), ceil(mi.y), floor(ma.x), floor(ma.y));
+			if(!rectGetIntersection(&pr, grid, pr)) continue;
 
-					Vec3 edgePoint = calcWalkEdgePoint(p1, p2);
+			for(int y = pr.bottom; y <= pr.top; y++) {
+				for(int x = pr.left; x <= pr.right; x++) {
+					Pole* pole = getPole(x - grid.left,y - grid.bottom);
+					if(!pole->potentialBlockers.count) pole->potentialBlockers = dArray<int>(5, getTMemory);
 
-					if(cell) {
-						addWalkEdgePoint(p1, p2, cell, edgePoint);
-
-						// dxDrawLine(p1->pos+off, edgePoint+off, vec4(1,1));
-				   }
-
-					if(cell2) {
-						addWalkEdgePoint(p1, p2, cell2, edgePoint);
-					}
-
-				} else {
-					// if(pole->inside && pole2->inside)
-						// dxDrawLine(pole->pos+off, pole2->pos+off, vec4(1,1));
+					int blockerIndex = &it - allBlockers.data;
+					pole->potentialBlockers.push(blockerIndex);
 				}
 			}
 		}
-	}
-
-	DArray<Blocker> allBlockers = dArray<Blocker>(getTMemory);
-
-	for(int i = 0; i < blockerCount; i++) {
-		allBlockers.push(blockers[i]);
-	}
-
-	// Collect walk edges and add them as line blockers.
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
-
-		if(cell->pointCount > 1) {
-			if(cell->pointCount == 2) {
-				Blocker b = {BLOCKERTYPE_LINE};
-				b.linePoints[0] = cell->points[0];
-				b.linePoints[1] = cell->points[1];
-
-				allBlockers.push(b);
-			} 
-			// else if(cell->pointCount == 3) {
-				// allBlockers.push({BLOCKERTYPE_LINE, xForm(), cell->points[0], cell->points[2]});
-				// allBlockers.push({BLOCKERTYPE_LINE, xForm(), cell->points[2], cell->points[1]});
-			// }
-		}
-		cell->pointCount = 0;
 	}
 
 	// Sample poles for allBlockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
+	{
+		TIMER_BLOCK_NAMED("BlockerPoles");
 
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
 
-			for(int i = 0; i < allBlockers.count; i++) {
-				bool isBlocked = poleBlockerIntersection(pole->pos, allBlockers + i);
+			for(int i = 0; i < h->count; i++) {
+				Pole* pole = wm->poles + h->index + i;
 
-				if(isBlocked) {
-					// if(pole->inside) {
-						if(!pole->blockers) pole->blockers = getTArray(int, 10);
-						pole->blockers[pole->blockerCount++] = i;
-						// poles[i]->inside = !isBlocked;
-					// }
+				int x, y;
+				aCoord(wm->gridDim.w, h->index + i, &x, &y);
+				WalkCell* cell = wm->getCell(x,y);
+
+				if(cell->coord == vec2i(-12,-1)) {
+					int stopt = 234;
 				}
+
+				for(auto& sample : pole->samples) {
+					for(auto blockerIndex : pole->potentialBlockers) {
+						bool isBlocked = wm->poleBlockerIntersection(pole->pos, sample.z, wm->allBlockers.data + blockerIndex); // pole->inside
+						if(isBlocked) {
+							if(!sample.blockers.count) sample.blockers = dArray<int>(10, getTMemory);
+							sample.blockers.push(blockerIndex);
+						}
+					}
+				}
+			}
+		};
+
+		splitThreadTask(poles.count, this, threadFunc);
+	}
+
+	// Mark layers that lie inside a blocker and don't need edges.
+	{
+		TIMER_BLOCK_NAMED("MarkOutsideLayers");
+
+		for(auto& cell : cells) {
+			for(auto& layer : cell.layers) {
+				if(layer.outside) continue;
+
+				int startIndex = 0;
+				for(int i = 0; i < 4; i++) {
+					if(layer.poles[i].valid) {
+						startIndex = i;
+						break;
+					}
+				}
+
+				bool outside = false;
+				MeshSample* startSample = layer.poles[startIndex].sample;
+				for(int i = 0; i < startSample->blockers.count; i++) {
+					int blockerIndex = startSample->blockers[i];
+
+					bool foundAll = true;
+					for(int pi = 1; pi < 4; pi++) {
+
+						int poleIndex = (pi + startIndex) % 4;
+						LayerPole* pole = &layer.poles[poleIndex];
+
+						bool found = false;
+						if(pole->valid) {
+							MeshSample* sample = pole->sample;
+							for(auto it : sample->blockers) {
+								if(it == blockerIndex) { found = true; break; }
+							}
+						} else found = true;
+						if(!found) { foundAll = false; break; }
+					}
+					if(foundAll) { outside = true; break; }
+				}
+				
+				layer.outside = outside;
 			}
 		}
 	}
 
 	// Calc blockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
+	{
+		TIMER_BLOCK_NAMED("BlockerEdges");
 
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
 
-			for(int stage = 0; stage < 2; stage++) {
+			int count = h->count;
+			for(int i = 0; i < count; i++) {
+				int x, y;
+				aCoord(wm->cellsDim.w, h->index + i, &x, &y);
+				WalkCell* cell = wm->getCell(x,y);
 
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1) pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
+				for(auto& layer : cell->layers) {
+					for(int edgeIndex = 0; edgeIndex < 4; edgeIndex++) {
+						Vec2i is = wm->edgePoles[edgeIndex];
+						LayerPole* p[2] = {layer.poles + is.e[0], layer.poles + is.e[1]};
 
-				if(!pole2) continue;
+						if(!p[0]->valid && !p[1]->valid) continue;
+						if(edgeIndex > 1 && wm->adjacentLayerSharesEdge(&layer, vec2i(x,y), edgeIndex)) continue;
 
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
+						for(int poleStage = 0; poleStage < 2; poleStage++) {
+							if(poleStage) swap(&p[0], &p[1]);
+							if(!p[0]->valid) continue;
 
-				WalkCell* cell2 = 0;
-				if      (stage == 0 && (y > 0 && x < gridDim.w-1)) cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
+							for(auto blockerIndex0 : p[0]->sample->blockers) {
+								bool found = false;
 
-				for(int poleStage = 0; poleStage < 2; poleStage++) {
-					Pole* p0 = poleStage == 0 ? pole : pole2;
-					Pole* p1 = poleStage == 0 ? pole2 : pole;
+								if(p[1]->valid) {
+									for(auto blockerIndex1 : p[1]->sample->blockers) {
+										if(blockerIndex1 == blockerIndex0) {
+											found = true;
+											break;
+										}
+									}
+								}
 
-					for(int i0 = 0; i0 < p0->blockerCount; i0++) {
-						int blockerIndex = p0->blockers[i0];
+								if(!found) {
+									WalkLayer* layer2 = 0;
+									if(edgeIndex < 2) wm->adjacentLayerSharesEdge(&layer, vec2i(x,y), edgeIndex, &layer2);
 
-						bool found = false;
-						for(int i1 = 0; i1 < p1->blockerCount; i1++) {
-							if(p1->blockers[i1] == blockerIndex) {
-								found = true;
-								break;
-							}
-						}
+									if(!layer.outside || (layer2 && !layer2->outside)) {
+										Vec3 edgePoint = wm->calcWalkEdgePointBlocker(p[1]->pos, p[0]->pos, wm->allBlockers + blockerIndex0);
 
-						if(!found) {
-							Blocker* blocker = allBlockers + blockerIndex;
-							Vec3 edgePoint = calcWalkEdgePointBlocker(p1->pos, p0->pos, blocker);
-
-							bool pushSecond;
-							if(stage == 0) pushSecond = poleStage == 1 ? false : true;
-							else           pushSecond = poleStage == 1 ? true : false;
-
-							if(cell) {
-								addWalkEdgePointBlocker(cell, edgePoint, blockerIndex, pushSecond);
-						   }
-
-							if(cell2) {
-								addWalkEdgePointBlocker(cell2, edgePoint, blockerIndex, !pushSecond);
+										bool pushSecond = edgeIndex < 2 ? edgeIndex == poleStage : (edgeIndex-2) != poleStage;
+										if(          !layer.outside  ) wm->addWalkEdgePointBlocker(&layer,  edgePoint, blockerIndex0,  pushSecond);
+										if(layer2 && !layer2->outside) wm->addWalkEdgePointBlocker( layer2, edgePoint, blockerIndex0, !pushSecond);
+									}
+								}
 							}
 						}
 					}
+
 				}
 			}
-		}
+		};
+
+		splitThreadTask(cells.count, this, threadFunc);
+	}
+
+	{
+		TIMER_BLOCK_NAMED("CleanupLines");
+
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
+
+			struct Point {
+				Vec2 p;
+				float dist;
+			};
+
+			struct LineMarked {
+				Vec2 a;
+				Vec2 b;
+				bool remove;
+			};
+
+			float flattenPercent = wm->settings.lineFlattenPercent;
+
+			DArray<Line2> collectedLines = dArray<Line2>(5, getTMemory);
+			DArray<Point> points = dArray<Point>(5, getTMemory);
+			DArray<Line2> finalList = dArray<Line2>(5, getTMemory);
+			DArray<LineMarked> markedLines = dArray<LineMarked>(5, getTMemory);
+
+			for(int cellIndex = 0; cellIndex < h->count; cellIndex++) {
+				WalkCell* cell = wm->cells + cellIndex + h->index;
+
+				for(auto& layer : cell->layers) {
+					if(!layer.lines.count) continue;
+
+					layer.linesNoCleanup = dArray<Line3>(layer.lines, getTMemory);
+
+					float floatOffset;
+					{
+						float maxVal = max(max(abs(cell->poles[0]->pos.x), 
+						                       abs(cell->poles[0]->pos.y)),
+						                   max(abs(cell->poles[2]->pos.x),
+						                       abs(cell->poles[2]->pos.y)));
+						floatOffset = floatPrecisionOffset(maxVal, 5, 0.0f);
+					}
+
+					for(auto it : layer.lines) {
+						Line2 lineToAdd = {it.a.xy, it.b.xy};
+
+						for(int i = 0; i < collectedLines.count; i++) {
+							Line2 l0 = collectedLines[i];
+							Line2 l1 = lineToAdd;
+							
+							Vec2 p;
+							bool result = getLineIntersection(l0.a, l0.b, l1.a, l1.b, &p);
+							if(result) {
+								finalList.push({l0.a, p});
+								finalList.push({p, l0.b});
+
+								float dist = len(lineToAdd.a - p);
+								points.push({p, dist});
+							} else {
+								finalList.push(l0);
+							}
+						}
+
+						// Sort intersection points by distance to line start and then
+						// create a line strip by those points.
+						{
+							auto cmp = [](const void* a, const void* b) -> int { 
+								return ((Point*)a)->dist > ((Point*)b)->dist ? 1 : -1;
+							};
+							qsort(points.data, points.count, sizeof(Point), cmp);
+
+							if(points.count) {
+								for(int i = 0; i < points.count + 1; i++) {
+									if(i == 0) finalList.push({lineToAdd.a, points[i].p});
+									else if(i == points.count) finalList.push({points[i-1].p, lineToAdd.b});
+									else finalList.push({points[i-1].p, points[i].p});
+								}
+							} else finalList.push(lineToAdd);
+						}
+
+						collectedLines.clear();
+						collectedLines.push(finalList);
+						finalList.clear();
+						points.clear();
+					}
+
+					// Remove unneeded lines.
+					{
+						DArray<int> removeList = dArray<int>(5, getTMemory);
+
+						for(int i = 0; i < collectedLines.count; i++) {
+							Line2 l0 = collectedLines[i];
+
+							for(int j = 0; j < collectedLines.count; j++) {
+								if(i == j) continue;
+
+								Line2 l1 = collectedLines[j];
+								for(int pi = 0; pi < 2; pi++) {
+									Vec2 p = l0.e[pi];
+									if(p == l1.a || p == l1.b) continue;
+
+									float d = dot(rotateRight(l1.b-l1.a), p-l1.a);
+									if(d < -floatOffset) goto remove;
+								}
+							}
+
+							if(false) {
+								remove:
+								removeList.push(i);
+							}
+						}
+
+						// Remove 0 length lines.
+						for(int i = 0; i < collectedLines.count; i++) {
+							Line2* line = collectedLines + i;
+							if(line->a == line->b) {
+								removeList.push(i);
+							}
+						}
+
+						// Remove duplicates.
+						for(int i = 0; i < collectedLines.count; i++) {
+							Line2* l0 = collectedLines + i;
+							for(int j = i+1; j < collectedLines.count; j++) {
+								Line2* l1 = collectedLines + j;
+
+								if((l0->a == l1->a) && (l0->b == l1->b)) {
+									removeList.push(j);
+								}
+							}
+						}
+
+						// Ugh.
+						for(auto it : removeList) { collectedLines[it] = {FLT_MAX}; }
+						for(int i = 0; i < collectedLines.count; i++) {
+							if(collectedLines[i].a.x == FLT_MAX) {
+								collectedLines.remove(i);
+								i--;
+							}
+						}
+					}
+
+					// Sort in some way to make the smoothing results consistent with threading.
+					{
+						auto cmp = [](const void* a, const void* b) -> int { 
+							return ((Line2*)a)->a.x > ((Line2*)b)->b.x ? 1 : -1;
+						};
+						qsort(collectedLines.data, collectedLines.count, sizeof(Line2), cmp);
+					}
+
+					// Smooth out slight edges. Iterative, not great but fine for now.
+					{
+						finalList.clear();
+
+						if(collectedLines.count == 1) {
+							finalList.push(collectedLines[0]);
+
+						} else if(collectedLines.count > 1) {
+							markedLines.clear();
+							for(auto& it : collectedLines) 
+								markedLines.push({it.a, it.b, false});
+
+							for(int i = 0; i < markedLines.count; i++) {
+								LineMarked* l0 = markedLines + i;
+								if(l0->remove) continue;
+								
+								for(int j = i+1; j < markedLines.count; j++) {
+									LineMarked* l1 = markedLines + j;
+									if(l1->remove) continue;
+
+									if((l0->b == l1->a) ||
+										(l1->b == l0->a)) { 
+
+										bool flipped = l1->b == l0->a;
+										Vec2 a = flipped ? l1->a : l0->a;
+										Vec2 b = flipped ? l1->b : l0->b;
+										Vec2 c = flipped ? l0->b : l1->b;
+
+										bool result = dot(c-a, b-a) >= 0 && dot(a-c, b-c) >= 0;
+										if(result) {
+											float dist = distancePointLine(a,c,b);
+											float lineLength = len(a-c);
+
+											if(dist <= lineLength * flattenPercent) {
+												l1->remove = true;
+												*l0 = {a,c};
+
+												// After we modified the line we have to check everyone again.
+												j = i;
+												continue;
+											}
+										}
+									}
+								}
+							}
+
+							for(auto it : markedLines) {
+								if(!it.remove) finalList.push({it.a, it.b});
+							}
+						}
+					}
+
+					collectedLines.clear();
+
+					float z = layer.lines[0].a.z;
+					layer.lines.clear();
+					for(auto it : finalList) {
+						float z0 = wm->calcWalkCellZ(it.a, z, cell);
+						float z1 = wm->calcWalkCellZ(it.b, z, cell);
+						Line3 l = {vec3(it.a, z0), vec3(it.b, z1)};
+
+						layer.lines.push(l);
+					}
+
+					finalList.clear();
+				}
+			}
+		};
+
+		splitThreadTask(cells.count, this, threadFunc);
 	}
 }
 
-Vec3 WalkManifold::move(Vec2 playerPos, Vec2 newPos) {
+bool WalkManifold::outside(Vec2 pos, float z) {
+	WalkCell* cell = getCell(pos);
+	WalkLayer* layer = getWalkLayer(cell, z);
+	if(!layer) return true;
+	if(layer->outside) return true;
+
+	if(!layer->lines.count) {
+		bool noBlockers = true;
+		for(auto& it : layer->poles) {
+			if(it.sample->blockers.count) {
+				noBlockers = false;
+				break;
+			}
+		}
+		if(noBlockers) return false;
+		else return true;
+	}
+
+	bool behindLine = false;
+	for(auto line : layer->lines) {
+		Line2 l = {line.a.xy, line.b.xy};
+
+		Vec2 dir  = rotateLeft(l.b - l.a);
+		Vec2 dir2 = (l.a - pos);
+
+		if(dot(dir, dir2) <= 0) {
+			behindLine = true;
+			break;
+		}
+	}
+	if(behindLine) return true;
+
+	return false;
+}
+
+Vec3 WalkManifold::pushInside(Vec2 playerPos, float z) {
+	float offset = floatPrecisionOffset(playerPos, playerPos, 10, 0.000001f);
+	Vec2 p = playerPos;
+
+	int radius = 2;
+	int hitCountMax = 10;
+
+	int hitCount = -1;
+	while(true) {
+		hitCount++;
+
+		float shortestDistance = FLT_MAX;
+		Vec2 cp;
+
+		Vec2i cellCoord = getCellCoord(p);
+		Vec2i cMin = cellCoord - vec2i(radius, radius);
+		Vec2i cMax = cellCoord + vec2i(radius, radius);
+
+		for(int x = cMin.x; x <= cMax.x; x++) {
+			for(int y = cMin.y; y <= cMax.y; y++) {
+				WalkCell* cell = getCellGlobalBoundsCheck(x, y);
+				if(!cell) continue;
+
+				WalkLayer* layer = getWalkLayer(cell, z);
+				if(!layer) continue;
+
+				for(auto line : layer->lines) {
+					Line2 l = {line.a.xy, line.b.xy};
+
+					Vec2 dir  = rotateLeft(l.b - l.a);
+					Vec2 dir2 = (l.a - p);
+
+					bool behind = dot(dir, dir2) <= 0;
+					if(behind) {
+						Vec2 linePoint = projectPointOnLine(p, l.a, l.b, true);
+						float dist = len(linePoint - p);
+						if(dist < shortestDistance) {
+							shortestDistance = dist;
+
+							Vec2 off = norm(rotateRight(l.b - l.a)) * offset;
+							cp = linePoint + off;
+						}
+					}
+				}
+
+			}
+		}
+
+		if(shortestDistance != FLT_MAX) {
+			p = cp;
+
+			if(!outside(p, z)) break;
+			if(hitCount >= hitCountMax) break;
+
+		} else break;
+	}
+
+	return calcWalkCellPos(p, z);
+}
+
+Vec3 WalkManifold::move(Vec2 playerPos, float z, Vec2 newPos) {
 	float offset = floatPrecisionOffset(playerPos, newPos, 10, 0.000001f);
 
 	Vec2 p = playerPos;
 	Vec2 np = newPos;
 
-	Vec2i cellCoord = getWalkCell(p);
-
+	Vec2i cellCoord = getCellCoord(p);
 	Line3 lastLine = {vec3(FLT_MAX), vec3(FLT_MAX)};
-
-	Vec2 projectDir;
 
 	bool firstLineHit = false;
 	int lineHitCount = 0;
-
-	bool printOut = false;
-
-	bool debugDraw = true;
-	int index = -1;
-
+	int index = 0;
 	Vec2 lastSavePos = p;
 
+	Vec2 projectDir;
+
 	while(true) {
-		index++;
+		Line3 line;
+		Vec2 cp;
+		bool collision = gridLineCollision(p, z, np, &cellCoord, &line, &cp, lastLine);
 
-		// Get line segment to cell border. (Or to end point if we don't touch a border.)
-		Vec2i cellCoordOld = cellCoord;
-		Vec2 cp = gridLineCollision(p, np, &cellCoord);
+		if(collision) {
+			index++;
+			lastLine = line;
 
-		bool collision = cp == np ? false : true;
-	// float calcWalkCellZ(Vec2 pos, WalkCell* cell);
-		
-		// 			dxDrawLine(calcWalkCellPos(op), 
+			// Project onto line.
+			{
+				if(!firstLineHit) {
+					projectDir = np - cp;
+					firstLineHit = true;
+				}
 
-		Vec3 p0 = calcWalkCellZPos(p, getWalkCell(cellCoordOld))+off;
-		Vec3 p1 = calcWalkCellZPos(cp, getWalkCell(cellCoord))+off;
-		float r = 0.0f + (index/10.0f);
-		dxDrawLine(p0, p1, vec4(r,1,r,1));
+				Vec2 a = norm(line.a.xy - line.b.xy);
+				Vec2 b = projectDir;
+				Vec2 pp = cp + a * dot(a, b);
 
-		p = cp;
+				projectDir = norm(projectDir) * len(cp - pp);
 
-		// Get gjk collision with line segment.
-		// Blocker srcBlocker = {BLOCKERTYPE_CIRCLE, xForm(pos, vec3(playerRadius))};
-		// bool result = gjk(&srcBlocker, vec2(0,0), blocker);
+				Vec2 normal = rotateRight(a);
+				Vec2 op  = cp - normal * offset;
+				Vec2 onp = pp - normal * offset;
 
-		if(index == 10) break;
+				// Check if we can do the offset without a collision.
+				{
+					Line3 testLine;
+					Vec2 ncp;
+					bool collision = gridLineCollision(cp, z, op, &cellCoord, &testLine, &ncp, lastLine);
+					if(collision) {
+						// Can't do the offset so we try to compromise by taking 
+						// the intersection with the perpendicular offset line.
+						// And if that failes as well we just bail and don't move.
 
-		// 		dxDrawLine(line.a+off, line.b+off, vec4(1,0,0,1));
+						Line3 ol = { vec3(line.a.xy - normal * offset,0), 
+							         vec3(line.b.xy - normal * offset,0) };
+						Vec2 ep;
+						if(lineIntersection(p, cp, ol.a.xy, ol.b.xy, &ep)) p = ep;
+						else p = lastSavePos;
 
-		// if(!collision) {
-		// 	p = np;
-		// 	break;
+						break;
+					}
+				}
 
-		// } else {
+				p = op;
+				np = onp;
 
-		// 	if(debugDraw) {
-		// 		dxDrawLine(line.a+off, line.b+off, vec4(1,0,0,1));
-		// 	}
+				// z = calcWalkCellPos(p, z).z;
+			}
 
-		// 	index++;
+			lastSavePos = p;
 
-		// 	lastLine = line;
+			if(lineHitCount >= settings.maxLineCollisionCount) break;
+			lineHitCount++;
 
-		// 	// Project onto line.
-		// 	{
-		// 		if(!firstLineHit) {
-		// 			projectDir = np - cp;
-		// 			firstLineHit = true;
-		// 		}
+			continue;
 
-		// 		Vec2 a = norm(line.a.xy - line.b.xy);
-		// 		Vec2 b = projectDir;
-		// 		Vec2 pp = cp + a * dot(a, b);
-
-		// 		projectDir = norm(projectDir) * len(cp - pp);
-
-		// 		Vec2 normal;
-		// 		{
-		// 			normal = rotateRight(a);
-		// 			// if(dot(normal, line.a.xy - p) < 0) {
-		// 			// 	normal = rotateLeft(a);
-		// 			// }
-
-		// 			if(debugDraw) {
-		// 				Vec3 mid = (line.a + line.b) / 2.0f;
-		// 				Vec3 ln = -norm(vec3(normal, 0));
-
-		// 				dxDrawLine(mid + off, 
-		// 				           mid + ln*0.05f + off, vec4(0,1,1,1));
-		// 			}
-		// 		}
-
-		// 		Vec2 op  = cp - normal * offset;
-		// 		Vec2 onp = pp - normal * offset;
-
-		// 		if(debugDraw) {
-		// 			dxDrawLine(calcWalkCellPos(op), 
-		// 			           calcWalkCellPos(op) + vec3(0,0,0.05f), vec4(1,0.5f,0,1));
-
-		// 			dxDrawLine(calcWalkCellPos(onp), 
-		// 			           calcWalkCellPos(onp) + vec3(0,0,0.05f), vec4(1,0,0.5f,1));
-		// 		}
-
-		// 		// Check if we can do the offset without a collision.
-		// 		{
-		// 			Line3 testLine;
-		// 			Vec2 ncp;
-		// 			bool collision = gridLineCollision(cp, op, &cellCoord, &testLine, &ncp, lastLine);
-
-		// 			if(collision) {
-		// 				// Can't do the offset so we try to compromise by taking 
-		// 				// the intersection with the perpendicular offset line.
-		// 				// And if that failes as well we just bail out and don't move.
-
-		// 				Line3 ol = { vec3(line.a.xy - normal * offset,0), 
-		// 					         vec3(line.b.xy - normal * offset,0) };
-		// 				Vec2 ep;
-		// 				if(lineIntersection(p, cp, ol.a.xy, ol.b.xy, &ep)) {
-		// 					p = ep;
-		// 				} else {
-		// 					p = lastSavePos;
-		// 				}
-
-		// 				break;
-		// 			}
-		// 		}
-
-		// 		p = op;
-		// 		np = onp;
-		// 	}
-
-		// 	lastSavePos = p;
-
-		// 	if(lineHitCount == 5) break;
-		// 	lineHitCount++;
-
-		// 	continue;
-		// }
+		} else {
+			p = np;
+			break;
+		}
 	}
 
-	Vec3 cellPos = calcWalkCellPos(p);
+	Vec3 cellPos = calcWalkCellPos(p, z);
 	return cellPos;
 }
 
@@ -547,33 +927,27 @@ bool WalkManifold::raycast(Vec3 pos, Vec3 rayDir, Vec3* inter) {
 	bool foundIntersection = false;
 	Vec3 intersection = vec3(0,0,0);
 	float minDist = FLT_MAX;
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
+	for(auto& cell : cells) {
+		for(auto& l : cell.layers) {
+			if(!l.poles[0].valid || !l.poles[1].valid ||
+			   !l.poles[2].valid || !l.poles[3].valid) continue;
 
-		Vec3 p[] = {cell->poles[0]->pos, 
-						cell->poles[1]->pos, 
-						cell->poles[2]->pos, 
-						cell->poles[3]->pos };
+			Vec3 p[] = {l.poles[0].pos, 
+							l.poles[1].pos, 
+							l.poles[2].pos, 
+							l.poles[3].pos };
 
-		bool skipCell = false;
-		for(int j = 0; j < 4; j++) {
-			if(p[j].z < 0) {
-				skipCell = true;
-				break;
+			Vec3 inter;
+			bool result = lineQuadIntersection(pos, rayDir, p[0], p[1], p[2], p[3], &inter, true);
+			if(result) {
+				float dist = len(inter - pos);
+				if(dist < minDist) {
+					minDist = dist;
+					intersection = inter;
+				}
+
+				foundIntersection = true;
 			}
-		}
-		if(skipCell) continue;
-
-		Vec3 inter;
-		bool result = lineQuadIntersection(pos, rayDir, p[0], p[1], p[2], p[3], &inter, true);
-		if(result) {
-			float dist = len(inter - pos);
-			if(dist < minDist) {
-				minDist = dist;
-				intersection = inter;
-			}
-
-			foundIntersection = true;
 		}
 	}
 
@@ -584,237 +958,436 @@ bool WalkManifold::raycast(Vec3 pos, Vec3 rayDir, Vec3* inter) {
 }
 
 void WalkManifold::debugDraw() {
+	TIMER_BLOCK();
 
-	// Draw blockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
+	int cellOffset = ceil(settings.playerRadius / settings.cellSize);
+	dxDepthTest(settings.depthTest); defer { dxDepthTest(true); }; 
+	Vec3 off = vec3(0, 0, settings.depthTest ? 0.001f : 0);
 
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
+	dxBeginPrimitiveColored(vec4(1,1), D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	defer { dxEndPrimitive(); };
 
-			for(int stage = 0; stage < 2; stage++) {
+	// Draw grid.
+	for(int y = cellOffset; y < cellsDim.h-cellOffset; y++) {
+		for(int x = cellOffset; x < cellsDim.w-cellOffset; x++) {
+			WalkCell* cell = getCell(x,y);
 
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1)  pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
+			for(auto& layer : cell->layers) {
+				for(int edgeIndex = 0; edgeIndex < 4; edgeIndex++) {
+					Vec2i is = edgePoles[edgeIndex];
+					LayerPole* p[2] = {layer.poles + is.e[0], layer.poles + is.e[1]};
 
-				if(!pole2) continue;
+					if((edgeIndex == 2 && y != cellsDim.h-cellOffset-1) || 
+					   (edgeIndex == 3 && x != cellsDim.w-cellOffset-1)) {
+						if(edgeIndex > 1 && adjacentLayerSharesEdge(&layer, vec2i(x,y), edgeIndex)) continue;
+					}
 
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
+					bool in[2] = {p[0]->valid && !p[0]->sample->blockers.count, 
+					              p[1]->valid && !p[1]->sample->blockers.count};
 
-				// WalkCell* cell2 = 0;
-				// if      (stage == 0 && (y > 0 && x < gridDim.w-1))  cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				// else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
+					if(in[0] || in[1]) {
+						if(in[0] && in[1]) {
+							dxPushLine(p[0]->pos+off, p[1]->pos+off, settings.cGrid);
 
-				// if(pole->inside && pole->blockerCount == 0) {
-				// 	dxDrawLine(pole->pos, pole->pos+vec3(0,0,0.2f), vec4(0,1,1,1));
-				// } else {
-				// 	dxDrawLine(pole->pos, pole->pos+vec3(0,0,0.1f), vec4(0,1,1,1));
-				// }
+						} else {
+							if(!in[0]) swap(&p[0], &p[1]);
 
-				bool in0 = pole->inside && pole->blockerCount == 0;
-				bool in1 = pole2->inside && pole2->blockerCount == 0;
-
-				if(in0 || in1) {
-					Pole* p0 = pole;
-					Pole* p1 = pole2;
-
-					if(in0 && in1) {
-						dxDrawLine(p0->pos+off, p1->pos+off, vec4(1,1,1,1));
-					} else {
-						if(in1) swap(&p0, &p1);
-
-						if(cell) {
-							Vec2 edgePos;
+							Vec3 edgePos;
 							float dist = FLT_MAX;
-							for(int i = 0; i < cell->lineCount; i++) {
-								Line3 line = cell->lines[i];
+							for(int i = 0; i < layer.lines.count; i++) {
+								Line3 line = layer.lines[i];
 								Vec2 cp;
-								bool result = getLineIntersection(p0->pos.xy, p1->pos.xy, line.a.xy, line.b.xy, &cp);	
+								bool result = getLineIntersection(p[0]->pos.xy, p[1]->pos.xy, line.a.xy, line.b.xy, &cp);	
 								if(result) {
-									float cDist = len(p0->pos.xy - cp);
+									float cDist = len(p[0]->pos.xy - cp);
 									if(cDist < dist) {
 										dist = cDist;
-										edgePos = cp;
+										edgePos.xy = cp;
 									}
 								}
 							}
 
-							// dxDrawLine(p0->pos+off, (p1->pos + p0->pos)/2.0f+off, vec4(1,1,1,1));
-							dxDrawLine(p0->pos+off, (vec3(edgePos, p1->pos.z))+off, vec4(1,1,1,1));
+							edgePos.z = calcWalkCellZ(edgePos.xy, layer.zRange.max, cell);
+							dxPushLine(p[0]->pos+off, edgePos+off, settings.cGrid);
+
+							if(settings.drawOutsideGrid)
+								dxPushLine(p[1]->pos+off, edgePos+off, settings.cGridOutside);
 						}
+
+					} else {
+						if(settings.drawOutsideGrid) {
+							if(p[0]->valid && p[1]->valid) {
+								dxPushLine(p[0]->pos+off, p[1]->pos+off, settings.cGridOutside);
+
+							} else if(p[0]->valid || p[1]->valid) {
+								if(!p[0]->valid) swap(&p[0], &p[1]);
+							
+								if(layer.pointCount) {
+									bool sw = dot(norm(layer.points[0].xy-p[0]->pos.xy), norm(p[1]->pos.xy-p[0]->pos.xy)) >
+												 dot(norm(layer.points[1].xy-p[0]->pos.xy), norm(p[1]->pos.xy-p[0]->pos.xy));
+									Vec3 edgePos = sw ? layer.points[0] : layer.points[1];
+
+									dxPushLine(p[0]->pos+off, edgePos+off, settings.cGridOutside);
+								}
+							}
+						}
+					}
+
+					dxFlushIfFull();
+				}
+
+			}
+		}
+	}
+
+	off.z *= 1.05f;
+
+	// Draw walk edges.
+	if(settings.drawWalkEdges) {
+		for(int y = 0; y < cellsDim.h; y++) {
+			for(int x = 0; x < cellsDim.w; x++) {
+				WalkCell* cell = getCell(x,y);
+
+				for(auto& it : cell->layers) {
+					if(it.pointCount == 2) {
+						dxPushLine(it.points[0]+off, it.points[1]+off, settings.cWalkEdge);
+						dxFlushIfFull();
+					}
+
+					if(it.pointCount == 3) {
+						dxPushLine(it.points[0]+off, it.points[2]+off, settings.cWalkEdge);
+						dxPushLine(it.points[2]+off, it.points[1]+off, settings.cWalkEdge);
+						dxFlushIfFull();
 					}
 				}
 			}
-
 		}
 	}
 
-	// Draw Lines.
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
-
-		Vec4 c = vec4(0,1,1,1);
-		if(cell->pointCount == 2) {
-			dxDrawLine(cell->points[0]+off, cell->points[1]+off, c);
-		}
-
-		// if(cell->pointCount == 3) {
-		// 	dxDrawLine(cell->points[0]+off, cell->points[2]+off, c);
-		// 	dxDrawLine(cell->points[2]+off, cell->points[1]+off, c);
-
-		// 	// dxDrawLine(cell->points[0]+off, cell->points[2]+off, c);
-		// 	// dxDrawLine(cell->points[2]+off, cell->points[1]+off, c);
-		// }
-
-		for(int i = 0; i < cell->lineCount; i++) {
-			Line3 line = cell->lines[i];
-			if(line.a.z > -1000000 && line.b.z > -1000000)
-				dxDrawLine(line.a+off, line.b+off, c);
-
-			// printf("%f %f\n", line.a.z, -FLT_MAX);
-		}
-	}
-
-	// Draw Blockers.
-	if(false)
+	// Draw lines.
 	{
-		dxDepthTest(true);
-		// dxFillWireFrame(true);
-		for(int i = 0; i < blockerCount; i++) {
-			XForm b = blockers[i].form;
-			// dxDrawCube(b.trans, b.scale, vec4(1,0,0,0.5f));
-			dxDrawCube(b.trans, b.scale, vec4(0.7,0,0,1));
+		for(int y = cellOffset; y < cellsDim.h-cellOffset; y++) {
+			for(int x = cellOffset; x < cellsDim.w-cellOffset; x++) {
+				WalkCell* cell = getCell(x,y);
+
+				for(auto& layer : cell->layers) {
+					if(settings.drawLinesNoCleanup) {
+						for(auto& line : layer.linesNoCleanup) {
+							dxPushLine(line.a+off, line.b+off, settings.cBlockerLineNoCleanup);
+							dxFlushIfFull();
+						}
+					}
+
+					for(auto& line : layer.lines) {
+						dxPushLine(line.a+off, line.b+off, settings.cBlockerLine);
+						dxFlushIfFull();
+					}
+				}
+			}
 		}
-		// dxFillWireFrame(false);
+	}
+}
+
+void WalkManifold::free() {
+	for(auto& cell : cells) {
+		CloseHandle(cell.mutex);
 	}
 }
 
 //
 
-WalkCell* WalkManifold::getWalkCell(Vec2i cellCoord) {
-	WalkCell* cell = &cells[aIndex(cellsDim.w, cellCoord.x-grid.left, cellCoord.y-grid.bottom)];
-	return cell;
+inline Pole* WalkManifold::getPole(int x, int y) {
+	return poles + aIndex(gridDim.w, x, y);
 }
 
-Vec2i WalkManifold::getWalkCell(Vec2 pos) {
-	Vec2 cellF = pos / cellSize;
+inline Pole* WalkManifold::getPoleBoundsCheck(int x, int y) {
+	if(x < 0 || x > gridDim.w-1 || y < 0 || y > gridDim.h-1) return 0;
+	return getPole(x, y);
+}
+
+inline WalkCell* WalkManifold::getCell(int x, int y) {
+	return cells + aIndex(cellsDim.w, x, y);
+}
+
+inline WalkCell* WalkManifold::getCellBoundsCheck(int x, int y) {
+	if(x < 0 || x > cellsDim.w-1 || y < 0 || y > cellsDim.h-1) return 0;
+	return getCell(x, y);
+}
+
+inline WalkCell* WalkManifold::getCellGlobal(int x, int y) {
+	x = x - grid.left;
+	y = y - grid.bottom;
+	return cells + aIndex(cellsDim.w, x, y);
+}
+
+inline WalkCell* WalkManifold::getCellGlobalBoundsCheck(int x, int y) {
+	x = x - grid.left;
+	y = y - grid.bottom;
+	if(x < 0 || x > cellsDim.w-1 || y < 0 || y > cellsDim.h-1) return 0;
+	return getCell(x, y);
+}
+
+Vec2i WalkManifold::getCellCoord(Vec2 pos) {
+	Vec2 cellF = pos / settings.cellSize;
 	Vec2i cellCoord = vec2i(floor(cellF.x), floor(cellF.y));
 
 	return cellCoord;
 }
 
-float WalkManifold::calcWalkCellZ(Vec2 pos, WalkCell* cell) {
+WalkCell* WalkManifold::getCell(Vec2 pos) {
+	Vec2i coord = getCellCoord(pos);
+	return getCellGlobal(coord.x, coord.y);
+}
 
-	Pole** ps = cell->poles;
-	Vec3 coords = barycentricCoordinates(pos, ps[0]->pos.xy, ps[1]->pos.xy, ps[2]->pos.xy);
+float WalkManifold::calcWalkLayerZ(Vec2 pos, WalkLayer* layer) {
+	if(!layer) return 0;
 
-	// If not in first triangle choose the second triangle of quad.
-	if(coords.x < 0 || coords.y < 0 || coords.z < 0) {
-		coords = barycentricCoordinates(pos, ps[2]->pos.xy, ps[3]->pos.xy, ps[0]->pos.xy);
+	// Get highest pole. Then triangulate clockwise.
+	float zMax = -FLT_MAX;
+	int index = 0;
+	for(auto& pole : layer->poles) {
+		if(!pole.valid) return 0;
+
+		if(pole.pos.z > zMax) {
+			zMax = pole.pos.z;
+			index = &pole - layer->poles;
+		}
 	}
 
-	float z = coords.x * ps[0]->pos.z + 
-	          coords.y * ps[1]->pos.z + 
-	          coords.z * ps[2]->pos.z;
+	Vec3 v[4];
+	for(int i = 0; i < 4; i++) v[i] = layer->poles[(index+i)%4].pos;
+
+	Vec3 coords = barycentricCoordinates(pos, v[0].xy, v[1].xy, v[2].xy);
+	float z;
+
+	// If not in first triangle choose the second triangle of quad.
+	// floatOffset = floatPrecisionOffset(maxVal, 5, 0.0f);
+	float fp = 0.0f - floatPrecisionOffset(max(pos.x, pos.y), 5, 0.0f);
+	if(coords.x < fp || coords.y < fp || coords.z < fp) {
+		coords = barycentricCoordinates(pos, v[2].xy, v[3].xy, v[0].xy);
+		z = coords.x * v[2].z + coords.y * v[3].z + coords.z * v[0].z;
+
+	} else {
+		z = coords.x * v[0].z + coords.y * v[1].z + coords.z * v[2].z;
+	}
 
 	return z;
 }
 
-Vec3 WalkManifold::calcWalkCellZPos(Vec2 pos, WalkCell* cell) {
+float WalkManifold::calcWalkCellZ(Vec2 pos, float pz, WalkCell* cell) {
+	return calcWalkLayerZ(pos, getWalkLayer(cell, pz));
+}
 
-	float z = calcWalkCellZ(pos, cell);
+Vec3 WalkManifold::calcWalkCellZPos(Vec2 pos, float pz, WalkCell* cell) {
+	float z = calcWalkCellZ(pos, pz, cell);
 	return vec3(pos, z);
 }
 
-Vec3 WalkManifold::calcWalkCellPos(Vec2 pos) {
-	Vec2i cellCoord = getWalkCell(pos);
+Vec3 WalkManifold::calcWalkCellPos(Vec2 pos, float pz) {
+	Vec2i cellCoord = getCellCoord(pos);
 	WalkCell* cell = &cells[aIndex(cellsDim.w, cellCoord.x-grid.left, cellCoord.y-grid.bottom)];
 
-	Vec3 wp = calcWalkCellZPos(pos, cell);
+	Vec3 wp = calcWalkCellZPos(pos, pz, cell);
 
 	return wp;
 }
 
-bool WalkManifold::poleMeshIntersection(Vec2 pos, WalkMesh* mesh, float* z) {
-	XForm b = mesh->form;
+WalkLayer* WalkManifold::getWalkLayer(WalkCell* cell, float z) {
+	if(!cell->layers.count) return 0;
+	if(cell->layers.count == 1) return &cell->layers[0];
 
-	Vec3 rayPos = vec3(pos, 100);
-	Vec3 rayDir = vec3(0,0,-1);
-	Quat rotInverse = inverse(b.rot);
+	float minDist = FLT_MAX;
+	WalkLayer* bestLayer = 0;
+	for(auto& layer : cell->layers) {
+		float dist = layer.zRange.max < z ? z - layer.zRange.max : 
+		            (layer.zRange.min > z ? layer.zRange.min - z : 0);
 
-	Vec3 lp, ld;
-	lp = rayPos - b.trans;
-	ld = lp + rayDir;
-	lp = rotInverse * lp;
-	ld = rotInverse * ld;
-	ld = norm(ld - lp);
-
-	Vec3 position, normal;
-	float distance = lineBoxIntersection(lp, ld, vec3(0.0f), b.scale, &position, &normal);
-
-	if(distance != -1) {
-		position = b.rot * position;
-		position = position + b.trans;
-
-		*z = position.z;
-		return true;
-
-	} else {
-		return false;
+		if(dist < minDist) {
+			minDist = dist;
+			bestLayer = &layer;
+		}
 	}
+
+	return bestLayer;
 }
 
-bool gjk(Blocker* s1, Vec2 oldPos, Blocker* s2, Vec2* inputSimplex = 0, bool sweepingEnabled = false);
-bool WalkManifold::poleBlockerIntersection(Vec3 pos, Blocker* blocker) {
-	XForm b = blocker->form;
+WalkLayer* WalkManifold::getWalkLayer(Vec2i coord, float z) {
+	WalkCell* cell = getCellBoundsCheck(coord.x, coord.y);
+	if(!cell) return 0;
 
-	Vec2 blockerZRange;
-	if(blocker->type == BLOCKERTYPE_LINE) {
-		blockerZRange.min = min(blocker->linePoints[0].z, blocker->linePoints[1].z);
-		blockerZRange.max = max(blocker->linePoints[0].z, blocker->linePoints[1].z);
-	} else {
-		blockerZRange = vec2(b.trans.z - b.scale.z/2.0f, 
-                    b.trans.z + b.scale.z/2.0f);
+	return getWalkLayer(cell, z);
+}
+
+WalkLayer* WalkManifold::getWalkLayer(WalkCell* cell, WalkLayer* layer) {
+	return getWalkLayer(cell, (layer->zRange.min + layer->zRange.max)/2.0f);
+}
+
+WalkLayer* WalkManifold::getWalkLayer(Vec2i coord, WalkLayer* layer) {
+	WalkCell* cell = getCellBoundsCheck(coord.x, coord.y);
+	if(!cell) return 0;
+
+	return getWalkLayer(cell, (layer->zRange.min + layer->zRange.max)/2.0f);
+}
+
+bool WalkManifold::adjacentLayerSharesEdge(WalkLayer* layer, Vec2i coord, int edgeIndex, WalkLayer** adjLayer) {
+	// EdgeIndex: 0->3 = bottom, left, top, right.
+
+	Vec2i coordDirs[] = {{0,-1}, {-1,0}, {0,1}, {1,0}};
+	coord += coordDirs[edgeIndex];
+
+	if(adjLayer) *adjLayer = 0;
+
+	WalkCell* adjacentCell = getCellBoundsCheck(coord.x, coord.y);
+	if(!adjacentCell) return false;
+
+	WalkLayer* adjacentLayer = getWalkLayer(adjacentCell, layer);
+	if(!adjacentLayer) return false;
+
+	Vec2i poles[] = {edgePoles[edgeIndex], edgePoles[(edgeIndex+2)%4]};
+	if(layer->poles[poles[0].e[0]].sample == adjacentLayer->poles[poles[1].e[0]].sample && 
+	   layer->poles[poles[0].e[1]].sample == adjacentLayer->poles[poles[1].e[1]].sample) {
+		if(adjLayer) *adjLayer = adjacentLayer;
+	   return true;
 	}
 
-	if(!(pos.z >= blockerZRange.min && pos.z <= blockerZRange.max)) return false;
 
-	Blocker srcBlocker = {BLOCKERTYPE_CIRCLE, xForm(pos, vec3(playerRadius))};
-	bool result = gjk(&srcBlocker, vec2(0,0), blocker);
+	return false;
+}
 
+//
+
+bool WalkManifold::poleMeshIntersection(Vec2 pos, WalkMesh* mesh, float* z) {
+	Vec3 rayPos = vec3(pos, 1000);
+	Vec3 rayDir = vec3(0,0,-1);
+	Vec3 rayPosT, rayDirT;
+	transformInverse(rayPos, rayDir, mesh->xfInv, rayPosT, rayDirT);
+
+	Vec3 intersection;
+	float dist = lineBoxIntersection(rayPosT, rayDirT, vec3(0.0f), vec3(1.0f), &intersection);
+	if(dist != -1) {
+		intersection = mesh->xf * intersection;
+		*z = intersection.z;
+		return true;
+	}
+
+	return false;
+}
+
+bool WalkManifold::poleBlockerIntersection(Blocker* blocker0, Blocker* blocker1) {
+	{
+		float z = blocker0->xf.trans.z;
+		Vec2 zr = vec2(blocker1->aabb.min.z, blocker1->aabb.max.z);
+
+		if(blocker1->type == BLOCKERTYPE_LINE) {
+			if(z > zr.max + settings.playerRadius) return false;
+			if(z < zr.min - settings.playerHeight) return false;
+
+			Vec2 p = blocker0->xf.trans.xy;
+			Vec3 a = blocker1->linePoints[0];
+			Vec3 b = blocker1->linePoints[1];
+
+			bool test2d = false;
+			if(zr.min == zr.max) test2d = true;
+			else if(z > zr.max) test2d = true;
+			else if(z < zr.min && z > (zr.min - (settings.playerHeight - (zr.max - zr.min)))) test2d = true;
+
+			if(test2d) {
+				return distancePointLine(a.xy, b.xy, p) <= settings.playerRadius;
+
+			} else {
+				if(z < zr.min) z += settings.playerHeight;
+				float percent = mapRange(z, a.z, b.z, 0.0f, 1.0f);
+				Vec3 _p = a + (percent * (b - a));
+
+				return len(p - _p.xy) <= settings.playerRadius;
+			}
+
+		} else {
+			zr.min -= settings.playerHeight;
+			if(!(z >= zr.min && z <= zr.max)) return false;
+		}
+	}
+
+	bool result = gjk(blocker0, vec2(0,0), blocker1);
 	return result;
 }
 
-Vec3 WalkManifold::calcWalkEdgePoint(Vec3 a, Vec3 b, WalkMesh* mesh, bool checkZ) {
-	Vec3 c;
-	float z = a.z;
-	for(int i = 0; i < edgeSearchIterations; i++) {
-		c = (a+b)/2.0f;
+bool WalkManifold::poleBlockerIntersection(Vec2 pos, float z, Blocker* blocker1) {
+	Blocker srcBlocker = {BLOCKERTYPE_CIRCLE, xForm(vec3(pos, z), vec3(settings.playerRadius*2))};
+	return poleBlockerIntersection(&srcBlocker, blocker1);
+}
 
-		bool hit = poleMeshIntersection(c.xy, mesh, &z);
-		if(checkZ) {
-			if(!(z >= zRange.x && z <= zRange.y)) hit = false;
+Vec3 WalkManifold::calcWalkEdgePoint(LayerPole* p0, LayerPole* p1, int zTestMode, bool* hitSomething) {
+	bool swp = false;
+	if(!p0->valid || !p1->valid) swp = !p0->valid;
+	else if(zTestMode < 0 || (!zTestMode && p0->pos.z <= p1->pos.z)) swp = true;
+	if(swp) swap(&p0, &p1);
+
+	Vec2 c;
+	float startZ = p0->pos.z, z = p0->pos.z;
+	WalkMesh* mesh0 = meshes + p0->sample->mesh;
+
+	Vec2 p[] = {p0->pos.xy, p1->pos.xy};
+
+	bool hits[2] = {};
+	if(!p0->valid || !p1->valid) {
+		for(int i = 0; i < settings.edgeSearchIterations; i++) {
+			c = (p[0]+p[1])/2.0f;
+
+			bool hit = poleMeshIntersection(c, mesh0, &z);
+			hits[hit] = true;
+			if(hit && abs(startZ - z) > settings.legHeight) hit = false;
+
+			p[hit ? 0 : 1] = c;
 		}
 
-		if(hit) a = c;
-		else b = c;
+	} else {
+		WalkMesh* mesh1 = meshes + p1->sample->mesh;
+		zTestMode = abs(zTestMode);
+
+		for(int i = 0; i < settings.edgeSearchIterations; i++) {
+			c = (p[0]+p[1])/2.0f;
+
+			float z0, z1;
+			bool hit0 = poleMeshIntersection(c, mesh0, &z0);
+			bool hit1 = poleMeshIntersection(c, mesh1, &z1);
+			if(hit0) z = z0;
+
+			if(hit0) hits[0] = true;
+			if(hit1) hits[1] = true;
+
+			if(zTestMode) {
+				if(hit1 && abs(startZ - z1) <= settings.playerHeight) {
+					if(zTestMode == 1) hit0 = false; 
+					else if(zTestMode == 2) hit1 = false; 
+				}
+			}
+
+			bool leg0 = abs(startZ - z0) <= settings.legHeight;
+			if     (!hit0 && !hit1) p[1] = c;
+			else if( hit0 && !hit1) p[leg0 ? 0 : 1] = c;
+			else if(!hit0 &&  hit1) p[1] = c;
+			else                    p[leg0 ? 0 : 1] = c;
+		}
 	}
 
-	return vec3(c.xy, z);
+	// HitSomething is for calculating the interpolated walk edge point,
+	// if we exclusively get one hit event or another we assume the 
+	// calculated point is not valid.
+	if(hitSomething) *hitSomething = hits[0] && hits[1];
+
+	return vec3(c, z);
 }
 
-Vec3 WalkManifold::calcWalkEdgePoint(Pole* p1, Pole* p2) {
-	return calcWalkEdgePoint(p1->pos, p2->pos, meshes + p1->meshIndex, p2->meshIndex != -1);
-}
-
-Vec3 WalkManifold::calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker) {
+Vec3 WalkManifold::calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker1) {
+	Blocker blocker0 = {BLOCKERTYPE_CIRCLE, xForm(a, vec3(settings.playerRadius*2))};
 
 	Vec3 c;
-	for(int i = 0; i < edgeSearchIterations; i++) {
+	for(int i = 0; i < settings.edgeSearchIterations; i++) {
 		c = (a+b)/2.0f;
 
-		bool hit = !poleBlockerIntersection(c, blocker);
+		blocker0.xf.trans = c;
+		bool hit = !poleBlockerIntersection(&blocker0, blocker1);
 
 		if(hit) a = c;
 		else b = c;
@@ -823,272 +1396,144 @@ Vec3 WalkManifold::calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker) {
 	return c;
 }
 
-void WalkManifold::addWalkEdgePoint(Pole* p1, Pole* p2, WalkCell* cell, Vec3 edgePoint) {
+void WalkManifold::addWalkEdgePoint(WalkLayer* layer, Vec3 edgePoint, PointInfo pointInfo) {
+	// assert(cell->pointCount <= 1);
+	if(layer->pointCount > 1) return;
 
-	if(cell->pointCount == 0) {
-		// cell->tempPoles[0] = p1;
-		// cell->tempPoles[1] = p2;
-		cell->points[cell->pointCount++] = edgePoint;
-
-		return;
-	}
-
-	if(cell->pointCount == 1) {
-		cell->points[cell->pointCount++] = edgePoint;
-
-		return;
-	}
-
-	if(cell->pointCount > 1) {
-		__debugbreak();
-		return;
-	}
-
-	#if 0
-
-	Pole* poles[4] = {cell->tempPoles[0], cell->tempPoles[1], p1, p2};
-
-	// Calc third point.
 	{
-		Vec3 testEp[2];
+		volatile uint currentPointCount;
+		while(true) {
+			currentPointCount = layer->pointCount;
+			volatile uint newPointCount = currentPointCount + 1;
 
-		for(int i = 0; i < 2; i++) {
-			Pole pole0 = i == 0 ? *cell->tempPoles[0] : *p1;
-			Pole pole1 = i == 0 ? *cell->tempPoles[1] : *p2;
-
-			float percent = 0.1f;
-			Vec3 offset = {};
-			if(pole0.pos.x != pole1.pos.x)
-				offset.y = percent * (cell->points[(i+1)%2].y - cell->points[i].y);
-			else 
-				offset.x = percent * (cell->points[(i+1)%2].x - cell->points[i].x);
-
-			pole0.pos += offset;
-			pole1.pos += offset;
-
-			testEp[i] = calcWalkEdgePoint(&pole0, &pole1, meshes, zRange);
-
-			// dxDrawLine(pole0->pos, pole0->pos+vec3(0,0,0.2f), vec4(1,1,0,1));
-			// dxDrawLine(pole1->pos, pole1->pos+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-
-			// dxDrawLine(testEp[0], testEp[0]+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-			// dxDrawLine(testEp[1], testEp[1]+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-
-			// dxDrawLine(pole0->pos + offset, pole0->pos + offset+vec3(0,0,0.2f), vec4(1,0.0f,0,1));
-			// dxDrawLine(pole1->pos + offset, pole1->pos + offset+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
+			LONG oldValue = InterlockedCompareExchange((LONG volatile*)&layer->pointCount, newPointCount, currentPointCount);
+			if(oldValue == currentPointCount) break;
 		}
 
-		Vec3 dir0 = norm(testEp[0] - cell->points[0]);
-		Vec3 dir1 = norm(testEp[1] - cell->points[1]);
-
-		Vec3 thirdPoint = lineClosestPoint(cell->points[0], dir0, cell->points[1], dir1);
-
-		// Something went wrong.
-		if(!pointInRect(thirdPoint.xy, cellRect)) {
-			thirdPoint = (cell->points[0] + cell->points[1])/2.0f;
-		}
-
-		cell->points[cell->pointCount++] = thirdPoint;
+		layer->points[currentPointCount] = edgePoint;
+		layer->pointInfos[currentPointCount] = pointInfo;
 	}
 
-	#endif
+	// Calc interpolated middle point.
+	if(layer->pointCount == 2) {
+		return;
+
+		float testOffset = settings.cellSize * 0.01f;
+		float ignoreDist = settings.cellSize * 0.001f;
+		float poleExpansion = settings.cellSize * 0.5f;
+
+		Vec3 testPoints[2];
+		Vec2 edgeDirs[] = {{0,1}, {1,0}, {0,-1}, {-1,0}};
+
+		bool bothHit = true;
+		for(int i = 0; i < 2; i++) {
+			PointInfo* pi = layer->pointInfos + i;
+			Vec2i is = edgePoles[pi->edgeIndex];
+
+			LayerPole p[2] = {*pi->p[0], *pi->p[1]};
+			Vec2 offset = edgeDirs[pi->edgeIndex] * testOffset;
+			p[0].pos.xy += offset;
+			p[1].pos.xy += offset;
+
+			Vec2 dirs[2] = {};
+			if(p[0].pos.x != p[1].pos.x) dirs[0].x = p[0].pos.x < p[1].pos.x ? -1 : 1;
+			else                         dirs[0].y = p[0].pos.y < p[1].pos.y ? -1 : 1;
+			dirs[1] = -dirs[0];
+
+			// Hit says if there is actually a valid edge.
+			bool hit;
+			testPoints[i] = calcWalkEdgePoint(&p[0], &p[1], pi->playerHeightMode, &hit);
+			if(!hit) {
+				bothHit = false;
+				break;
+			}
+
+			// If the distance of the middle point isn't far enough we ignore it.
+			float dist = distancePointLine(layer->points[0].xy, layer->points[1].xy, testPoints[i].xy);
+			if(dist < ignoreDist) {
+				bothHit = false;
+				break;
+			}
+		}
+		if(!bothHit) return;
+
+		Vec2 dirs[2] = {testPoints[0].xy - layer->points[0].xy, testPoints[1].xy - layer->points[1].xy};
+		Vec2 thirdPoint;
+		bool result = getLineIntersectionInf(layer->points[0].xy, dirs[0], layer->points[1].xy, dirs[1], &thirdPoint);
+		if(!result) return;
+
+		// If the distance from the main cell/layer is too far we assume we messed up and bail.
+		if(min(len(thirdPoint - layer->points[0].xy), len(thirdPoint - layer->points[1].xy)) > settings.cellSize*2) return;
+
+		// Interpolate z.
+		float zs[2];
+		for(int i = 0; i < 2; i++) {
+			float zp = len(layer->points[i].xy - thirdPoint) / len(dirs[i]);
+			zs[i] = testPoints[i].z + (testPoints[i].z - layer->points[i].z)*zp;
+		}
+		float z = (zs[0] + zs[1]) / 2.0f;
+
+		layer->points[layer->pointCount++] = vec3(thirdPoint, z);
+	}
 }
 
-void WalkManifold::addWalkEdgePointBlocker(WalkCell* cell, Vec3 edgePoint, int blockerIndex, bool pushSecond) {
+void WalkManifold::addWalkEdgePointBlocker(WalkLayer* layer, Vec3 edgePoint, int blockerIndex, bool pushSecond) {
+	WalkCell* cell = layer->cell;
 
-	if(!cell->blockerPoints) {
-		cell->blockerPoints = getTArray(WalkCell::BlockerPointList, 10);
-		cell->blockerPointCount = 0;
+	int state = WaitForSingleObject(cell->mutex, INFINITE);
+	defer { ReleaseMutex(cell->mutex); };
+
+	if(!layer->blockerPoints.count) {
+		layer->blockerPoints = dArray<BlockerPointList>(10, getTMemory);
 	}
 
-	WalkCell::BlockerPointList* list = 0;
-	for(int i = 0; i < cell->blockerPointCount; i++) {
-		if(cell->blockerPoints[i].blockerIndex == blockerIndex) {
-			list = &cell->blockerPoints[i];
+	BlockerPointList* list = 0;
+	for(int i = 0; i < layer->blockerPoints.count; i++) {
+		if(layer->blockerPoints[i].blockerIndex == blockerIndex) {
+			list = layer->blockerPoints + i;
 			break;
 		}
 	}
 
 	if(!list) {
-		list = &cell->blockerPoints[cell->blockerPointCount++];
-		list->pointCount = 0;
-		list->blockerIndex = blockerIndex;
+		BlockerPointList nl;
+		nl.pointCount = 0;
+		nl.blockerIndex = blockerIndex;
+		layer->blockerPoints.push(nl);
+
+		list = layer->blockerPoints.data + layer->blockerPoints.count-1;
 	}
+
+	if(list->pointCount > 1) return;
 
 	list->points[list->pointCount++] = edgePoint;
 
 	if(list->pointCount == 2) {
-		if(!cell->lines) cell->lines = getTArray(Line3, 10);
+		if(!layer->lines.count) layer->lines = dArray<Line3>(10, getTMemory);
 
 		// Make sure to push lines in clockwise order from blocker perspective.
 		Line3 line;
 		if(!pushSecond) line = { list->points[0], list->points[1] };
 		else            line = { list->points[1], list->points[0] };
 
-		cell->lines[cell->lineCount++] = line;
-	}
-
-	if(list->pointCount > 2) {
-		__debugbreak();
-		return;
+		layer->lines.push(line);
 	}
 }
 
-int WalkManifold::lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, Line3 lastLine, Vec2* cp) {
-	int lineIndex = -1;
-	Vec2 collisionPoint = {};
-	float collisionDist = FLT_MAX;
-	for(int i = 0; i < lineCount; i++) {
-		Line3 line = lines[i];
-
-		if(lastLine.a == line.a && lastLine.b == line.b) continue;
-
-		Vec2 cp; // Shadowed.
-		if(lineIntersection(p0, p1, line.a.xy, line.b.xy, &cp)) {
-			float cd = len(cp - p0);
-			if(cd < collisionDist) {
-				collisionDist = cd;
-				collisionPoint = cp;
-				lineIndex = i;
-			}
-		}
-	}
-
-	*cp = collisionPoint;
-
-	return lineIndex;
-}
-
-#if 0
-struct WalkMesh {
-	XForm form; // Only box for now.
-};
-
-struct Pole {
-	Vec3 pos;
-	bool inside;
-	int meshIndex;
-
-	int* blockers;
-	int blockerCount;
-};
-
-enum BlockerType {
-	BLOCKERTYPE_RECT = 0,
-	BLOCKERTYPE_CIRCLE,
-	BLOCKERTYPE_LINE,
-};
-
-struct Blocker {
-	int type;
-
-	union {
-		XForm form;
-		Vec3 linePoints[2];
-	};
-};
-
-struct WalkCell {
-	struct BlockerPointList {
-		int blockerIndex;
-		Vec3 points[2];
-		int pointCount;
-	};
-
-	Pole* poles[4]; // bl, tl, tr, br.
-
-	int pointCount;
-	Vec3 points[3];
-
-	BlockerPointList* blockerPoints;
-	int blockerPointCount;
-
-	Line3* lines;
-	int lineCount;
-};
-
-struct WalkManifold {
-	WalkMesh* meshes;
-	int meshCount;
-
-	Blocker* blockers;
-	int blockerCount;
-
-	float playerRadius;
-	Vec2 zRange; // Temp.
-	float legHeight;
-	float cellSize;
-	int edgeSearchIterations;
-
-	Recti grid;
-	Vec2i gridDim;  // Temp.
-	Vec2i cellsDim; // Temp.
-
-	Pole* poles;
-	int poleCount;
-
-	WalkCell* cells;
-	int cellCount;
-
-	//
-
-	Vec3 off; // Temp.
-
-	//
-
-	void init(Vec3 playerPos, Recti grid, float playerRadius, float legHeight, float cellSize, WalkMesh* meshes, int meshCount, Blocker* blockers, int blockerCount);
-	void rasterize();
-	Vec3 move(Vec2 playerPos, Vec2 newPos);
-	bool raycast(Vec3 pos, Vec3 rayDir, Vec3* inter);
-	void debugDraw();
-
-	//
-
-	bool lineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i);
-	bool gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord, Line3* collisionLine, Vec2* collisionPoint, Line3 lastLine);
-
-	Vec2i getWalkCell(Vec2 pos);
-	float calcWalkCellZ(Vec2 pos, WalkCell* cell);
-	Vec3 calcWalkCellZPos(Vec2 pos, WalkCell* cell);
-	Vec3 calcWalkCellPos(Vec2 pos);
-	bool poleMeshIntersection(Vec2 pos, WalkMesh* mesh, float* z);
-	bool poleBlockerIntersection(Vec3 pos, Blocker* blocker);
-	Vec3 calcWalkEdgePoint(Vec3 a, Vec3 b, WalkMesh* mesh, bool checkZ);
-	Vec3 calcWalkEdgePoint(Pole* p1, Pole* p2);
-	Vec3 calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker);
-	void addWalkEdgePoint(Pole* p1, Pole* p2, WalkCell* cell, Vec3 edgePoint);
-	void addWalkEdgePointBlocker(WalkCell* cell, Vec3 edgePoint, int blockerIndex, bool pushSecond);
-	int lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, Line3 lastLine, Vec2* cp);
-};
-
-bool WalkManifold::lineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
-
-	// If line is inside other line. (This might not be sufficient.)
-	if(distancePointLine(p2, p3, p0) == 0 && 
-	   distancePointLine(p2, p3, p1) == 0) {
-		*i = p0;
-		return true;
-	}
-
-	bool result = getLineIntersection(p0, p1, p2, p3, i);
-	return result;
-}
-
-bool WalkManifold::gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord, Line3* collisionLine, Vec2* collisionPoint, Line3 lastLine) {
-
+bool WalkManifold::gridLineCollision(Vec2 p, float z, Vec2 np, Vec2i* cellCoord, Line3* collisionLine, Vec2* collisionPoint, Line3 lastLine) {
 	Vec2i cellDirs[] = { {-1,0}, {1,0}, {0,-1}, {0,1}, };
 	int cellEdgeIndexOpposite[] = {1,0,3,2};
 
-	Vec2i newPosCell = getWalkCell(np);
+	Vec2i newPosCell = getCellCoord(np);
 
 	while(true) {
 		WalkCell* cell = &cells[aIndex(cellsDim.w, cellCoord->x-grid.left, cellCoord->y-grid.bottom)];
-		if(cell->lineCount) {
-
+		WalkLayer* layer = getWalkLayer(cell, z);
+		if(layer->lines.count) {
 			Vec2 cp;
-			int lineIndex = lineCollision(p, np, cell->lines, cell->lineCount, lastLine, &cp);
+			int lineIndex = lineCollision(p, np, layer->lines.data, layer->lines.count, lastLine, &cp);
 			if(lineIndex != -1) {
-				*collisionLine = cell->lines[lineIndex];
+				*collisionLine = layer->lines[lineIndex];
 				*collisionPoint = cp;
 
 				return true;
@@ -1097,7 +1542,7 @@ bool WalkManifold::gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord, Line3* c
 
 		// Get cell intersection and move to neighbour cell.
 		{
-			Rect cellRect = rect(vec2(*cellCoord)*cellSize, vec2(*cellCoord+1)*cellSize);
+			Rect cellRect = rect(vec2(*cellCoord)*settings.cellSize, vec2(*cellCoord+1)*settings.cellSize);
 
 			Vec2 dir = np - p;
 
@@ -1151,750 +1596,21 @@ bool WalkManifold::gridLineCollision(Vec2 p, Vec2 np, Vec2i* cellCoord, Line3* c
 		break;
 	}
 
-	assert(newPosCell == *cellCoord);
+	// assert(newPosCell == *cellCoord);
 
 	return false;
 }
 
-void WalkManifold::init(Vec3 playerPos, Recti grid, float playerRadius, float legHeight, float cellSize, WalkMesh* meshes, int meshCount, Blocker* blockers, int blockerCount) {
-
-	*this = {};
-
-	this->grid = grid;
-	this->gridDim = vec2i(grid.w() + 1, grid.h() + 1);
-	this->cellsDim = vec2i(grid.w(), grid.h());
-
-	this->playerRadius = playerRadius;
-	this->zRange = vec2(playerPos.z - legHeight, playerPos.z + legHeight);
-	this->legHeight = legHeight;
-	this->cellSize = cellSize;
-
-	// this->edgeSearchIterations = 16;
-	this->edgeSearchIterations = 10;
-
-	this->meshes = meshes;
-	this->meshCount = meshCount;
-	this->blockers = blockers;
-	this->blockerCount = blockerCount;
-
-	poleCount = gridDim.w * gridDim.h;
-	poles = getTArray(Pole, poleCount);
-
-	cellCount = cellsDim.w * cellsDim.h;
-	cells = getTArray(WalkCell, cellCount);
-	memset(cells, 0, sizeof(WalkCell)*cellCount);
-
-	off = vec3(0,0,0.001f);
-}
-
-void WalkManifold::rasterize() {
-
-	// Set poles for walk cells.
-	for(int y = 0; y < cellsDim.h; y++) {
-		for(int x = 0; x < cellsDim.w; x++) {
-
-			WalkCell* cell = &cells[aIndex(cellsDim.w, x, y)];
-
-			Pole* ps[] = {
-				&poles[aIndex(gridDim.w, x, y)],
-				&poles[aIndex(gridDim.w, x, y+1)],
-				&poles[aIndex(gridDim.w, x+1, y+1)],
-				&poles[aIndex(gridDim.w, x+1, y)],
-			};
-
-			for(int i = 0; i < 4; i++) cell->poles[i] = ps[i];
-		}
-	}
-
-	// Sample poles.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
-
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
-
-			Vec2 pos = vec2((grid.left + x)*cellSize, (grid.bottom + y)*cellSize);
-			*pole = {vec3(pos, -FLT_MAX), false, -1, 0, 0};
-
-			for(int i = 0; i < meshCount; i++) {
-				float sample;
-				if(poleMeshIntersection(pos, meshes + i, &sample)) {
-					if(sample >= zRange.x && sample <= zRange.y) {
-						pole->inside = true;
-					}
-					pole->pos.z = max(sample, pole->pos.z);
-					pole->meshIndex = i;
-				}
-			}
-		}
-	}
-
-	// Calc cells.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
-
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
-
-			for(int stage = 0; stage < 2; stage++) {
-
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1) pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
-
-				if(!pole2) continue;
-
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
-
-				WalkCell* cell2 = 0;
-				if      (stage == 0 && (y > 0 && x < gridDim.w-1))  cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
-
-				if(pole->inside != pole2->inside) {
-
-					Pole* p1 = pole->inside ? pole : pole2; 
-					Pole* p2 = pole->inside ? pole2 : pole;
-
-					Vec3 edgePoint = calcWalkEdgePoint(p1, p2);
-
-					if(cell) {
-						addWalkEdgePoint(p1, p2, cell, edgePoint);
-
-						// dxDrawLine(p1->pos+off, edgePoint+off, vec4(1,1));
-				   }
-
-					if(cell2) {
-						addWalkEdgePoint(p1, p2, cell2, edgePoint);
-					}
-
-				} else {
-					// if(pole->inside && pole2->inside)
-						// dxDrawLine(pole->pos+off, pole2->pos+off, vec4(1,1));
-				}
-			}
-		}
-	}
-
-	DArray<Blocker> allBlockers = dArray<Blocker>(getTMemory);
-
-	for(int i = 0; i < blockerCount; i++) {
-		allBlockers.push(blockers[i]);
-	}
-
-	// Collect walk edges and add them as line blockers.
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
-
-		if(cell->pointCount > 1) {
-			if(cell->pointCount == 2) {
-				Blocker b = {BLOCKERTYPE_LINE};
-				b.linePoints[0] = cell->points[0];
-				b.linePoints[1] = cell->points[1];
-
-				allBlockers.push(b);
-			} 
-			// else if(cell->pointCount == 3) {
-				// allBlockers.push({BLOCKERTYPE_LINE, xForm(), cell->points[0], cell->points[2]});
-				// allBlockers.push({BLOCKERTYPE_LINE, xForm(), cell->points[2], cell->points[1]});
-			// }
-		}
-		cell->pointCount = 0;
-	}
-
-	// Sample poles for allBlockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
-
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
-
-			for(int i = 0; i < allBlockers.count; i++) {
-				bool isBlocked = poleBlockerIntersection(pole->pos, allBlockers + i);
-
-				if(isBlocked) {
-					// if(pole->inside) {
-						if(!pole->blockers) pole->blockers = getTArray(int, 10);
-						pole->blockers[pole->blockerCount++] = i;
-						// poles[i]->inside = !isBlocked;
-					// }
-				}
-			}
-		}
-	}
-
-	// Calc blockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
-
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
-
-			for(int stage = 0; stage < 2; stage++) {
-
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1) pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
-
-				if(!pole2) continue;
-
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
-
-				WalkCell* cell2 = 0;
-				if      (stage == 0 && (y > 0 && x < gridDim.w-1)) cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
-
-				for(int poleStage = 0; poleStage < 2; poleStage++) {
-					Pole* p0 = poleStage == 0 ? pole : pole2;
-					Pole* p1 = poleStage == 0 ? pole2 : pole;
-
-					for(int i0 = 0; i0 < p0->blockerCount; i0++) {
-						int blockerIndex = p0->blockers[i0];
-
-						bool found = false;
-						for(int i1 = 0; i1 < p1->blockerCount; i1++) {
-							if(p1->blockers[i1] == blockerIndex) {
-								found = true;
-								break;
-							}
-						}
-
-						if(!found) {
-							Blocker* blocker = allBlockers + blockerIndex;
-							Vec3 edgePoint = calcWalkEdgePointBlocker(p1->pos, p0->pos, blocker);
-
-							bool pushSecond;
-							if(stage == 0) pushSecond = poleStage == 1 ? false : true;
-							else           pushSecond = poleStage == 1 ? true : false;
-
-							if(cell) {
-								addWalkEdgePointBlocker(cell, edgePoint, blockerIndex, pushSecond);
-						   }
-
-							if(cell2) {
-								addWalkEdgePointBlocker(cell2, edgePoint, blockerIndex, !pushSecond);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-Vec3 WalkManifold::move(Vec2 playerPos, Vec2 newPos) {
-
-	float offset;
-	{
-		float maxVal = max(max(playerPos.x, playerPos.y), 
-		                   max(newPos.x, newPos.y));
-		float next = nextafter(maxVal, FLT_MAX);
-		offset = (next - maxVal)*10;
-
-		offset = max(offset, 0.000001f);
-	}
-
-	Vec2 p = playerPos;
-	Vec2 np = newPos;
-
-	Vec2i cellCoord = getWalkCell(p);
-
-	Line3 lastLine = {vec3(FLT_MAX), vec3(FLT_MAX)};
-
-	Vec2 projectDir;
-
-	bool firstLineHit = false;
-	int lineHitCount = 0;
-
-	bool printOut = false;
-
-	bool debugDraw = true;
-	int index = 0;
-
-	Vec2 lastSavePos = p;
-
-	while(true) {
-
-		Line3 line;
-		Vec2 cp;
-		bool collision = gridLineCollision(p, np, &cellCoord, &line, &cp, lastLine);
-
-		if(collision) {
-
-			if(debugDraw) {
-				dxDrawLine(line.a+off, line.b+off, vec4(1,0,0,1));
-			}
-
-			index++;
-
-			lastLine = line;
-
-			// Project onto line.
-			{
-				if(!firstLineHit) {
-					projectDir = np - cp;
-					firstLineHit = true;
-				}
-
-				Vec2 a = norm(line.a.xy - line.b.xy);
-				Vec2 b = projectDir;
-				Vec2 pp = cp + a * dot(a, b);
-
-				projectDir = norm(projectDir) * len(cp - pp);
-
-				Vec2 normal;
-				{
-					normal = rotateRight(a);
-					// if(dot(normal, line.a.xy - p) < 0) {
-					// 	normal = rotateLeft(a);
-					// }
-
-					if(debugDraw) {
-						Vec3 mid = (line.a + line.b) / 2.0f;
-						Vec3 ln = -norm(vec3(normal, 0));
-
-						dxDrawLine(mid + off, 
-						           mid + ln*0.05f + off, vec4(0,1,1,1));
-					}
-				}
-
-				Vec2 op  = cp - normal * offset;
-				Vec2 onp = pp - normal * offset;
-
-				if(debugDraw) {
-					dxDrawLine(calcWalkCellPos(op), 
-					           calcWalkCellPos(op) + vec3(0,0,0.05f), vec4(1,0.5f,0,1));
-
-					dxDrawLine(calcWalkCellPos(onp), 
-					           calcWalkCellPos(onp) + vec3(0,0,0.05f), vec4(1,0,0.5f,1));
-				}
-
-				// Check if we can do the offset without a collision.
-				{
-					Line3 testLine;
-					Vec2 ncp;
-					bool collision = gridLineCollision(cp, op, &cellCoord, &testLine, &ncp, lastLine);
-
-					if(collision) {
-						// Can't do the offset so we try to compromise by taking 
-						// the intersection with the perpendicular offset line.
-						// And if that failes as well we just bail out and don't move.
-
-						Line3 ol = { vec3(line.a.xy - normal * offset,0), 
-							         vec3(line.b.xy - normal * offset,0) };
-						Vec2 ep;
-						if(lineIntersection(p, cp, ol.a.xy, ol.b.xy, &ep)) {
-							p = ep;
-						} else {
-							p = lastSavePos;
-						}
-
-						break;
-					}
-				}
-
-				p = op;
-				np = onp;
-			}
-
-			lastSavePos = p;
-
-			if(lineHitCount == 5) break;
-			lineHitCount++;
-
-			continue;
-
-		} else {
-			p = np;
-			break;
-		}
-	}
-
-	Vec3 cellPos = calcWalkCellPos(p);
-	return cellPos;
-}
-
-bool WalkManifold::raycast(Vec3 pos, Vec3 rayDir, Vec3* inter) {
-	bool foundIntersection = false;
-	Vec3 intersection = vec3(0,0,0);
-	float minDist = FLT_MAX;
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
-
-		Vec3 p[] = {cell->poles[0]->pos, 
-						cell->poles[1]->pos, 
-						cell->poles[2]->pos, 
-						cell->poles[3]->pos };
-
-		bool skipCell = false;
-		for(int j = 0; j < 4; j++) {
-			if(p[j].z < 0) {
-				skipCell = true;
-				break;
-			}
-		}
-		if(skipCell) continue;
-
-		Vec3 inter;
-		bool result = lineQuadIntersection(pos, rayDir, p[0], p[1], p[2], p[3], &inter, true);
-		if(result) {
-			float dist = len(inter - pos);
-			if(dist < minDist) {
-				minDist = dist;
-				intersection = inter;
-			}
-
-			foundIntersection = true;
-		}
-	}
-
-	if(!foundIntersection) return false;
-
-	*inter = intersection;
-	return true;
-}
-
-void WalkManifold::debugDraw() {
-
-	// Draw blockers.
-	for(int y = 0; y < gridDim.h; y++) {
-		for(int x = 0; x < gridDim.w; x++) {
-
-			Pole* pole = &poles[aIndex(gridDim.w, x, y)];
-
-			for(int stage = 0; stage < 2; stage++) {
-
-				Pole* pole2 = 0;
-				if(stage == 0 && x < gridDim.w-1)  pole2 = &poles[aIndex(gridDim.w, x+1, y)];
-				if(stage == 1 && y < gridDim.h-1) pole2 = &poles[aIndex(gridDim.w, x, y+1)];
-
-				if(!pole2) continue;
-
-				WalkCell* cell = 0;
-				if((x < gridDim.w-1) && y < gridDim.h-1) cell = &cells[aIndex(cellsDim.w, x, y)];
-
-				// WalkCell* cell2 = 0;
-				// if      (stage == 0 && (y > 0 && x < gridDim.w-1))  cell2 = &cells[aIndex(cellsDim.w, x, y-1)];
-				// else if (stage == 1 && (x > 0 && y < gridDim.h-1)) cell2 = &cells[aIndex(cellsDim.w, x-1, y)];
-
-				// if(pole->inside && pole->blockerCount == 0) {
-				// 	dxDrawLine(pole->pos, pole->pos+vec3(0,0,0.2f), vec4(0,1,1,1));
-				// } else {
-				// 	dxDrawLine(pole->pos, pole->pos+vec3(0,0,0.1f), vec4(0,1,1,1));
-				// }
-
-				bool in0 = pole->inside && pole->blockerCount == 0;
-				bool in1 = pole2->inside && pole2->blockerCount == 0;
-
-				if(in0 || in1) {
-					Pole* p0 = pole;
-					Pole* p1 = pole2;
-
-					if(in0 && in1) {
-						dxDrawLine(p0->pos+off, p1->pos+off, vec4(1,1,1,1));
-					} else {
-						if(in1) swap(&p0, &p1);
-
-						if(cell) {
-							Vec2 edgePos;
-							float dist = FLT_MAX;
-							for(int i = 0; i < cell->lineCount; i++) {
-								Line3 line = cell->lines[i];
-								Vec2 cp;
-								bool result = getLineIntersection(p0->pos.xy, p1->pos.xy, line.a.xy, line.b.xy, &cp);	
-								if(result) {
-									float cDist = len(p0->pos.xy - cp);
-									if(cDist < dist) {
-										dist = cDist;
-										edgePos = cp;
-									}
-								}
-							}
-
-							// dxDrawLine(p0->pos+off, (p1->pos + p0->pos)/2.0f+off, vec4(1,1,1,1));
-							dxDrawLine(p0->pos+off, (vec3(edgePos, p1->pos.z))+off, vec4(1,1,1,1));
-						}
-					}
-				}
-			}
-
-		}
-	}
-
-	// Draw Lines.
-	for(int i = 0; i < cellCount; i++) {
-		WalkCell* cell = cells + i;
-
-		Vec4 c = vec4(0,1,1,1);
-		// if(cell->pointCount == 2) {
-		// 	dxDrawLine(cell->points[0]+off, cell->points[1]+off, c);
-		// }
-
-		// if(cell->pointCount == 3) {
-		// 	dxDrawLine(cell->points[0]+off, cell->points[2]+off, c);
-		// 	dxDrawLine(cell->points[2]+off, cell->points[1]+off, c);
-
-		// 	// dxDrawLine(cell->points[0]+off, cell->points[2]+off, c);
-		// 	// dxDrawLine(cell->points[2]+off, cell->points[1]+off, c);
-		// }
-
-		for(int i = 0; i < cell->lineCount; i++) {
-			Line3 line = cell->lines[i];
-			if(line.a.z > -1000000 && line.b.z > -1000000)
-				dxDrawLine(line.a+off, line.b+off, c);
-
-			// printf("%f %f\n", line.a.z, -FLT_MAX);
-		}
-	}
-
-	// Draw Blockers.
-	if(false)
-	{
-		dxDepthTest(true);
-		// dxFillWireFrame(true);
-		for(int i = 0; i < blockerCount; i++) {
-			XForm b = blockers[i].form;
-			// dxDrawCube(b.trans, b.scale, vec4(1,0,0,0.5f));
-			dxDrawCube(b.trans, b.scale, vec4(0.7,0,0,1));
-		}
-		// dxFillWireFrame(false);
-	}
-}
-
-//
-
-Vec2i WalkManifold::getWalkCell(Vec2 pos) {
-	Vec2 cellF = pos / cellSize;
-	Vec2i cellCoord = vec2i(floor(cellF.x), floor(cellF.y));
-
-	return cellCoord;
-}
-
-float WalkManifold::calcWalkCellZ(Vec2 pos, WalkCell* cell) {
-
-	Pole** ps = cell->poles;
-	Vec3 coords = barycentricCoordinates(pos, ps[0]->pos.xy, ps[1]->pos.xy, ps[2]->pos.xy);
-
-	// If not in first triangle choose the second triangle of quad.
-	if(coords.x < 0 || coords.y < 0 || coords.z < 0) {
-		coords = barycentricCoordinates(pos, ps[2]->pos.xy, ps[3]->pos.xy, ps[0]->pos.xy);
-	}
-
-	float z = coords.x * ps[0]->pos.z + 
-	          coords.y * ps[1]->pos.z + 
-	          coords.z * ps[2]->pos.z;
-
-	return z;
-}
-
-Vec3 WalkManifold::calcWalkCellZPos(Vec2 pos, WalkCell* cell) {
-
-	float z = calcWalkCellZ(pos, cell);
-	return vec3(pos, z);
-}
-
-Vec3 WalkManifold::calcWalkCellPos(Vec2 pos) {
-	Vec2i cellCoord = getWalkCell(pos);
-	WalkCell* cell = &cells[aIndex(cellsDim.w, cellCoord.x-grid.left, cellCoord.y-grid.bottom)];
-
-	Vec3 wp = calcWalkCellZPos(pos, cell);
-
-	return wp;
-}
-
-bool WalkManifold::poleMeshIntersection(Vec2 pos, WalkMesh* mesh, float* z) {
-	XForm b = mesh->form;
-
-	Vec3 rayPos = vec3(pos, 100);
-	Vec3 rayDir = vec3(0,0,-1);
-	Quat rotInverse = inverse(b.rot);
-
-	Vec3 lp, ld;
-	lp = rayPos - b.trans;
-	ld = lp + rayDir;
-	lp = rotInverse * lp;
-	ld = rotInverse * ld;
-	ld = norm(ld - lp);
-
-	Vec3 position, normal;
-	float distance = lineBoxIntersection(lp, ld, vec3(0.0f), b.scale, &position, &normal);
-
-	if(distance != -1) {
-		position = b.rot * position;
-		position = position + b.trans;
-
-		*z = position.z;
+bool WalkManifold::lineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
+	// If line is inside other line. (This might not be sufficient.)
+	if(distancePointLine(p2, p3, p0) == 0 && 
+	   distancePointLine(p2, p3, p1) == 0) {
+		*i = p0;
 		return true;
-
-	} else {
-		return false;
-	}
-}
-
-bool gjk(Blocker* s1, Vec2 oldPos, Blocker* s2);
-bool WalkManifold::poleBlockerIntersection(Vec3 pos, Blocker* blocker) {
-	XForm b = blocker->form;
-
-	Vec2 blockerZRange;
-	if(blocker->type == BLOCKERTYPE_LINE) {
-		blockerZRange.min = min(blocker->linePoints[0].z, blocker->linePoints[1].z);
-		blockerZRange.max = max(blocker->linePoints[0].z, blocker->linePoints[1].z);
-	} else {
-		blockerZRange = vec2(b.trans.z - b.scale.z/2.0f, 
-                    b.trans.z + b.scale.z/2.0f);
 	}
 
-	if(!(pos.z >= blockerZRange.min && pos.z <= blockerZRange.max)) return false;
-
-	Blocker srcBlocker = {BLOCKERTYPE_CIRCLE, xForm(pos, vec3(playerRadius))};
-	bool result = gjk(&srcBlocker, vec2(0,0), blocker);
-
+	bool result = getLineIntersection(p0, p1, p2, p3, i);
 	return result;
-}
-
-Vec3 WalkManifold::calcWalkEdgePoint(Vec3 a, Vec3 b, WalkMesh* mesh, bool checkZ) {
-	Vec3 c;
-	float z = a.z;
-	for(int i = 0; i < edgeSearchIterations; i++) {
-		c = (a+b)/2.0f;
-
-		bool hit = poleMeshIntersection(c.xy, mesh, &z);
-		if(checkZ) {
-			if(!(z >= zRange.x && z <= zRange.y)) hit = false;
-		}
-
-		if(hit) a = c;
-		else b = c;
-	}
-
-	return vec3(c.xy, z);
-}
-
-Vec3 WalkManifold::calcWalkEdgePoint(Pole* p1, Pole* p2) {
-	return calcWalkEdgePoint(p1->pos, p2->pos, meshes + p1->meshIndex, p2->meshIndex != -1);
-}
-
-Vec3 WalkManifold::calcWalkEdgePointBlocker(Vec3 a, Vec3 b, Blocker* blocker) {
-
-	Vec3 c;
-	for(int i = 0; i < edgeSearchIterations; i++) {
-		c = (a+b)/2.0f;
-
-		bool hit = !poleBlockerIntersection(c, blocker);
-
-		if(hit) a = c;
-		else b = c;
-	}
-
-	return c;
-}
-
-void WalkManifold::addWalkEdgePoint(Pole* p1, Pole* p2, WalkCell* cell, Vec3 edgePoint) {
-
-	if(cell->pointCount == 0) {
-		// cell->tempPoles[0] = p1;
-		// cell->tempPoles[1] = p2;
-		cell->points[cell->pointCount++] = edgePoint;
-
-		return;
-	}
-
-	if(cell->pointCount == 1) {
-		cell->points[cell->pointCount++] = edgePoint;
-
-		return;
-	}
-
-	if(cell->pointCount > 1) {
-		__debugbreak();
-		return;
-	}
-
-	#if 0
-
-	Pole* poles[4] = {cell->tempPoles[0], cell->tempPoles[1], p1, p2};
-
-	// Calc third point.
-	{
-		Vec3 testEp[2];
-
-		for(int i = 0; i < 2; i++) {
-			Pole pole0 = i == 0 ? *cell->tempPoles[0] : *p1;
-			Pole pole1 = i == 0 ? *cell->tempPoles[1] : *p2;
-
-			float percent = 0.1f;
-			Vec3 offset = {};
-			if(pole0.pos.x != pole1.pos.x)
-				offset.y = percent * (cell->points[(i+1)%2].y - cell->points[i].y);
-			else 
-				offset.x = percent * (cell->points[(i+1)%2].x - cell->points[i].x);
-
-			pole0.pos += offset;
-			pole1.pos += offset;
-
-			testEp[i] = calcWalkEdgePoint(&pole0, &pole1, meshes, zRange);
-
-			// dxDrawLine(pole0->pos, pole0->pos+vec3(0,0,0.2f), vec4(1,1,0,1));
-			// dxDrawLine(pole1->pos, pole1->pos+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-
-			// dxDrawLine(testEp[0], testEp[0]+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-			// dxDrawLine(testEp[1], testEp[1]+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-
-			// dxDrawLine(pole0->pos + offset, pole0->pos + offset+vec3(0,0,0.2f), vec4(1,0.0f,0,1));
-			// dxDrawLine(pole1->pos + offset, pole1->pos + offset+vec3(0,0,0.2f), vec4(1,0.5f,0,1));
-		}
-
-		Vec3 dir0 = norm(testEp[0] - cell->points[0]);
-		Vec3 dir1 = norm(testEp[1] - cell->points[1]);
-
-		Vec3 thirdPoint = lineClosestPoint(cell->points[0], dir0, cell->points[1], dir1);
-
-		// Something went wrong.
-		if(!pointInRect(thirdPoint.xy, cellRect)) {
-			thirdPoint = (cell->points[0] + cell->points[1])/2.0f;
-		}
-
-		cell->points[cell->pointCount++] = thirdPoint;
-	}
-
-	#endif
-}
-
-void WalkManifold::addWalkEdgePointBlocker(WalkCell* cell, Vec3 edgePoint, int blockerIndex, bool pushSecond) {
-
-	if(!cell->blockerPoints) {
-		cell->blockerPoints = getTArray(WalkCell::BlockerPointList, 10);
-		cell->blockerPointCount = 0;
-	}
-
-	WalkCell::BlockerPointList* list = 0;
-	for(int i = 0; i < cell->blockerPointCount; i++) {
-		if(cell->blockerPoints[i].blockerIndex == blockerIndex) {
-			list = &cell->blockerPoints[i];
-			break;
-		}
-	}
-
-	if(!list) {
-		list = &cell->blockerPoints[cell->blockerPointCount++];
-		list->pointCount = 0;
-		list->blockerIndex = blockerIndex;
-	}
-
-	list->points[list->pointCount++] = edgePoint;
-
-	if(list->pointCount == 2) {
-		if(!cell->lines) cell->lines = getTArray(Line3, 10);
-
-		// Make sure to push lines in clockwise order from blocker perspective.
-		Line3 line;
-		if(!pushSecond) line = { list->points[0], list->points[1] };
-		else            line = { list->points[1], list->points[0] };
-
-		cell->lines[cell->lineCount++] = line;
-	}
-
-	if(list->pointCount > 2) {
-		__debugbreak();
-		return;
-	}
 }
 
 int WalkManifold::lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, Line3 lastLine, Vec2* cp) {
@@ -1905,6 +1621,7 @@ int WalkManifold::lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, L
 		Line3 line = lines[i];
 
 		if(lastLine.a == line.a && lastLine.b == line.b) continue;
+		if(dot(rotateRight(line.b.xy - line.a.xy), p1-p0) > 0) continue;
 
 		Vec2 cp; // Shadowed.
 		if(lineIntersection(p0, p1, line.a.xy, line.b.xy, &cp)) {
@@ -1921,6 +1638,3 @@ int WalkManifold::lineCollision(Vec2 p0, Vec2 p1, Line3* lines, int lineCount, L
 
 	return lineIndex;
 }
-
-
-#endif

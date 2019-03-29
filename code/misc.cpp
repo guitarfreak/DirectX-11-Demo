@@ -33,6 +33,10 @@
 
 #define aIndex(w, x, y) ((y)*(w) + (x))
 #define aIndex3D(w, h, x, y, z) ((z)*(h)*(w) + (y)*(w) + (x))
+void aCoord(int w, int i, int* x, int* y) {
+	*x = i % w;
+	*y = i / w;
+};
 
 #define writeTypeAndAdvance(buf, val, type) \
 		(*(type*)buf) = val; buf += sizeof(type); 

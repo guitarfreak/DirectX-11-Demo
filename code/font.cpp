@@ -36,6 +36,7 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x20, 0x7F);
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0xA1, 0xFF);
 	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x25BA, 0x25C4);
+	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x258C, 0x258C); // ▌
 	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x2192, 0x2192); // →
 
 	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x48, 0x49);
@@ -151,7 +152,6 @@ void freeFont(Font* font) {
 }
 
 Font* getFont(char* fontFile, float heightIndex, char* boldFontFile = 0, char* italicFontFile = 0) {
-
 	GraphicsState* gs = theGState;
 
 	int fontCount = arrayCount(gs->fonts);

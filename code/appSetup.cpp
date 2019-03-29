@@ -5,8 +5,10 @@ void handleReload(SystemData* sd, WindowSettings* ws) {
 	SetWindowLongPtr(sd->windowHandle, GWLP_WNDPROC, (LONG_PTR)mainWindowCallBack);
 	SetWindowLongPtr(sd->windowHandle, GWLP_USERDATA, (LONG_PTR)sd);
 
+	#if USE_FIBERS
 	DeleteFiber(sd->messageFiber);
 	sd->messageFiber = CreateFiber(0, (PFIBER_START_ROUTINE)updateInput, sd);
+	#endif
 
 	theGState->screenRes = ws->currentRes;
 	theGState->screenRect = getScreenRect(ws);
@@ -21,9 +23,13 @@ void handleReload(SystemData* sd, WindowSettings* ws) {
 			Font* font = &theGState->fonts[i][j];
 			if(font->heightIndex != 0) {
 				freeFont(font);
+				getFont(font->file, font->heightIndex, font->boldFont ? font->boldFont->file : 0, font->italicFont ? font->italicFont->file : 0);
+
 			} else break;
 		}
 	}
+
+
 }
 
 void updateTimers(DebugState* ds, GraphicsState* gs, int refreshRate, double* dt, double* time, int* frameCount, bool init) {
@@ -56,7 +62,12 @@ void handleInput(DebugState* ds, Input* input, void* messageFiber, SystemData* s
 	TIMER_BLOCK();
 
 	inputPrepare(ds->input);
+
+	#if USE_FIBERS
 	SwitchToFiber(messageFiber);
+	#else
+	updateInput(sd);
+	#endif
 
 	// Beware, changes to ad->input have no effect on the next frame, 
 	// because we override it every time.
@@ -151,8 +162,11 @@ void handleMouseCapturing(Input* input, MouseEvents* events, bool mouseOverPanel
 	}
 
 	if(input->keysPressed[KEYCODE_F3]) {
-		events->debugMouse = !events->debugMouse;
+		events->debugMouseFixed = !events->debugMouseFixed;
+		if(!events->debugMouseFixed) events->debugMouse = true;
 	}
+
+	if(events->debugMouseFixed) events->debugMouse = false;
 
 	bool showMouse = events->debugMouse;
 

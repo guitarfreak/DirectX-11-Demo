@@ -98,6 +98,7 @@ rem /Qvec-report:1
 rem /showIncludes
 set COMPILER_OPTIONS= %RUNTIME% %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7 
 set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
+rem set LINKER_OPTIONS= -link -SUBSYSTEM:CONSOLE -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
 
 rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -E
 rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -showIncludes

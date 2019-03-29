@@ -2,6 +2,7 @@
 Meta_Parse_Struct(0);
 struct MouseEvents {
 	bool debugMouse;
+	bool debugMouseFixed;
 	bool captureMouseKeepCenter;
 	bool captureMouse;
 	bool fpsMode;
@@ -11,7 +12,6 @@ struct MouseEvents {
 
 Meta_Parse_Struct(0);
 struct AppData {
-	
 	// General.
 
 	SystemData systemData;
@@ -48,9 +48,9 @@ struct AppData {
 	MainMenu menu;
 
 	bool levelEdit;
-	// bool freeCam, pause, leveledit
+	bool freeCam;
 
-	bool playerMode;
+	float playerHeight;
 
 	bool loading;
 	bool newGame;
@@ -83,7 +83,32 @@ struct AppData {
 	float footstepSoundValue;
 	int lastFootstepSoundId;
 
+	WalkManifold manifold; // @Ignore
+	int manifoldGridRadius;
+	Vec2 playerMoveDir;
+	WalkLayer* currentWalkLayer; // @Ignore
+
 	//
 
 	Mat4 viewProjLight;
 };
+
+struct AppSessionSettings {
+	Rect windowRect;
+	Vec3 camPos;
+	Vec2 camRot;
+};
+
+void appWriteSessionSettings(char* filePath, AppSessionSettings* at) {
+	writeDataToFile((char*)at, sizeof(AppSessionSettings), filePath);
+}
+
+void appReadSessionSettings(char* filePath, AppSessionSettings* at) {
+	readDataFromFile((char*)at, filePath);
+}
+
+void saveAppSettings(AppSessionSettings at) {
+	if(fileExists(App_Session_File)) {
+		appWriteSessionSettings(App_Session_File, &at);
+	}
+}

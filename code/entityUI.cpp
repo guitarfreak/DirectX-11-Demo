@@ -270,16 +270,27 @@ int insertObjects(EntityManager* em, EntityUI* eui, bool keepPosition = true) {
 	if(hasGroups) {
 		cs = &eui->objectTempArray;
 		cs->clear();
+		int groupCount = 0;
+		for(auto& e : *copies) {
+			if(e.type == ET_Group) {
+				cs->push(e);
+				groupCount++;
+			}
+		}
+		for(auto& e : *copies) if(e.type != ET_Group) cs->push(e);
 		cs->copy(copies);
 
-		for(int i = 0; i < cs->count; i++) {
+		DArray<int> nextIds = getNextEntityIds(em, groupCount);
+
+		for(int i = 0; i < groupCount; i++) {
 			Entity* group = cs->data + i;
-			if(group->type != ET_Group) continue;
+
+			assert(group->type == ET_Group);
 
 			DArray<Entity*>* members = getGroupMembers(em, group->id);
 			if(!members) continue;
 
-			int newGroupId = em->entities.count + i+1;
+			int newGroupId = nextIds[i];
 			for(int mi = 0; mi < members->count; mi++) {
 				cs->push(members->at(mi));
 				Entity* p = cs->data + cs->count-1;
@@ -340,7 +351,7 @@ void pushSelectedObjectsPreMod(EntityManager* em, EntityUI* eui) {
 	}
 }
 
-void updateEntityUI(DebugState* ds, EntityManager* em) {
+void updateEntityUI(DebugState* ds, EntityManager* em, bool levelEdit) {
 	Input* input = ds->input;
 	Gui* gui = &ds->gui;
 	EntityUI* eui = &ds->entityUI;
@@ -420,13 +431,21 @@ void updateEntityUI(DebugState* ds, EntityManager* em) {
 			Mesh* mesh = dxGetMesh(e->mesh);
 			if(!mesh) continue;
 
-			XForm xf = e->xf;
 			if(e->type == ET_ParticleEffect && !ds->drawParticleHandles) continue;
 			if(e->type == ET_Group && !ds->drawGroupHandles) continue;
 
-			if(e->type == ET_ParticleEffect || e->type == ET_Group) xf.scale = vec3(1);
+			XForm xf = e->xf;
+			Entity eTemp;
+			if(e->type == ET_ParticleEffect || e->type == ET_Group) {
+				eTemp = *e;
+				eTemp.xf.scale = vec3(1);
+				eTemp.modelInv = modelMatrixInv(eTemp.xf);
+				eTemp.aabb = transformBoundingBox(dxGetMesh(eTemp.mesh)->aabb, modelMatrix(eTemp.xf));
 
-			float dist = raycastMesh(cam->pos, rayDir, mesh, xf);
+				e = &eTemp;
+			}
+
+			float dist = raycastEntity(cam->pos, rayDir, e, mesh);
 			if(dist != -1) {
 				if(dist < shortestDistance) {
 					shortestDistance = dist;
@@ -439,7 +458,7 @@ void updateEntityUI(DebugState* ds, EntityManager* em) {
 			if(eui->multipleSelectionMode) {
 				if(isObjectSelected(eui, objectIndex)) {
 					// Deselect.
-					int i = eui->selectedObjects.find(objectIndex)-1;
+					int i = eui->selectedObjects.findI(objectIndex);
 					eui->selectedObjects.remove(i);
 				} else {
 					// Select.
@@ -735,6 +754,7 @@ void updateEntityUI(DebugState* ds, EntityManager* em) {
 				}
 			}
 
+			#if 0
 			if(eui->snappingEnabled) {
 				// We always snap every axis to keep it simple.
 				for(int i = 0; i < 3; i++) {
@@ -748,6 +768,7 @@ void updateEntityUI(DebugState* ds, EntityManager* em) {
 					pos += eui->axes[i]*lengthDiff;
 				}
 			}
+			#endif
 
 			for(int i = 0; i < eui->selectedObjects.count; i++) {
 				Entity* obj = getEntity(em, eui->selectedObjects[i]);
@@ -926,7 +947,7 @@ void updateEntityUI(DebugState* ds, EntityManager* em) {
 	
 }
 
-void drawEntityUI(DebugState* ds, EntityManager* em, Vec2 mousePos, WindowSettings* ws, bool playerMode) {
+void drawEntityUI(DebugState* ds, EntityManager* em, Vec2 mousePos, WindowSettings* ws, bool freeCam, bool levelEdit) {
 	TIMER_BLOCK();
 
 	EntityUI* eui = &ds->entityUI;
@@ -945,22 +966,11 @@ void drawEntityUI(DebugState* ds, EntityManager* em, Vec2 mousePos, WindowSettin
 			dxPushShaderConstants(Shader_Main);
 		};
 
-		dxFillWireFrame(true);
-		defer { dxFillWireFrame(false); };
-
-		D3D11_RASTERIZER_DESC oldRasterizerState = gs->rasterizerState;
-		{
-			gs->rasterizerState.DepthBias = -1000;
-			gs->rasterizerState.DepthBiasClamp = 0;
-			gs->rasterizerState.SlopeScaledDepthBias = 0;
-		}
-		dxSetRasterizer(); 
-		defer{
-			gs->rasterizerState = oldRasterizerState;
-			dxSetRasterizer(); 
-		};
+		dxFillWireFrame(true); defer { dxFillWireFrame(false); };
+		dxDepthBias(-1000); defer { dxDepthBias(); };
 
 		Vec4 color = vec4(1,1,1,1);
+		// Vec4 cBlocker = vec4(1,1,0,1);
 
 		// Color fading animation on selection.
 		{
@@ -979,21 +989,28 @@ void drawEntityUI(DebugState* ds, EntityManager* em, Vec2 mousePos, WindowSettin
 			color = vec4(gammaToLinear(ce), 1);
 		}
 
-		for(int i = 0; i < eui->selectedObjects.count; i++) {
-			Entity* e = getEntity(em, eui->selectedObjects[i]);
+		if(ds->drawSelection) {
+			for(int i = 0; i < eui->selectedObjects.count; i++) {
+				Entity* e = getEntity(em, eui->selectedObjects[i]);
 
-			if(e->type == ET_Player && playerMode) continue;
+				if(e->type == ET_Player && !freeCam) continue;
 
-			XForm xf = e->xf;
-			if(e->type == ET_ParticleEffect ||
-			   e->type == ET_Group) {
-				if(e->type == ET_ParticleEffect && !ds->drawParticleHandles) continue;
-				if(e->type == ET_Group && !ds->drawGroupHandles) continue;
+				XForm xf = e->xf;
+				if(e->type == ET_ParticleEffect ||
+				   e->type == ET_Group) {
+					if(e->type == ET_ParticleEffect && !ds->drawParticleHandles) continue;
+					if(e->type == ET_Group && !ds->drawGroupHandles) continue;
 
-				xf.scale = vec3(1);
+					xf.scale = vec3(1);
+				}
+
+				// Hack, fix the default figure mesh.
+				if(levelEdit && entityCheck(e, ET_Object, "figure")) {
+					xf.rot = xf.rot * quatDeg(90, vec3(1,0,0));
+				}
+
+				dxDrawObject(xf, color, e->mesh, "Empty\\material.mtl", false);
 			}
-
-			dxDrawObject(xf, color, e->mesh, "Empty\\material.mtl", false);
 		}
 
 		dxCullState(true);

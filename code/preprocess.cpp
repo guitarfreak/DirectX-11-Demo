@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 // #include <windows.h>
+#include "external\win32\atomic.h"
 #include "external\win32\fiber.h"
 #include "external\win32\file.h"
 #include "external\win32\io.h"

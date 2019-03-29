@@ -144,14 +144,24 @@ struct XForm {
 	Vec3 scale; // @V0
 };
 
-struct Line2 {
-	Vec2 a;
-	Vec2 b;
+Meta_Parse_Struct(0);
+union Line2 {
+	struct {
+		Vec2 a;
+		Vec2 b;
+	};
+
+	Vec2 e[2]; // @Ignore
 };
 
+Meta_Parse_Struct(0);
 struct Line3 {
-	Vec3 a;
-	Vec3 b;
+	struct {
+		Vec3 a;
+		Vec3 b;
+	};
+
+	Vec3 e[2]; // @Ignore
 };
 
 Meta_Parse_Struct(0);
@@ -465,7 +475,7 @@ inline Vec2 lineNormal(Vec2 p1, Vec2 p2) {
 	return normal;
 }
 
-inline bool getLineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
+inline bool getLineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2* i) {
 	Vec2 s1 = p1 - p0;
 	Vec2 s2 = p3 - p2;
 
@@ -482,6 +492,18 @@ inline bool getLineIntersection(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 * i) {
 	}
 
 	return false;
+}
+
+inline bool getLineIntersectionInf(Vec2 p0, Vec2 d0, Vec2 p1, Vec2 d1, Vec2* i) {
+	float s, t;
+	float div = (-d1.x * d0.y + d0.x * d1.y);
+	if(!div) return false;
+
+	s = (-d0.y * (p0.x - p1.x) + d0.x * (p0.y - p1.y)) / div;
+	t = ( d1.x * (p0.y - p1.y) - d1.y * (p0.x - p1.x)) / div;
+
+	*i = p0 + t*d0;
+	return true;
 }
 
 float distancePointLineX(Vec2 v1, Vec2 v2, Vec2 point, bool infinite = false) {
@@ -507,19 +529,22 @@ float distancePointLineX(Vec2 v1, Vec2 v2, Vec2 point, bool infinite = false) {
 }
 
 
-Vec2 lineClosestPoint(Vec2 v1, Vec2 v2, Vec2 point) {
-	Vec2 result = {};
+Vec2 lineClosestPoint(Vec2 v1, Vec2 v2, Vec2 point, bool segment = true) {
+	Vec2 result;
 
 	Vec2 dir = v2 - v1;
-	if (dir == vec2(0,0)) {
-		result = v1;
-	} else {
+	if (dir.x == 0.0f && dir.y == 0.0f) result = v1;
+	else {
 		float t = ((point.x - v1.x) * dir.x + (point.y - v1.y) * dir.y) / 
 		          (dir.x * dir.x + dir.y * dir.y);
 
-		if      (t < 0) result = v1;
-		else if (t > 1) result = v2;
-		else result = v1 + t*dir;
+		if(segment) {
+			if      (t < 0) result = v1;
+			else if (t > 1) result = v2;
+			else result = v1 + t*dir;
+		} else {
+			result = v1 + t*dir;
+		}
 	}
 
 	return result;
@@ -533,7 +558,6 @@ float distancePointLine(Vec2 v1, Vec2 v2, Vec2 point) {
 }
 
 Vec2 projectPointOnLine(Vec2 p, Vec2 lp0, Vec2 lp1, bool clampDist = false) {
-
 	Vec2 ld = norm(lp1 - lp0);
 	float dist = (dot(p-lp0, ld) / dot(ld, ld));
 
@@ -618,14 +642,18 @@ inline bool lineCircleIntersection(Vec2 lp0, Vec2 lp1, Vec2 cp, float r, Vec2 * 
 	return false;
 }
 
-float floatPrecisionOffset(Vec2 a, Vec2 b, float scale, float min) {
-	float maxVal = max(max(a.x, a.y), max(b.x, b.y));
+float floatPrecisionOffset(float f, float scale, float min) {
+	float maxVal = f;
 	float next = nextafter(maxVal, FLT_MAX);
 	
 	float offset = (next - maxVal)*scale;
 	offset = max(offset, min);
 
 	return offset;
+}
+
+float floatPrecisionOffset(Vec2 a, Vec2 b, float scale, float min) {
+	return floatPrecisionOffset(max(max(a.x, a.y), max(b.x, b.y)), scale, min);
 }
 
 //
@@ -723,33 +751,22 @@ inline Vec2 calculateVelocity(Vec2 oldVelocity, Vec2 acceleration, float time) {
 	return oldVelocity;
 }
 
-inline Vec2 perpToPoint(Vec2 dir, Vec2 dirPoint) {
-	Vec3 ab = {dir.x, dir.y, 0};
-	Vec3 ap = {dirPoint.x, dirPoint.y, 0};
+inline Vec2 perpToPoint(Vec2 ab, Vec2 ac) {
+	// Vec3 ab = { dir.x, dir.y, 0 };
+	// Vec3 ap = { dirPoint.x, dirPoint.y, 0 };
 
-	Vec3 abxap = {	ab.y*ap.z - ab.z*ap.y,
-					ab.z*ap.x - ab.x*ap.z,
-					ab.x*ap.y - ab.y*ap.x };
+	// Vec3 abxap = {	ab.y*ap.z - ab.z*ap.y,
+	//                ab.z*ap.x - ab.x*ap.z,
+	//                ab.x*ap.y - ab.y*ap.x };
 
-	Vec3 xab = {	abxap.y*ab.z - abxap.z*ab.y,
-					abxap.z*ab.x - abxap.x*ab.z,
-					abxap.x*ab.y - abxap.y*ab.x };
+	// Vec3 xab = { abxap.y*ab.z - abxap.z*ab.y,
+	// 				 abxap.z*ab.x - abxap.x*ab.z,
+	// 				 abxap.x*ab.y - abxap.y*ab.x };
 
-	Vec2 result = xab.xy;
+	float abxac = ac.x*ab.y - ac.y*ab.x;              
+	Vec2 xab = { -abxac*ab.y, abxac*ab.x };
 
-	return result;
-}
-
-inline Vec2 perpToPoint(Vec2 a, Vec2 b, Vec2 p) {
-	Vec2 ab = {	b.x - a.x,
-				b.y - a.y, };
-
-	Vec2 ap = {	p.x - a.x,
-				p.y - a.y, };
-
-	Vec2 result = perpToPoint(ab, ap);
-
-	return result;
+	return xab;
 }
 
 inline bool vecBetweenVecs(Vec2 v, Vec2 left, Vec2 right) {
@@ -1104,7 +1121,6 @@ float lineBoxIntersection(Vec3 lp, Vec3 ld, Vec3 boxPos, Vec3 boxDim, Vec3* inte
 }
 
 Vec3 projectPointOnPlane(Vec3 p, Vec3 planePos, Vec3 planeNormal) {
-
 	p = p - planePos;
 	p = p - planeNormal * dot(planeNormal, p);
 	p = p + planePos;
@@ -1125,7 +1141,7 @@ Vec3 barycentricCoordinates(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
     float w = (d00 * d21 - d01 * d20) / denom;
     float u = 1.0f - v - w;
 
-    return {v, w, u};
+    return {u, v, w};
 }
 
 // https://gamedev.stackexchange.com/questions/23743/whats-the-most-efficient-way-to-find-barycentric-coordinates
@@ -1141,7 +1157,7 @@ Vec3 barycentricCoordinates(Vec2 p, Vec2 a, Vec2 b, Vec2 c) {
     float w = (d00 * d21 - d01 * d20) / denom;
     float u = 1.0f - v - w;
 
-    return {v, w, u};
+    return {u, v, w};
 }
 
 // https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
@@ -1767,12 +1783,33 @@ Mat4 modelMatrix(Vec3 trans, Vec3 scale, Quat rot) {
 }
 
 Mat4 modelMatrix(XForm xf) {
-	Mat4 tm = translationMatrix(xf.trans);
-	Mat4 rm = rotationMatrix(xf.rot);
-	Mat4 sm = scaleMatrix(xf.scale);
-	Mat4 model = tm*rm*sm;
+	return modelMatrix(xf.trans, xf.scale, xf.rot);
+}
+
+Mat4 modelMatrixInv(Vec3 trans, Vec3 scale, Quat rot) {
+	Mat4 tm = translationMatrix(-trans);
+	Mat4 rm = rotationMatrix(inverse(rot));
+	Mat4 sm = scaleMatrix(1.0f/scale);
+	Mat4 model = sm*rm*tm;
 
 	return model;
+}
+
+Mat4 modelMatrixInv(XForm xf) {
+	return modelMatrixInv(xf.trans, xf.scale, xf.rot);
+}
+
+Mat4 modelMatrixReverse(Vec3 trans, Vec3 scale, Quat rot) {
+	Mat4 tm = translationMatrix(trans);
+	Mat4 rm = rotationMatrix(rot);
+	Mat4 sm = scaleMatrix(scale);
+	Mat4 model = sm*rm*tm;
+
+	return model;
+}
+
+Mat4 modelMatrixReverse(XForm xf) {
+	return modelMatrixReverse(xf.trans, xf.scale, xf.rot);
 }
 
 Vec3 rotate(Vec3 v, float a, Vec3 axis) {
@@ -1833,19 +1870,22 @@ void quatToEulerAngles(Quat q, float* pitch, float* roll, float* yaw) {
 	// roll (x-axis rotation)
 	float sinr = +2.0 * (q.w * q.x + q.y * q.z);
 	float cosr = +1.0 - 2.0 * (q.x * q.x + q.y * q.y);
-	*roll = atan2(sinr, cosr);
+	if(roll) *roll = atan2(sinr, cosr);
 
 	// pitch (y-axis rotation)
 	float sinp = +2.0 * (q.w * q.y - q.z * q.x);
-	if (fabs(sinp) >= 1)
-		*pitch = copysign((float)M_PI / 2.0f, sinp); // use 90 degrees if out of range
-	else
-		*pitch = asin(sinp);
+	if (fabs(sinp) >= 1) {
+		if(pitch) *pitch = copysign((float)M_PI / 2.0f, sinp); // use 90 degrees if out of range
+	} else {
+		if(pitch) *pitch = asin(sinp);
+	}
 
-	// yaw (z-axis rotation)
-	float siny = +2.0 * (q.w * q.z + q.x * q.y);
-	float cosy = +1.0 - 2.0 * (q.y * q.y + q.z * q.z);  
-	*yaw = atan2(siny, cosy);
+	if(yaw) {
+		// yaw (z-axis rotation)
+		float siny = +2.0 * (q.w * q.z + q.x * q.y);
+		float cosy = +1.0 - 2.0 * (q.y * q.y + q.z * q.z);  
+		*yaw = atan2(siny, cosy);
+	}
 }
 
 Quat orientationToQuat(Vec3 orientation) {
@@ -1884,6 +1924,22 @@ inline Vec3 operator*(XForm xf, Vec3 v) {
 	return xf.trans + xf.rot * (xf.scale * v);
 }
 
+inline Vec3 mulInverse(XForm xf, Vec3 v) {
+	return (inverse(xf.rot) * (v - xf.trans)) / xf.scale;
+}
+
+inline Vec3 mulInverseNoTrans(XForm xf, Vec3 v) {
+	return (inverse(xf.rot) * v) / xf.scale;
+}
+
+inline Vec3 mulReverse(XForm xf, Vec3 v) {
+	return  xf.scale * (xf.rot * (v + xf.trans));
+}
+
+inline Vec3 mulReverseNoTrans(XForm xf, Vec3 v) {
+	return xf.scale * (xf.rot * v);
+}
+
 inline XForm operator*(XForm a, XForm b) {
 	XForm xf;
 
@@ -1905,7 +1961,13 @@ inline XForm inverse(XForm a) {
 	return inv;
 }
 
-// @Optimize.
+inline XForm inverseSplit(XForm a) {
+	a.trans = -a.trans;
+	a.rot = inverse(a.rot);
+	a.scale = 1.0f/a.scale;
+	return a;
+}
+
 inline Rect3 boundingBox(Mat4 mat) {
 	Rect3 bb = {vec3(FLT_MAX), vec3(-FLT_MAX)};
 
@@ -1965,6 +2027,19 @@ inline XForm aabbToObb(XForm xf, Quat rot) {
 	xf2.rot = xf2.rot * rot;
 
 	return xf2;
+}
+
+inline void transformInverse(Vec3 pos, Vec3 dir, XForm xfInv, Vec3& posTransformed, Vec3& dirTransformed) {
+	bool isRotated = !(xfInv.rot == quat());
+
+	pos = pos + xfInv.trans;
+	if(isRotated) pos = xfInv.rot * pos;
+	pos = pos * xfInv.scale;
+	posTransformed = pos;
+
+	if(isRotated) dir = xfInv.rot * dir;
+	dir = dir * xfInv.scale;
+	dirTransformed = dir;
 }
 
 //
@@ -2203,6 +2278,8 @@ inline Recti rectiRound(Rect r) {
 	return recti(roundIntf(r.left), roundIntf(r.bottom), 
 	             roundIntf(r.right), roundIntf(r.top));
 }
+inline Recti recti       (Vec2i min, Vec2i max) { return {min, max}; }
+inline Recti rectiCenDim (Vec2i a, Vec2i d)     { return {a.x-d.w/2, a.y - d.h/2, a.x + d.w/2, a.y + d.h/2}; };
 
 inline float Recti::w   () { return right - left; };
 inline float Recti::h   () { return top - bottom; };
@@ -2210,6 +2287,27 @@ inline float Recti::cx  () { return left + w()/2; };
 inline float Recti::cy  () { return bottom + h()/2; };
 inline Vec2i Recti::dim () { return max - min; };
 inline Vec2i Recti::c   () { return min + dim()/2; };
+
+inline bool rectIntersection(Recti r1, Recti r2) {
+	bool hasIntersection = !(r2.min.x > r1.max.x ||
+							       r2.max.x < r1.min.x ||
+							       r2.max.y < r1.min.y ||
+							       r2.min.y > r1.max.y);
+	return hasIntersection;
+}
+
+bool rectGetIntersection(Recti* intersectionRect, Recti r1, Recti r2) {
+	bool hasIntersection = rectIntersection(r1, r2);
+	if (hasIntersection) {
+		intersectionRect->min.x = max(r1.min.x, r2.min.x);
+		intersectionRect->max.x = min(r1.max.x, r2.max.x);
+		intersectionRect->max.y = min(r1.max.y, r2.max.y);
+		intersectionRect->min.y = max(r1.min.y, r2.min.y);
+	}
+	else *intersectionRect = recti(0,0,0,0);
+	
+	return hasIntersection;
+};
 
 //
 // @Rect3
@@ -2224,6 +2322,7 @@ inline Vec3  Rect3::dim  () { return max - min; };
 inline Vec3  Rect3::c    () { return min + dim()/2; };
 
 inline XForm Rect3::xf   () { return xForm(c(), dim()); }
+inline bool operator==(Rect3 a, Rect3 b) { return a.min == b.min && a.max == b.max; };
 
 //
 // @Rect3i

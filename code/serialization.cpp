@@ -167,6 +167,20 @@ SData createSMember(MemberInfo* mInfo, int arrayLevel = 0) {
 	}
 };
 
+void sDataCopy(SData* sdDst, SData* sdSrc) {
+	if(sdDst->type != sdSrc->type) return;
+	if(!strCompare(sdDst->name, sdSrc->name)) return;
+
+	if(sdDst->type == SData_ATOM) {
+		memcpy(sdDst->aData, sdSrc->aData, getStructInfo(sdDst->type)->size);
+
+	} else if(sdDst->type == SData_STRUCT) {
+		for(int i = 0; i < sdSrc->members.count; i++) {
+			sDataCopy(sdDst->members.data + i, sdSrc->members.data + i);
+		}
+	}
+}
+
 void specificVersionConversion(SData* sData, int version);
 void versionConversion(SData* sData, int arrayLevel = 0) {
 	if(sData->type == SData_ATOM) return;

@@ -4,10 +4,10 @@
 #define APP_NAME STRINGIFY_MACRO(A_NAME)
 
 #define SHADER_DEBUG 0
-#define HOTRELOAD_SHADERS 1
+#define HOTRELOAD_SHADERS 0
 #define WINDOW_TOPMOST_DEBUG 1
 
-//
+#define USE_FIBERS 1
 
 #define Editor_Executable_Path "C:\\Program Files\\Sublime Text 3\\sublime_text.exe"
 #define Windows_Font_Folder "\\Fonts\\"
@@ -33,25 +33,3 @@
 #define App_Map_Folder      DATA_FOLDER("Maps\\")
 
 #define Map_File_Extension  ".map"
-
-//
-
-struct AppSessionSettings {
-	Rect windowRect;
-	Vec3 camPos;
-	Vec2 camRot;
-};
-
-void appWriteSessionSettings(char* filePath, AppSessionSettings* at) {
-	writeDataToFile((char*)at, sizeof(AppSessionSettings), filePath);
-}
-
-void appReadSessionSettings(char* filePath, AppSessionSettings* at) {
-	readDataFromFile((char*)at, filePath);
-}
-
-void saveAppSettings(AppSessionSettings at) {
-	if(fileExists(App_Session_File)) {
-		appWriteSessionSettings(App_Session_File, &at);
-	}
-}

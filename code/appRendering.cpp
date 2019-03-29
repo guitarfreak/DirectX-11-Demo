@@ -200,20 +200,22 @@ void setupGraphics(GraphicsState* gs, GraphicsSettings gSettings, Camera activeC
 	dxViewPort(gs->screenRes);
 	dxBindFrameBuffer("3dMsaa", "ds3d");
 
+	gs->d3ddc->PSSetSamplers(1, 1, &gs->samplerCmp);
+
 	{
+		GraphicsSettings* gSettings = gs->gSettings;
+			
 		GraphicsMatrices* gMats = &gs->gMats;
 		Rect sr = getScreenRect(gs->screenRes);
 		gMats->view2d = identityMatrix();
 		gMats->ortho  = orthoMatrixZ01(0, sr.bottom, sr.right, 0, 10, -10);
 
-		gMats->view = viewMatrix(activeCam.pos, -activeCam.look, activeCam.up, activeCam.right);
-		gMats->proj = projMatrixZ01(degreeToRadian(gSettings.fieldOfView), gSettings.aspectRatio, gSettings.nearPlane, gSettings.farPlane);
+		gMats->view = viewMatrix(gs->activeCam.pos, -gs->activeCam.look, gs->activeCam.up, gs->activeCam.right);
+		gMats->proj = projMatrixZ01(degreeToRadian(gSettings->fieldOfView), gSettings->aspectRatio, gSettings->nearPlane, gSettings->farPlane);
 
-		gMats->viewInv = viewMatrixInv(activeCam.pos, -activeCam.look, activeCam.up, activeCam.right);
+		gMats->viewInv = viewMatrixInv(gs->activeCam.pos, -gs->activeCam.look, gs->activeCam.up, gs->activeCam.right);
 		gMats->projInv = projMatrixZ01Inv(gMats->proj);
 	}
-
-	gs->d3ddc->PSSetSamplers(1, 1, &gs->samplerCmp);
 }
 
 void setupShaders(GraphicsSettings gSettings, Camera activeCam, bool init, bool reload) {
@@ -391,7 +393,7 @@ void resolveFrameBuffersAndSwap(DebugState* ds, GraphicsState* gs, Vec2i current
 
 //
 
-void renderSky(bool* redrawSkyBox, SkySettings* skySettings, Vec2 cameraRot, bool reload) {
+void renderSky(bool* redrawSkyBox, SkySettings* skySettings, bool reload) {
 	TIMER_BLOCK();
 
 	GraphicsState* gs = theGState;
@@ -503,7 +505,7 @@ void renderSky(bool* redrawSkyBox, SkySettings* skySettings, Vec2 cameraRot, boo
 		gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
 
 		{
-			Camera skyBoxCam = getCamData(vec3(0,0,0), cameraRot, vec3(0,0,0), vec3(0,1,0), vec3(0,0,1));
+			Camera skyBoxCam = getCamData(vec3(0,0,0), theGState->activeCam.rot, vec3(0,0,0), vec3(0,1,0), vec3(0,0,1));
 
 			Mat4 view = viewMatrix(skyBoxCam.pos, -skyBoxCam.look, skyBoxCam.up, skyBoxCam.right);
 			Mat4 proj = projMatrix(degreeToRadian(gs->gSettings->fieldOfView), gs->gSettings->aspectRatio, 0.0f, 2);
@@ -702,11 +704,14 @@ void drawParticles(EntityManager* em, Mat4 viewProjLight) {
 
 			if(e->type == ET_ParticleEffect) {
 				e->particleEmitter.draw(e->xf, cam);
-			} else {
+
+			} else if(e->type == ET_Group) {
 				DArray<Entity*>* list = getGroupMembers(em, e->id);
 				if(list) {
 					for(int i = 0; i < list->count; i++) {
 						Entity* e = list->data[i];
+						if(e->type != ET_ParticleEffect) continue;
+						
 						e->particleEmitter.draw(e->xf, cam);
 					}
 				}

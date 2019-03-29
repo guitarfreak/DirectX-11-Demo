@@ -3,7 +3,7 @@ struct MemoryArray {
 	bool initialized;
 
 	char* data;
-	int index;
+	unsigned int index;
 	int size;
 };
 

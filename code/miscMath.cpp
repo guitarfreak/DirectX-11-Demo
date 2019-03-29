@@ -467,6 +467,8 @@ void combinePolygon(Vec2* p0, int count0, Vec2* p1, int count1) {
 //
 
 Vec2i* arrayDivideRanges(int size, int count) {
+	if(!count) return 0;
+
 	Vec2i* ranges = getTArray(Vec2i, count);
 
 	int index = 0;

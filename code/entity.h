@@ -12,7 +12,7 @@ enum Entity_Type {
 	ET_Size, // @Size
 };
 
-Meta_Parse_Struct(0);
+Meta_Parse_Struct(3);
 struct Entity {
 	int type; // @V0 @Enum(Entity_Type) @Hide
 	int id; // @V0 @Hide
@@ -29,14 +29,21 @@ struct Entity {
 	Vec3 meshoffset; // @V0
 	char* material; // @V0 @String
 	Vec4 color; // @V0 @Tag(Color)
+	bool noRender; // @V3
 
 	Vec3 vel; // @V0
 	Vec3 acc; // @V0
 
+	int blockerType; // @V2 @Enum(BlockerType)
+	XForm xfBlocker; // @V2
+
+	Rect3 aabb; // @Hide
+	Mat4 modelInv; // @Hide
+
 	bool deleted; // @V0
 
 	union {
-		Vec3 camOff; // @V0 @Union(type, ET_Player)
+		// Vec3 camOff; // @V0-0 @Union(type, ET_Player)
 		Vec2 camRot; // @V0 @Union(type, ET_Camera) @Tag(Range, 0, 6.2831, -6.2831, 6.2831)
 
 		SkySettings skySettings; // @V0 @Union(type, ET_Sky)

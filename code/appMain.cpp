@@ -1,8 +1,45 @@
 
 void gameLoad(AppData* ad) {
-	// loadMap(&ad->entityManager, "walkmanifoldtest");
-	// loadMap(&ad->entityManager, "level");
-	loadMap(&ad->entityManager, "showcase");
+	EntityManager* em = &ad->entityManager;
+
+	if(!em->currentMap) {
+		loadMap(em, "showcase");
+		// loadMap(em, "levelTest");
+
+	} else {
+		// loadMap(em, em->currentMap);
+	}
+
+	if(!ad->levelEdit) {
+		for(auto& e : em->entities) {
+			if(entityIsValid(&e) && e.type == ET_Player) {
+				Entity playerCam = getDefaultEntity(ET_Camera, vec3(0,0,0));
+				playerCam.name = getPString("PlayerCam");
+				playerCam.mountParentId = e.id;
+
+				Vec3 mountPos = vec3(0,0,ad->playerHeight);
+				playerCam.xfMount = xForm(mountPos, vec3(1.0f));
+
+				{
+					float angle0, angle1;
+					quatToEulerAngles(e.xf.rot, 0, &angle1, &angle0);
+					playerCam.camRot.x = angle0;
+					playerCam.camRot.y = -angle1;
+				}
+
+				addEntity(em, playerCam);
+			}
+		}
+	}
+
+	// Caught previous bug, leaving this for now.
+	for(int i = 0; i < em->entities.count-1; i++) {
+		for(int j = i+1; j < em->entities.count; j++) {
+			Entity* e0 = em->entities.data + i;
+			Entity* e1 = em->entities.data + j;
+			assert(e0->id != e1->id);
+		}
+	}
 
 	ad->newGameMode = GAME_MODE_MAIN;
 }
@@ -12,6 +49,7 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 
 	GraphicsState* gs = theGState;
 	Input* input = &ad->input;
+	EntityManager* em = &ad->entityManager;
 
 	// Open menu.
 	if(input->keysPressed[KEYCODE_ESCAPE]) {
@@ -20,50 +58,415 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 		ad->menu.activeId = 0;
 
 		renderMenuBackground();
-	}
+	} 
 
-	if(input->keysPressed[KEYCODE_F4]) {
-		ad->playerMode = !ad->playerMode;
-	}
-
-	{
-		EntityManager* em = &ad->entityManager;
-
-		for(int i = 0; i < em->entities.count; i++) {
-			Entity* e = em->entities.data + i;
-			if(!entityIsValid(e)) continue;
-
-			if(e->type == ET_Player) ad->player = e;
-			else if(e->type == ET_Camera) ad->camera = e;
-			else if(e->type == ET_Sky) ad->sky = e;
-
-			if(entityCheck(e, ET_Object, "figure")) ad->figure = e; 
+	if(input->keysPressed[KEYCODE_F1]) {
+		ad->levelEdit = !ad->levelEdit;
+		if(ad->levelEdit) {
+			loadMap(em, em->currentMap);
+			ad->freeCam = true;
+		} else {
+			ad->newGameMode = GAME_MODE_LOAD;
+			ad->freeCam = false;
+			return;
 		}
+	}
 
-		collectByType(em);
+	if(input->keysPressed[KEYCODE_F4] && !ad->levelEdit) {
+		ad->freeCam = !ad->freeCam;
+		if(ad->freeCam) {
+			Entity* cam = findEntity(&ad->entityManager, "Camera");
+			Entity* pCam = findEntity(&ad->entityManager, "PlayerCam");
+			cam->xf = pCam->xf;
+			cam->camRot = pCam->camRot;
+			cam->vel = vec3(0,0,0);
+			cam->acc = vec3(0,0,0);
+		}
 	}
 
 	// @Entities.
-	updateEntities(&ad->entityManager, input, ad->dt, ad->playerMode, ad->mouseEvents, ad->mouseSensitivity, &ds->entityUI);
+	{
+		{
+			for(int i = 0; i < em->entities.count; i++) {
+				Entity* e = em->entities.data + i;
+				if(!entityIsValid(e)) continue;
+
+				if(e->type == ET_Player) ad->player = e;
+				else if(e->type == ET_Camera && !strCompare(e->name, "PlayerCam")) ad->camera = e;
+				else if(e->type == ET_Sky) ad->sky = e;
+
+				if(entityCheck(e, ET_Object, "figure")) ad->figure = e; 
+			}
+
+			collectByType(em);
+		}
+
+		Entity* playerCam = findEntity(em, ET_Camera, "PlayerCam");
+
+		if(ad->freeCam) {
+			float dt = ds->dt;
+
+			Entity* e = ad->camera;
+		   if(ad->mouseEvents.fpsMode) entityMouseLook(e, input, ad->mouseSensitivity);
+
+		   e->acc = vec3(0,0,0);
+		   float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
+		   if(input->keysDown[KEYCODE_BACKSPACE]) speed = 0.1f;
+		   entityKeyboardAcceleration(e, input, e->camRot, speed, 2.0f, true);
+
+		   e->vel = e->vel + e->acc*dt;
+		   float friction = 0.01f;
+		   e->vel = e->vel * pow(friction,dt);
+
+		   if(e->acc == vec3(0,0,0) && 
+		      between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
+		   	e->vel = vec3(0.0f);
+		   }
+
+		   if(e->vel != vec3(0,0,0)) {
+		   	e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
+		   }
+		}
+
+		{
+			if(!ad->freeCam && ad->mouseEvents.fpsMode) entityMouseLook(playerCam, input, ad->mouseSensitivity, true);
+
+			updateEntities(em, input, ad->dt, ad->freeCam, ad->mouseEvents, ad->mouseSensitivity, &ds->entityUI, playerCam, ad->levelEdit);
+
+			{
+				DArray<WalkMesh> walkMeshes = dArray<WalkMesh>(getTMemory);
+				for(auto& e : ad->entityManager.entities) {
+					if(!strCompare(e.name, "walkmesh")) continue;
+					walkMeshes.push({ e.xf, inverseSplit(e.xf), e.aabb });
+				}
+
+				DArray<Blocker> sceneBlockers = dArray<Blocker>(getTMemory);
+				for(auto& e : ad->entityManager.entities) {
+					if(e.blockerType) {
+						Blocker b;
+						switch(e.blockerType) {
+							case BLOCKERTYPE_RECT:   b = {BLOCKERTYPE_RECT, e.xf * e.xfBlocker}; break;
+							case BLOCKERTYPE_CIRCLE: b = {BLOCKERTYPE_CIRCLE, e.xf * e.xfBlocker}; break;
+							case BLOCKERTYPE_LINE: {
+								b = {BLOCKERTYPE_LINE};
+								XForm xf = e.xf * e.xfBlocker;
+								b.linePoints[0] = xf * vec3(-0.5f);
+								b.linePoints[1] = xf * vec3( 0.5f);
+							} break;
+						}
+
+						sceneBlockers.push(b);
+					}
+				}
+
+				WalkManifold& wm = ad->manifold;
+
+				if(!ad->freeCam)
+				{
+					Entity* player = ad->player;
+					Vec2 dir = entityKeyboardControl(player, input, playerCam->camRot);
+					float speed = 2.0f * ad->dt;
+					if(input->keysDown[KEYCODE_SHIFT]) speed *= 3;
+					if(input->keysDown[KEYCODE_CTRL]) speed *= 0.2f;
+					if(input->keysDown[KEYCODE_T]) speed *= 6;
+
+					Vec3 playerPos = player->xf.trans;
+					Vec2 newPos = playerPos.xy + dir * speed;
+					
+					ad->playerMoveDir	= newPos - playerPos.xy;
+					{
+						int gridRadius = ad->manifoldGridRadius;
+						float dist = (dir != vec2(0,0)) ? speed : 0;
+						if(!ds->showUI || !ds->drawManifold) {
+							gridRadius = ceil((dist / wm.settings.cellSize) + 2);
+						}
+
+						wm.setup(playerPos, gridRadius, walkMeshes.data, walkMeshes.count, sceneBlockers.data, sceneBlockers.count);
+						defer { wm.free(); };
+
+						wm.rasterize();
+
+						playerPos = wm.calcWalkCellPos(playerPos.xy, playerPos.z);
+						player->xf.trans.z = playerPos.z;
+
+						if(wm.outside(playerPos.xy, playerPos.z)) {
+							playerPos = wm.pushInside(playerPos.xy, playerPos.z);
+						}
+						Vec3 movedPos = wm.move(playerPos.xy, playerPos.z, newPos);
+						movedPos.z = wm.calcWalkCellZ(movedPos.xy, movedPos.z, wm.getCell(movedPos.xy));
+
+						playerPos = movedPos;
+
+						player->xf.trans = playerPos;
+					}
+					
+				} else {
+					wm.setup(ad->camera->xf.trans, ad->manifoldGridRadius, walkMeshes.data, walkMeshes.count, sceneBlockers.data, sceneBlockers.count);
+					defer { wm.free(); };
+
+					wm.rasterize();
+				}
+
+				Vec3 pos = ad->freeCam ? ad->camera->xf.trans : ad->player->xf.trans;
+				WalkCell* cell = wm.getCell(pos.xy);
+				ad->currentWalkLayer = wm.getWalkLayer(cell, pos.z);
+			}
+
+			{
+				TIMER_BLOCK_NAMED("ParticlesUpdate");
+
+				DArray<Entity*> particlesToUpdate = dArray<Entity*>(getTMemory);
+				for(auto it : em->byType[ET_ParticleEffect]) {
+					if(it->particleEmitter.markedForUpdate) {
+						it->particleEmitter.markedForUpdate = false;
+						particlesToUpdate.push(it);
+					}
+				}
+
+				struct ThreadData {
+					Entity** effects;
+					float dt;
+				};
+
+				auto threadFunc = [](void* data) {
+					ThreadHeader* h = (ThreadHeader*)data;
+					ThreadData* d = (ThreadData*)h->data;
+
+					for(int i = 0; i < h->count; i++) {
+						Entity* e = d->effects[i + h->index];
+						e->particleEmitter.update(d->dt, e->xf, &theGState->activeCam);
+					}
+				};
+
+				ThreadData td = {particlesToUpdate.data, ad->dt};
+				splitThreadTask(particlesToUpdate.count, &td, threadFunc);
+			}
+		}
+	}
+
+	// @Logic.
+	if(ad->levelEdit) {
+		Mesh* mesh = dxGetMesh("figure\\figure.mesh");
+		AnimationPlayer* player = &mesh->animPlayer;
+		player->init = false;
+	}
+
+	if(!ad->levelEdit)
+	{
+		// @AnimationTest.
+		{
+			TIMER_BLOCK_NAMED("Animation");
+
+			Mesh* mesh = dxGetMesh("figure\\figure.mesh");
+			AnimationPlayer* player = &mesh->animPlayer;
+
+			if(!player->init) {
+				player->init = true;
+
+				player->mesh = mesh;
+
+				player->time = 0;
+
+				player->speed = 1;
+				player->fps = 30;
+				player->noInterp = false;
+				player->noLocomotion = false;
+				player->loop = false;
+
+				player->setAnim("idle.anim");
+				player->noLocomotion = false;
+
+				ad->figureAnimation = 0;
+				ad->figureMesh = mesh;
+				ad->figureSpeed = 1;
+			}
+
+			player->animation = &player->mesh->animations[ad->figureAnimation];
+			player->update(ad->dt * ad->figureSpeed);
+		}
+
+		for(auto& e : ad->entityManager.entities) {
+			if(!entityIsValid(&e)) continue;
+			if(entityCheck(&e, ET_Object, "Rotating Object")) {
+				e.xf.rot = e.xf.rot * quat(ad->dt*0.2f, vec3(0,0,1));
+			} else if(entityCheck(&e, ET_Group, "rotator")) {
+				e.xf.rot = e.xf.rot * quat(ad->dt, vec3(0,0,1));
+			}
+		}
+
+		{
+			Entity* platformGroup = findEntity(em, "movingPlatform");
+			Entity* pathPoint0 = findEntity(em, "pathPoint0");
+			Entity* pathPoint1 = findEntity(em, "pathPoint1");
+
+			if(platformGroup) {
+				DArray<Entity*>* members = getGroupMembers(em, platformGroup->id);
+				Entity* platform;
+				for(auto& it : *members) {
+					if(strCompare(it->name, "walkmesh")) {
+						platform = it;
+					}
+				}
+
+				float speed = 1.0f;
+				Vec3 move = vec3(0,0,0);
+
+				static int mode = 1;
+				static float wait2 = 2.0f;
+				if(wait2 > 0) wait2 -= ad->dt;
+				else {
+					if(mode == 0) {
+						if(platformGroup->xf.trans.y < pathPoint0->xf.trans.y) 
+							move = vec3(0,ad->dt*speed,0);
+						else {
+							mode = 1;
+							wait2 = 2;
+						}
+					} else {
+						if(platformGroup->xf.trans.y > pathPoint1->xf.trans.y) 
+							move = vec3(0,-ad->dt*speed,0);
+						else {
+							mode = 0;
+							wait2 = 2;
+						}
+					}
+				}
+
+				platformGroup->xf.trans += move;
+
+				Entity* p = ad->player;
+				Mesh* mesh = dxGetMesh(platform->mesh);
+				float dist = raycastEntity(p->xf.trans + vec3(0,0,0.1), vec3(0,0,-1), platform, mesh);
+				if(dist != -1) {
+					if(dist < 0.5) {
+						p->xf.trans += move;
+					}
+				}
+			}
+		}
+
+		{
+			Entity* elevator = findEntity(em, "elevator");
+			Entity* elevatorPoint0 = findEntity(em, "elevatorPoint0");
+			Entity* elevatorPoint1 = findEntity(em, "elevatorPoint1");
+
+			if(elevator) {
+				DArray<Entity*>* members = getGroupMembers(em, elevator->id);
+				Entity* platform;
+				for(auto& it : *members) {
+					if(strCompare(it->name, "walkmesh")) {
+						platform = it;
+					}
+				}
+
+				float speed = 2.0f;
+				Vec3 move = vec3(0,0,0);
+
+				static int mode = 0;
+				static float wait = 2.0f;
+				if(wait > 0) wait -= ad->dt;
+				else {
+					if(mode == 0) {
+						if(elevator->xf.trans.z < elevatorPoint1->xf.trans.z) 
+							move = vec3(0,0,ad->dt*speed);
+						else {
+							mode = 1;
+							wait = 2;
+						}
+					} else {
+						if(elevator->xf.trans.z > elevatorPoint0->xf.trans.z) 
+							move = vec3(0,0,-ad->dt*speed);
+						else {
+							mode = 0;
+							wait = 2;
+						}
+					}
+				}
+
+				elevator->xf.trans += move;
+
+				Entity* p = ad->player;
+				Mesh* mesh = dxGetMesh(platform->mesh);
+				float dist = raycastEntity(p->xf.trans + vec3(0,0,0.1), vec3(0,0,-1), platform, mesh);
+				if(dist != -1) {
+					if(dist < 0.5f) {
+						p->xf.trans += move;
+					}
+				}
+			}
+		}
+
+		{
+			Entity* platform = findEntity(em, "rotatingPlatform");
+
+			if(platform) {
+				Entity* walkMesh = getGroupMembers(em, platform->id)->first();
+
+				float speed = 1.0f;
+				float rotAmount = -ad->dt * speed;
+				Quat rotation = quat(rotAmount, vec3(0,0,1));
+				platform->xf.rot = rotation * platform->xf.rot;
+
+				Entity* p = ad->player;
+				Mesh* mesh = dxGetMesh(walkMesh->mesh);
+				float dist = raycastEntity(p->xf.trans + vec3(0,0,0.1), vec3(0,0,-1), walkMesh, mesh);
+				if(dist != -1) {
+					if(dist < 0.5f) {
+						Entity* playerCam = findEntity(em, ET_Camera, "PlayerCam");
+						playerCam->camRot.x = playerCam->camRot.x + rotAmount;
+
+						rotateAround(&p->xf.trans, rotation, platform->xf.trans);
+					}
+				}
+			}
+		}
+	}
 
 	// @Cam.
 	{
-		Entity* e = ad->playerMode ? ad->player : ad->camera;
-		theGState->activeCam = getCamData(e->xf.trans, e->camRot, vec3(0,0,0));
+		Entity* playerCam = findEntity(em, ET_Camera, "PlayerCam");
+		Entity* cam = playerCam;
+		if(ad->freeCam) {
+			cam = ad->camera;
+		}
+
+		theGState->activeCam = getCamData(cam->xf.trans, cam->camRot, vec3(0,0,0));
 
 		GraphicsSettings* gs = theGState->gSettings;
 		theGState->activeCam.dim = getCamDim(gs->aspectRatio, gs->fieldOfView, gs->nearPlane);
+		theGState->activeCam.rot = cam->camRot;
 
 		// @Optimize.
 		{
 			TIMER_BLOCK_NAMED("SceneBoundingBox");
-			ad->sceneBoundingBox = sceneBoundingBox(&ad->entityManager);
+			ad->sceneBoundingBox = sceneBoundingBox(em);
 		}
+	}
+
+	// Redundant with initial app setup, but needed for game load.
+	{
+		GraphicsState* gs = theGState;
+		GraphicsSettings* gSettings = gs->gSettings;
+
+		{
+			GraphicsMatrices* gMats = &gs->gMats;
+			Rect sr = getScreenRect(gs->screenRes);
+			gMats->view2d = identityMatrix();
+			gMats->ortho  = orthoMatrixZ01(0, sr.bottom, sr.right, 0, 10, -10);
+
+			gMats->view = viewMatrix(gs->activeCam.pos, -gs->activeCam.look, gs->activeCam.up, gs->activeCam.right);
+			gMats->proj = projMatrixZ01(degreeToRadian(gSettings->fieldOfView), gSettings->aspectRatio, gSettings->nearPlane, gSettings->farPlane);
+
+			gMats->viewInv = viewMatrixInv(gs->activeCam.pos, -gs->activeCam.look, gs->activeCam.up, gs->activeCam.right);
+			gMats->projInv = projMatrixZ01Inv(gMats->proj);
+		}
+
+		setupShaders(*gSettings, gs->activeCam, false, false);
 	}
 
 	// if(ad->sky) 
 	{
-		renderSky(&ad->redrawSkyBox, &ad->sky->skySettings, ad->camera->camRot, reload);
+		renderSky(&ad->redrawSkyBox, &ad->sky->skySettings, reload);
 	}
 
 	{
@@ -71,47 +474,6 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 
 		dxGetShaderVars(Primitive)->viewProj = gs->gMats.proj * gs->gMats.view;
 		dxPushShaderConstants(Shader_Primitive);
-	}
-
-	// @AnimationTest.
-	{
-		TIMER_BLOCK_NAMED("Animation");
-
-		Mesh* mesh = dxGetMesh("figure\\figure.mesh");
-		AnimationPlayer* player = &mesh->animPlayer;
-
-		if(!player->init) {
-			player->init = true;
-
-			player->mesh = mesh;
-
-			player->time = 0;
-
-			player->speed = 1;
-			player->fps = 30;
-			player->noInterp = false;
-			player->noLocomotion = false;
-			player->loop = false;
-
-			player->setAnim("idle.anim");
-			player->noLocomotion = false;
-
-			ad->figureAnimation = 0;
-			ad->figureMesh = mesh;
-			ad->figureSpeed = 1;
-		}
-
-		player->animation = &player->mesh->animations[ad->figureAnimation];
-		player->update(ad->dt * ad->figureSpeed);
-	}
-
-	{
-		for(int i = 0; i < ad->entityManager.entities.count; i++) {
-			Entity* e = ad->entityManager.entities.data + i;
-			if(!entityIsValid(e) || !entityCheck(e, ET_Object, "Rotating Object")) continue;
-
-			e->xf.rot = e->xf.rot * quat(ad->dt*0.2f, vec3(0,0,1));
-		}
 	}
 
 	// @Rendering.
@@ -197,7 +559,9 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 					Entity* e = ad->entityManager.entities.data + i;
 					if(!entityIsValid(e)) continue;
 
-					if(e->type == ET_Player && ad->playerMode) continue;
+					if(e->type == ET_Player && !ad->freeCam) continue;
+
+					if(e->noRender) continue;
 
 					XForm xf = e->xf;
 					if(e->type == ET_ParticleEffect ||
@@ -208,6 +572,11 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 						xf.scale = vec3(1);
 					}
 
+					// Hack, fix the default figure mesh.
+					if(ad->levelEdit && entityCheck(e, ET_Object, "figure")) {
+						xf.rot = xf.rot * quatDeg(90, vec3(1,0,0));
+					}
+
 					dxDrawObject(xf, e->color, e->mesh, e->material, stage == 0);
 				}
 			}
@@ -215,293 +584,45 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 			dxCullState(true);
 			dxSetBlendState(Blend_State_Blend);
 		}
+
+		if(ds->drawBlockers) {
+			MainShaderVars* vars = dxGetShaderVars(Main);
+			dxSetShader(Shader_Main);
+
+			vars->disableLighting = true;
+			dxPushShaderConstants(Shader_Main);
+			defer { 
+				vars->disableLighting = false;
+				dxPushShaderConstants(Shader_Main);
+			};
+
+			dxFillWireFrame(true); defer { dxFillWireFrame(false); };
+			dxDepthTest(false); defer { dxDepthTest(true); };
+			dxCullState(false); defer { dxCullState(true); };
+
+			Vec4 cBlocker = vec4(1,1,0,1);
+			for(auto& e : em->entities) {
+				if(!entityIsValid(&e) || !e.blockerType) continue;
+
+				XForm xf = e.xf * e.xfBlocker;
+
+				switch(e.blockerType) {
+					case BLOCKERTYPE_RECT:   dxDrawObject(xf, cBlocker, "cube\\obj.obj", "Empty\\material.mtl", false); break;
+					case BLOCKERTYPE_CIRCLE: dxDrawObject(xf, cBlocker, "cylinder\\obj.obj", "Empty\\material.mtl", false); break;
+					case BLOCKERTYPE_LINE:   {
+						dxSetShader(Shader_Primitive);
+						dxDrawLine(xf * vec3(-0.5f), xf * vec3(0.5f), cBlocker); break;
+						dxSetShader(Shader_Main);
+					}
+				}
+			}
+		}
 	}
 
 	// @Walkmanifold.
-	if(false)
-	{
+	if(ds->showUI && ds->drawManifold) {
 		dxSetShader(Shader_Primitive);
-
-		// dxDepthTest(false);
-		// defer{ dxDepthTest(true); };			
-
-		Vec3 off = vec3(0,0,0.001f);
-
-		DArray<WalkMesh> walkMeshes = dArray<WalkMesh>(getTMemory);
-		for(auto& e : ad->entityManager.entities) {
-			if(!strCompare(e.name, "walkmesh")) continue;
-
-			walkMeshes.push({e.xf});
-		}
-
-		DArray<Blocker> sceneBlockers = dArray<Blocker>(getTMemory);
-		// for(auto& e : ad->entityManager.entities) {
-		// 	if(!strCompare(e.name, "blocker")) continue;
-
-		// 	sceneBlockers.push({ BLOCKERTYPE_RECT, e.xf });
-		// }
-
-		{
-			Entity* ep = findEntity(&ad->entityManager, "playerPos");
-
-			static Vec3 playerPos = ep->xf.trans;
-			static Vec3 newPos = playerPos;
-			static bool moveMode = false;
-			static Vec2 mouseStartPos;
-
-			WalkManifold mf;
-			mf.init(playerPos, recti(-10,-10,10,10), 0.3f, 0.27f, 0.2f, 
-			        walkMeshes.data, walkMeshes.count, sceneBlockers.data, sceneBlockers.count);
-
-			mf.rasterize();
-			mf.debugDraw();
-
-			static bool start = true;
-			if(start) {
-				start = false;
-				playerPos = mf.calcWalkCellPos(playerPos.xy);
-			}
-
-			#if 1
-			{
-				bool calcMove = false;
-				if(input->mouseButtonPressed[0] || 
-				   input->mouseButtonDown[2]) calcMove = true;
-
-				{
-					Camera* cam = &theGState->activeCam;
-					Vec3 rayDir = mouseRayCast(gs->screenRect, input->mousePosNegative, cam, gs->gSettings->nearPlane);
-
-					Vec3 intersection;
-					bool result = mf.raycast(cam->pos, rayDir, &intersection);
-
-					if(result) {
-						newPos = intersection;
-
-						// dxDrawCube(xForm(intersection, vec3(0.02f)), vec4(1,0.5f,0,1));
-						// dxDrawLine(intersection, intersection + vec3(0,0,0.2f), vec4(1,0.8f,0,1));
-					}
-				}
-
-				{
-					dxDepthTest(false);
-					dxDrawLine(playerPos+off, newPos+off, vec4(1,0,1,1));
-					// dxDrawLine(playerPos+off, playerPos+vec3(0,0,1)+off, vec4(1,0,1,1));
-					dxDrawRing(playerPos+off, vec3(0,0,-1), mf.playerRadius, 0.01f, vec4(1,1,0,1), 0.002f);
-					dxDepthTest(true);
-				}
-
-				if(calcMove) {
-					int stop = 234;
-				}
-
-				bool printOut = false;
-				if(input->mouseButtonPressed[2]) printOut = true;
-
-				if(playerPos.xy != newPos.xy) {
-					Vec3 pos = mf.move(playerPos.xy, newPos.xy);
-
-					dxDrawLine(pos, pos+off, vec4(0,1,0,1));
-					dxDrawRing(pos+off, vec3(0,0,-1), mf.playerRadius, 0.01f, vec4(1,0.5,0,1), 0.002f);
-
-					if(calcMove) {
-						playerPos = pos;
-					}
-				}
-
-				// {
-				// 	bool isBlocked = false;
-					
-				// 	Vec2i cellIndex = mf.getWalkCell(newPos.xy);
-
-				// 	// alkCell* cell = &cells[aIndex(cellsDim.w, cellCoord->x-grid.left, cellCoord->y-grid.bottom)];
-				// 	WalkCell* cell = &mf.cells[aIndex(mf.cellsDim.w, cellIndex.x-mf.grid.left, cellIndex.y-mf.grid.bottom)];
-
-				// 	if(cell->lineCount) {
-				// 		for(int i = 0; i < cell->lineCount; i++) {
-				// 			Line3 line = cell->lines[i];
-				// 			Vec2 a = norm(line.b.xy - line.a.xy);
-				// 			Vec2 normal = rotateRight(a);
-
-				// 			float d = dot(normal, newPos.xy - line.a.xy);
-				// 			if(d < 0) {
-				// 				isBlocked = true;
-				// 				break;
-				// 			}
-				// 		}
-
-				// 	} else {
-				// 		// if(cell->poles[i]->blockerCount) {
-				// 		// 	isBlocked = true;
-				// 		// } else {
-				// 		// 	isBlocked = false;
-				// 		// }
-				// 	}
-
-				// 	if(isBlocked) {
-				// 		dxDrawLine(newPos, newPos + vec3(0,0,0.2f), vec4(1,0,0,1));
-				// 	}
-				// }
-
-			}
-			#endif
-
-			if(true)
-			{
-				dxDepthTest(true);
-				// defer{ dxDepthTest(true); };	
-
-				// dxDrawLine(playerPos, playerPos + lineOff, vec4(1,1,0,1));
-
-				#if 0
-
-				dxDrawRect(getScreenRect(ws).expand(-20), vec4(0.2f,1));
-
-				static Vec2 p = vec2(150,-150);
-
-				// Vec2 points[] = {{100,-100}, {160,-140}, {200,-200}, {100,-200}, };
-				Vec2 points[] = {{100,-80}, {160,-140}, {250,-200}, {170,-200}, };
-
-				Line lines[100] = {};
-				int lineCount = 0;
-
-				for(int i = 0; i < arrayCount(points); i++) {
-					lines[lineCount++] = {vec3(points[i],0), vec3(points[(i+1)%arrayCount(points)],0)};
-				}
-
-				for(int i = 0; i < lineCount; i++) {
-					dxDrawLine(lines[i].a, lines[i].b, vec4(1,0,0,1));
-				}
-
-				float speed = 100;
-				Vec2 vel = {};
-				if(input->keysDown[KEYCODE_I]) vel.y += 1;
-				if(input->keysDown[KEYCODE_K]) vel.y -= 1;
-				if(input->keysDown[KEYCODE_L]) vel.x += 1;
-				if(input->keysDown[KEYCODE_J]) vel.x -= 1;
-
-				// if(vel != vec2(0,0)) 
-				if(mouseInClientArea(windowHandle))
-				{
-					Vec2 oldPoint = p;
-
-					// vel = norm(vel) * speed;
-					// Vec2 np = p + vel*ad->dt;
-					Vec2 np = input->mousePosNegative;
-					Vec2 dir = p - np;
-
-					int lastLineIndex = -1;
-
-					Vec2 projectDir;
-
-					int index = 0;
-					while(true) {
-						Vec2 cp;
-						int lineIndex = lineCollision(p, np, lines, lineCount, lastLineIndex, &cp);
-
-						if(lineIndex == -1) {
-							p = np;
-							break;
-						}
-
-						lastLineIndex = lineIndex;
-
-						// Project onto line.
-
-						{
-							if(index == 0) {
-								projectDir = np - cp;
-							}
-
-							Line l = lines[lineIndex];
-
-							Vec2 a = norm(l.a.xy - l.b.xy);
-							Vec2 b = projectDir;
-							Vec2 pp = cp + a * dot(a, b);
-
-							projectDir = norm(projectDir) * len(cp - pp);
-
-							dxDrawLine(p, np, vec4(0.5f,1));
-
-							// p = cp;
-							// np = pp;
-
-							dxDrawCircle(cp,  3, vec4(0,1,0,0.5f));
-							dxDrawCircle(pp, 3, vec4(0,1,1,0.5f));
-
-							Vec2 normal = norm(rotateRight(a));
-							Vec2 mid = (l.a.xy + l.b.xy) / 2.0f;
-
-							dxDrawLine(mid, mid + normal * 10, vec4(1,0.5f,0,1));
-
-							float offset = 0.001f;
-							// float offset = 20.0f;
-							// float offset = 0;
-							Vec2 op  = cp - normal * offset;
-							Vec2 onp = pp - normal * offset;
-
-							dxDrawCircle(op, 3, vec4(0,1,0,1));
-							dxDrawCircle(onp, 3, vec4(0,1,1,1));
-
-							{
-								Vec2 ncp;
-								int lineIndex = lineCollision(cp, op, lines, lineCount, lastLineIndex, &ncp);
-								// printf("%i\n", lineIndex);
-								if(lineIndex != -1) {
-									Line ol = {vec3(l.a.xy - normal * offset,0), vec3(l.b.xy - normal * offset,0)};
-									Vec2 ep;
-									if(getLineIntersection(p, cp, ol.a.xy, ol.b.xy, &ep)) {
-										p = ep;
-
-										dxDrawCircleX(ep, 2, vec4(1,0,1,1));
-									}
-
-									break;
-								}
-							}
-
-							p = op;
-							np = onp;
-						}
-
-						if(index == 5) break;
-						index++;
-					}
-
-					if(!(input->mouseButtonPressed[0] || (input->mouseButtonDown[0] && input->keysDown[KEYCODE_CTRL]))) {
-						p = oldPoint;
-					}
-
-					// {
-					// 	Vec2 cp;
-					// 	int lineIndex = lineCollision(p, p, lines, lineCount, -1, &cp);
-					// 	assert(lineIndex == -1);
-					// }
-				}
-
-				// if(mouseInClientArea(windowHandle))
-				// {
-				// 	Line l0 = {p, input->mousePosNegative};
-				// 	Line l1 = lines[0];
-				// 	dxDrawLine(l0.a, l0.b, vec4(0.5f,1));
-
-				// 	Vec2 cp;
-				// 	if(getLineIntersection(l0.a,l0.b, l1.a,l1.b, &cp)) {
-				// 		dxDrawCircleX(cp, 2, vec4(1,1,0,1));
-				// 		// Line l2 = {cp, cp + (l1.a-l1.a)};
-
-				// 		Vec2 a = l0.b - cp;
-				// 		Vec2 b = norm(l1.a - cp);
-				// 		Vec2 projectedPoint = cp + b * dot(b, a);
-
-				// 		dxDrawCircleX(projectedPoint, 2, vec4(0,1,0,1));
-				// 	}
-				// }
-
-				dxDrawCircleX(p, 1, vec4(0.8f,1));
-				#endif
-			}
-		}
+		ad->manifold.debugDraw();
 	}
 
 	if(ad->showSkeleton) {
@@ -519,7 +640,7 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 	}
 
 	// @Particles.
-	drawParticles(&ad->entityManager, ad->viewProjLight);
+	drawParticles(em, ad->viewProjLight);
 
 	{
 		EntityUI* eui = &ds->entityUI;
@@ -542,7 +663,7 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 
 		// Debug highlight entities that are selected.
 		if(showUI && eui->selectedObjects.count) {
-			drawEntityUI(ds, &ad->entityManager, input->mousePosNegative, ws, ad->playerMode);
+			drawEntityUI(ds, em, input->mousePosNegative, ws, ad->freeCam, ad->levelEdit);
 		}
 	}
 
@@ -555,321 +676,5 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 		dxLineAA(1);
 
 		Rect sr = gs->screenRect;
-
-		#if 0
-		{
-			float radius = 10;
-			Rect r = rectTLDim(0,0,400,400);
-			dxDrawRect(r, vec4(0.1f,1));
-			Vec2 offset = vec2(200,-200);
-			float scale = 100;
-
-			static Vec2 pos = vec2(0);
-			static bool start = true;
-			if(start) {
-				start = false;
-				Entity* e = findEntity(&ad->entityManager, "start");
-				pos = e->xf.trans.xy * 100 + offset;
-			}
-
-			Vec2 newPos = input->mousePosNegative;
-			if(!pointInRect(newPos, gs->screenRect)) newPos = pos;
-
-			// pos = input->mousePosNegative;
-
-			DArray<Line2> lines = dArray<Line2>(getTMemory);
-			for(auto e : ad->entityManager.entities) {
-				if(strCompare(e.name, "line")) {
-					Vec2 p0 = (e.xf * vec3(0,0,-0.5f)).xy;
-					Vec2 p1 = (e.xf * vec3(0,0, 0.5f)).xy;
-					p0 = p0 * scale + offset;
-					p1 = p1 * scale + offset;
-					lines.push({p0, p1});
-				}
-			}
-
-			if(input->mouseButtonPressed[0]) {
-				int stop = 234;
-			}
-
-			for(auto& it : lines) dxDrawLine(it.a, it.b, vec4(1,1,1,1));
-			dxDrawCircle(pos, 2,    vec4(1,0,0,1));
-			dxDrawRing(pos, radius, vec4(1,0,0,1));
-			dxDrawCircle(newPos, 2, vec4(0,1,0,1));
-			dxDrawLine(pos, newPos, vec4(0,1,1,1));
-
-			Vec2 finalPos;
-			{
-				Vec2 p = pos;
-				Vec2 fp = newPos;
-				Vec2 np;
-
-				float maxStepSize = radius*1.9f;
-				int maxConsecutiveHits = 5;
-				int maxTotalHits = 10;
-
-				bool first = true;
-				bool abort = false;
-				int totalHits = -1;
-				while(true) {
-					if(abort) break;
-					if(totalHits >= 10) break;
-
-					float restLength = len(p - fp);
-					if(restLength == 0) break;
-
-					float stepSize = min(maxStepSize, restLength);
-					np = p + norm(fp - p) * stepSize;
-
-					int conscutiveHits = -1;
-					while(true) {
-						conscutiveHits++;
-						if(conscutiveHits > 1) {
-							printf("%i\n", conscutiveHits);
-						}
-
-						bool hit = false;
-						float furthestLen = 0;
-						Vec2 furthestVec = vec2(0.0f);
-
-						for(auto it : lines) {
-							Blocker b = {BLOCKERTYPE_LINE};
-							b.linePoints[0] = vec3(it.a);
-							b.linePoints[1] = vec3(it.b);
-
-							Vec2 vec;
-							bool result = gjkEpa({BLOCKERTYPE_CIRCLE, xForm(vec3(np,0), vec3(radius))}, p, b, &vec, true);
-
-							if(result && first) {
-								if(dot(vec, np - p) > 0) result = false;
-							}
-
-							if(result) {
-								float l = len(vec);
-								if(l > furthestLen) {
-									furthestVec = vec;
-									furthestLen = l;
-									hit = true;
-								}
-							}
-						}
-
-						first = false;
-
-						if(hit) {
-							totalHits++;
-
-							Vec2 cp = np + furthestVec;
-							np = cp;
-
-							if(conscutiveHits >= maxConsecutiveHits) {
-								abort = true;
-								p = np;
-								break;
-							}
-
-							continue;
-						}
-
-						// dxDrawRing(np, radius, vec4(1,0,1,1));
-
-						break;
-					}
-
-					p = np;
-					dxDrawRing(p, radius, vec4(1,1,0,1));
-				}
-
-				finalPos = p;
-			}
-
-			if(input->mouseButtonPressed[0]) {
-				pos = finalPos;
-			}
-		}
-		#endif
-
-		// GJK test.
-		// {
-		// 	// {
-		// 	// 	Rect r = rectTLDim(10,-10,100,100);
-		// 	// 	dxDrawRect(r, vec4(1,0,0,1));
-		// 	// }
-
-		// 	Blocker b  = {BLOCKERTYPE_RECT, xForm(vec3(100,-100,3), quatDeg(0,vec3(0,0,1)), vec3(60))};
-		// 	// Blocker b2 = {BLOCKERTYPE_CIRCLE, xForm(vec3(160,-100,3), vec3(30))};
-		// 	Blocker b2 = {BLOCKERTYPE_CIRCLE, xForm(vec3(input->mousePosNegative,3), vec3(30))};
-
-		// 	// dxFillWireFrame(true);
-		// 	// defer {dxFillWireFrame(false);};
-
-		// 	Vec3 dir = quat(ad->figureSpeed*4, vec3(0,0,1)) * vec3(1,0,0);
-
-		// 	// Vec2 fp = furthestPointInDirection(&b, dir.xy);
-		// 	// Vec2 sp = support(&b, &b2, dir.xy);
-
-		// 	bool result = gjk(&b, vec2(0,0), &b2);
-		// 	// result = true;
-
-		// 	dxDrawRect(rect(-b.form.scale.xy/2.0f, b.form.scale.xy/2.0f) + b.form.trans.xy, vec4(0,0,0,1));
-		// 	dxDrawCircleX(b2.form.trans.xy, b2.form.scale.x, vec4(0.2f + ((int)result)*0.5f,1));
-
-		// 	dxDrawLine(b.form.trans.xy, b.form.trans.xy+dir.xy * 100, vec4(1,1,1,1));
-
-		// 	// dxDrawLine(b.form.trans.xy, fp, vec4(1,0,0,1));
-		// 	// dxDrawLine(b.form.trans.xy, p, vec4(1,0,0,1));
-		// 	// dxDrawLine(b.form.trans.xy, b.form.trans.xy + dir.xy * 0.5f, vec4(0,1,0,1));
-		// 	// dxDrawLine(b.form.trans, vec3(sp, b.form.trans.z), vec4(1,0,1,1));
-		// }
-
-		#if 0
-		{
-			dxDrawRect(getScreenRect(ws).expand(-20), vec4(0.2f,1));
-
-			static Vec2 p = vec2(150,-150);
-
-			// Vec2 points[] = {{100,-100}, {160,-140}, {200,-200}, {100,-200}, };
-			Vec2 points[] = {{100,-80}, {160,-140}, {250,-200}, {170,-200}, };
-
-			Line lines[100] = {};
-			int lineCount = 0;
-
-			for(int i = 0; i < arrayCount(points); i++) {
-				lines[lineCount++] = {vec3(points[i],0), vec3(points[(i+1)%arrayCount(points)],0)};
-			}
-
-			for(int i = 0; i < lineCount; i++) {
-				dxDrawLine(lines[i].a, lines[i].b, vec4(1,0,0,1));
-			}
-
-			float speed = 100;
-			Vec2 vel = {};
-			if(input->keysDown[KEYCODE_I]) vel.y += 1;
-			if(input->keysDown[KEYCODE_K]) vel.y -= 1;
-			if(input->keysDown[KEYCODE_L]) vel.x += 1;
-			if(input->keysDown[KEYCODE_J]) vel.x -= 1;
-
-			// if(vel != vec2(0,0)) 
-			if(mouseInClientArea(windowHandle))
-			{
-				Vec2 oldPoint = p;
-
-				// vel = norm(vel) * speed;
-				// Vec2 np = p + vel*ad->dt;
-				Vec2 np = input->mousePosNegative;
-				Vec2 dir = p - np;
-
-				int lastLineIndex = -1;
-
-				Vec2 projectDir;
-
-				int index = 0;
-				while(true) {
-					Vec2 cp;
-					int lineIndex = lineCollision(p, np, lines, lineCount, lastLineIndex, &cp);
-
-					if(lineIndex == -1) {
-						p = np;
-						break;
-					}
-
-					lastLineIndex = lineIndex;
-
-					// Project onto line.
-
-					{
-						if(index == 0) {
-							projectDir = np - cp;
-						}
-
-						Line l = lines[lineIndex];
-
-						Vec2 a = norm(l.a.xy - l.b.xy);
-						Vec2 b = projectDir;
-						Vec2 pp = cp + a * dot(a, b);
-
-						projectDir = norm(projectDir) * len(cp - pp);
-
-						dxDrawLine(p, np, vec4(0.5f,1));
-
-						// p = cp;
-						// np = pp;
-
-						dxDrawCircle(cp,  3, vec4(0,1,0,0.5f));
-						dxDrawCircle(pp, 3, vec4(0,1,1,0.5f));
-
-						Vec2 normal = norm(rotateRight(a));
-						Vec2 mid = (l.a.xy + l.b.xy) / 2.0f;
-
-						dxDrawLine(mid, mid + normal * 10, vec4(1,0.5f,0,1));
-
-						float offset = 0.001f;
-						// float offset = 20.0f;
-						// float offset = 0;
-						Vec2 op  = cp - normal * offset;
-						Vec2 onp = pp - normal * offset;
-
-						dxDrawCircle(op, 3, vec4(0,1,0,1));
-						dxDrawCircle(onp, 3, vec4(0,1,1,1));
-
-						{
-							Vec2 ncp;
-							int lineIndex = lineCollision(cp, op, lines, lineCount, lastLineIndex, &ncp);
-							// printf("%i\n", lineIndex);
-							if(lineIndex != -1) {
-								Line ol = {vec3(l.a.xy - normal * offset,0), vec3(l.b.xy - normal * offset,0)};
-								Vec2 ep;
-								if(getLineIntersection(p, cp, ol.a.xy, ol.b.xy, &ep)) {
-									p = ep;
-
-									dxDrawCircleX(ep, 2, vec4(1,0,1,1));
-								}
-
-								break;
-							}
-						}
-
-						p = op;
-						np = onp;
-					}
-
-					if(index == 5) break;
-					index++;
-				}
-
-				if(!(input->mouseButtonPressed[0] || (input->mouseButtonDown[0] && input->keysDown[KEYCODE_CTRL]))) {
-					p = oldPoint;
-				}
-
-				// {
-				// 	Vec2 cp;
-				// 	int lineIndex = lineCollision(p, p, lines, lineCount, -1, &cp);
-				// 	assert(lineIndex == -1);
-				// }
-			}
-
-			// if(mouseInClientArea(windowHandle))
-			// {
-			// 	Line l0 = {p, input->mousePosNegative};
-			// 	Line l1 = lines[0];
-			// 	dxDrawLine(l0.a, l0.b, vec4(0.5f,1));
-
-			// 	Vec2 cp;
-			// 	if(getLineIntersection(l0.a,l0.b, l1.a,l1.b, &cp)) {
-			// 		dxDrawCircleX(cp, 2, vec4(1,1,0,1));
-			// 		// Line l2 = {cp, cp + (l1.a-l1.a)};
-
-			// 		Vec2 a = l0.b - cp;
-			// 		Vec2 b = norm(l1.a - cp);
-			// 		Vec2 projectedPoint = cp + b * dot(b, a);
-
-			// 		dxDrawCircleX(projectedPoint, 2, vec4(0,1,0,1));
-			// 	}
-			// }
-
-			dxDrawCircleX(p, 1, vec4(0.8f,1));
-		}
-		#endif
-
 	}
 }

@@ -80,13 +80,15 @@ Entity entity(int type, char* name = "", bool temp = false) {
 	e.mesh = temp ? getPString("") : getTString(name);
 	e.material = temp ? getPString("") : getTString(name);
 
+	e.xfBlocker = xForm();
+
 	return e;
 }
 
-Entity entity(int type, XForm xForm, bool temp, char* name = 0, char* mesh = 0, char* material = 0, Vec4 color = vec4(1,1)) {
+Entity entity(int type, XForm xf, bool temp, char* name = 0, char* mesh = 0, char* material = 0, Vec4 color = vec4(1,1)) {
 	Entity e = {};
 	e.type = type;
-	e.xf = xForm;
+	e.xf = xf;
 	e.name = temp ? (name ? getTString(name) : getTString("")) :
 	                (name ? getPString(name) : getPString(""));
 	e.groupId = 0;
@@ -97,6 +99,8 @@ Entity entity(int type, XForm xForm, bool temp, char* name = 0, char* mesh = 0, 
 	e.material = temp ? (material ? getTString(material) : getTString("")) :
 	                    (material ? getPString(material) : getPString(""));
 	e.color = color;
+
+	e.xfBlocker = xForm();
 
 	return e;
 }
@@ -140,6 +144,54 @@ Entity* findEntity(EntityManager* em, char* name, int* index = 0) {
 		}
 	}
 	return 0;
+}
+
+Entity* findEntity(EntityManager* em, int type, char* name, int* index = 0) {
+	if(!strLen(name)) return 0;
+	for(int i = 0; i < em->entities.count; i++) {
+		Entity* e = em->entities.data + i;
+		if(entityIsValid(e) && e->type == type && strCompare(e->name, name)) {
+			if(index) *index = i;
+			return e;
+		}
+	}
+	return 0;
+}
+
+DArray<int> getNextEntityIds(EntityManager* em, int count) {
+	DArray<int> ids = dArray<int>(5, getTMemory);
+	for(auto& it : em->indices) {
+		if(it == -1) {
+			int id = (&it - em->indices.data) + 1;
+			ids.push(id);
+		}
+	}
+	if(ids.count < count) {
+		int restCount = count - ids.count;
+		for(int i = 0; i < restCount; i++) {
+			int id = em->indices.count + 1 + i;
+			ids.push(id);
+		}
+	}
+
+	return ids;
+}
+
+int getNextEntityId(EntityManager* em, int index = 0) {
+	int currentIndex = 0;
+	for(auto& it : em->indices) {
+		if(it == -1) {
+			if(currentIndex == index) return (&it - em->indices.data) + 1;
+			currentIndex++;
+		}
+	}
+
+	int temp = 0;
+	while(true) {
+		if(currentIndex == index) return em->indices.count + 1 + temp;
+		currentIndex++;
+		temp++;
+	}
 }
 
 Entity* addEntity(EntityManager* em, Entity* e, bool keepIndex = false) {
@@ -285,14 +337,15 @@ void collectByType(EntityManager* em) {
 
 //
 
-void entityMouseLook(Entity* e, Input* input, float mouseSensitivity) {
+void entityMouseLook(Entity* e, Input* input, float mouseSensitivity, bool clampLegs = false) {
 	float turnRate = mouseSensitivity * 0.01f;
 
 	e->camRot.y -= turnRate * input->mouseDelta.y;
 	e->camRot.x -= turnRate * input->mouseDelta.x;
 
 	float margin = 0.05f;
-	clamp(&e->camRot.y, (float)-M_PI_2+margin, (float)M_PI_2-margin);
+	float clampBottom = clampLegs ? -1.0 : (float)-M_PI_2+margin;
+	clamp(&e->camRot.y, clampBottom, (float)M_PI_2-margin);
 	e->camRot.x = modf(e->camRot.x, (float)M_PI*2);
 
 	// // Swapping roll and pitch because of handedness.
@@ -310,17 +363,32 @@ void entityMouseLook(Entity* e, Input* input, float mouseSensitivity) {
 	// e->xf.rot = eulerAnglesToQuat(roll, pitch, yaw);
 }
 
-void entityKeyboardAcceleration(Entity* e, Input* input, float speed, float boost, bool freeForm) {
-
+Vec2 entityKeyboardControl(Entity* e, Input* input, Vec2 rot) {
 	Vec3 up = vec3(0,0,1);
+	Camera cam = getCamData(e->xf.trans, rot);
+	cam.look = cross(up, cam.right);
 
-	Camera cam = getCamData(e->xf.trans, e->camRot);
+	Vec3 dir = vec3(0,0,0);
+	if(input->keysDown[KEYCODE_W]) dir +=  norm(cam.look);
+	if(input->keysDown[KEYCODE_S]) dir += -norm(cam.look);
+	if(input->keysDown[KEYCODE_D]) dir +=  norm(cam.right);
+	if(input->keysDown[KEYCODE_A]) dir += -norm(cam.right);
+
+	if(dir.xy != vec2(0,0)) dir.xy = norm(dir.xy);
+
+	return dir.xy;
+}
+
+void entityKeyboardAcceleration(Entity* e, Input* input, Vec2 rot, float speed, float boost, bool freeForm) {
+	Vec3 up = vec3(0,0,1);
+	Camera cam = getCamData(e->xf.trans, rot);
 
 	bool rightLock = !freeForm || input->keysDown[KEYCODE_CTRL];
 	if(rightLock) cam.look = cross(up, cam.right);
 
 	Vec3 acceleration = vec3(0,0,0);
 	if(input->keysDown[KEYCODE_SHIFT]) speed *= boost;
+	if(input->keysDown[KEYCODE_CTRL])  speed /= boost * 5;
 	if(input->keysDown[KEYCODE_W]) acceleration +=  norm(cam.look);
 	if(input->keysDown[KEYCODE_S]) acceleration += -norm(cam.look);
 	if(input->keysDown[KEYCODE_D]) acceleration +=  norm(cam.right);
@@ -358,26 +426,11 @@ Rect3 sceneBoundingBox(EntityManager* em) {
 	Rect3 aabb = rect3(vec3(FLT_MAX), vec3(-FLT_MAX));
 
 	for(auto& e : em->entities) {
-		Mesh* mesh = dxGetMesh(e.mesh);
-		if(!mesh) continue;
+		if(!entityIsValid(&e)) continue;
+		if(e.aabb == rect3(vec3(0.0f), vec3(0.0f))) continue;
 
-		if(!mesh->animPlayer.init) {
-			Rect3 bbr = transformBoundingBox(mesh->boundingBox, modelMatrix(e.xf));
-
-			aabb.min = min(aabb.min, bbr.min);
-			aabb.max = max(aabb.max, bbr.max);
-
-		} else {
-			AnimationPlayer* player = &mesh->animPlayer;
-
-			for(int i = 0; i < mesh->boneCount; i++) {
-				Mat4 mat = modelMatrix(e.xf) * player->mats[i];
-				Rect3 bbr = transformBoundingBox(mesh->boneBoundingBoxes[i], mat);
-
-				aabb.min = min(aabb.min, bbr.min);
-				aabb.max = max(aabb.max, bbr.max);
-			}
-		}
+		aabb.min = min(aabb.min, e.aabb.min);
+		aabb.max = max(aabb.max, e.aabb.max);
 	}
 
 	return aabb;
@@ -385,7 +438,7 @@ Rect3 sceneBoundingBox(EntityManager* em) {
 
 //
 
-void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, MouseEvents mouseEvents, float mouseSensitivity, EntityUI* eui) {
+void updateEntities(EntityManager* em, Input* input, float dt, bool freeCam, MouseEvents mouseEvents, float mouseSensitivity, EntityUI* eui, Entity* playerCam, bool levelEdit = false) {
 	TIMER_BLOCK();
 
 	dxSetShader(Shader_Primitive);
@@ -401,57 +454,47 @@ void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, 
 			}
 		}
 
+		e->modelInv = modelMatrixInv(e->xf);
+
+		// Calc bounding box.
+		{
+			if(!strLen(e->mesh)) e->aabb = {};
+			else {
+				Rect3 aabb;
+				Mesh* mesh = dxGetMesh(e->mesh);
+				if(!mesh->animPlayer.init) {
+					e->aabb = transformBoundingBox(mesh->aabb, modelMatrix(e->xf));
+
+				} else {
+					Rect3 aabb = rect3(vec3(FLT_MAX), vec3(-FLT_MAX));
+					AnimationPlayer* player = &mesh->animPlayer;
+					for(int i = 0; i < mesh->boneCount; i++) {
+						Mat4 mat = modelMatrix(e->xf) * player->mats[i];
+						Rect3 bbr = transformBoundingBox(mesh->boneBoundingBoxes[i], mat);
+
+						aabb.min = min(aabb.min, bbr.min);
+						aabb.max = max(aabb.max, bbr.max);
+					}
+
+					e->aabb = aabb;
+				}
+			}
+		}
+
+		if(levelEdit) {
+			if((e->type != ET_ParticleEffect) &&
+			   (e->type != ET_Camera) &&
+			  !(e->type == ET_Group && e->handlesParticles)) continue;
+		}
+
 		if(e->groupId) continue;
 
 		switch(e->type) {
 
 			case ET_Player: {
-				if(!playerMode) continue;
+				Vec2 dir = entityKeyboardControl(e, input, playerCam->camRot);
 
-				if(mouseEvents.fpsMode)
-					entityMouseLook(e, input, mouseSensitivity);
-
-				e->acc = vec3(0,0,0);
-				float speed = 5;
-				entityKeyboardAcceleration(e, input, speed, 2.0f, true);
-
-				e->vel = e->vel + e->acc*dt;
-				float friction = 0.05f;
-				e->vel = e->vel * pow(friction,dt);
-
-				if(e->acc == vec3(0,0,0) && 
-				   between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
-					e->vel = vec3(0.0f);
-				}
-
-				if(e->vel != vec3(0,0,0)) {
-					e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
-				}
-			} break;
-
-			case ET_Camera: {
-				if(playerMode) continue;
-
-				if(mouseEvents.fpsMode)
-					entityMouseLook(e, input, mouseSensitivity);
-
-				e->acc = vec3(0,0,0);
-				float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
-				if(input->keysDown[KEYCODE_BACKSPACE]) speed = 0.1f;
-				entityKeyboardAcceleration(e, input, speed, 2.0f, true);
-
-				e->vel = e->vel + e->acc*dt;
-				float friction = 0.01f;
-				e->vel = e->vel * pow(friction,dt);
-
-				if(e->acc == vec3(0,0,0) && 
-				   between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
-					e->vel = vec3(0.0f);
-				}
-
-				if(e->vel != vec3(0,0,0)) {
-					e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
-				}
+				if(freeCam) continue;
 			} break;
 
 			case ET_Object: {
@@ -459,7 +502,8 @@ void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, 
 			} break;
 
 			case ET_ParticleEffect: {
-				e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+				// e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+				e->particleEmitter.markedForUpdate = true;
 			} break;
 
 			case ET_Sound: {
@@ -472,7 +516,6 @@ void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, 
 
 				track->isSpatial = true;
 				track->pos = e->xf.trans;
-
 			} break;
 
 			case ET_Group: {
@@ -501,12 +544,88 @@ void updateEntities(EntityManager* em, Input* input, float dt, bool playerMode, 
 					for(int i = 0; i < list->count; i++) {
 						Entity* e = list->data[i];
 						if(!e->particleEmitter.finished || everyoneFinished) 
-							e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+							// e->particleEmitter.update(dt, e->xf, &theGState->activeCam);
+							e->particleEmitter.markedForUpdate = true;
+
 					}
 				}
-
 			} break;
-
 		}
 	}
+}
+
+//
+
+float raycastEntity(Vec3 rayPos, Vec3 rayDir, Entity* e, Mesh* mesh) {
+	AnimationPlayer* player = &mesh->animPlayer;
+
+	float dist;
+	if(!player->init) {
+		dist = lineBoxIntersection(rayPos, rayDir, e->aabb.c(), e->aabb.dim());
+
+	} else {
+		for(int i = 0; i < mesh->boneCount; i++) {
+			Rect3 bb = mesh->boneBoundingBoxes[i];
+			XForm bbxf = xForm(bb.c(), bb.dim());
+			XForm bbBone = player->xforms[i];
+			Mat4 mat = player->mats[i];
+
+			bbxf = player->xforms[i] * bbxf;
+			bbxf = e->xf * bbxf;
+
+			dist = boxRaycastRotated(rayPos, rayDir, bbxf);
+			if(dist != -1) break;
+		}
+	}
+
+	if(dist == -1) return -1;
+
+	float shortestDistance = FLT_MAX;
+	Vec3 intersectionPos;
+
+	{
+		DArray<MeshVertex> verts = mesh->vertices;
+
+		Vec3 rayPosT = (e->modelInv * vec4(rayPos,1)).xyz;
+		Vec3 rayDirT = (e->modelInv * vec4(rayDir,0)).xyz;
+
+		for(int i = 0; i < verts.count/3; i++) {
+			Vec3 ps[3];
+
+			for(int j = 0; j < 3; j++) {
+				MeshVertex* v = mesh->vertices.data + (i*3 + j);
+				Vec3 p;
+
+				if(player->init) {
+					p = {};
+					for(int k = 0; k < 4; k++) {
+						float weight = v->blendWeights.e[k];
+						if(weight == 0.0f) break;
+
+						int index = v->blendIndices[k];
+						p += (weight * (player->mats[index] * vec4(v->pos, 1))).xyz;
+					}
+				} else p = v->pos;
+
+				ps[j] = p;
+			}
+
+			Vec3 intersection;
+			bool result = lineTriangleIntersection(rayPosT, rayDirT, ps[0], ps[1], ps[2], &intersection, false);
+			if(result) {
+				float dist = len(intersection - rayPosT);
+				if(dist < shortestDistance) {
+					shortestDistance = dist;
+					intersectionPos = intersection;
+				}
+			}
+		}
+	}
+
+	if(shortestDistance == FLT_MAX) return -1;
+
+	intersectionPos = e->xf * intersectionPos;
+	shortestDistance = len(intersectionPos - rayPos);
+
+	return shortestDistance;
 }

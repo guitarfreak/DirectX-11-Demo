@@ -346,8 +346,8 @@ float3 calculateLight(VSOutput input) {
 		if(projCoord.x < -1.0f || projCoord.x > 1.0f || 
 		   projCoord.y < -1.0f || projCoord.y > 1.0f || 
 		   projCoord.z <  0.0f || projCoord.z > 1.0f) {
-			// return vars.material.Ka * vars.ambient;
-			return float3(0,1,0);
+			return vars.material.Ka * vars.ambient;
+			// return float3(0,1,0);
 		}
 
 		projCoord.y *= -1;

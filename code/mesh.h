@@ -57,7 +57,7 @@ struct Mesh {
 	int size;
 
 	DArray<MeshVertex> vertices;
-	Rect3 boundingBox;
+	Rect3 aabb;
 
 	bool swapWinding;
 

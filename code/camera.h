@@ -7,4 +7,5 @@ struct Camera {
 	Vec3 right;
 
 	Vec2 dim;
+	Vec2 rot;
 };
