@@ -1416,8 +1416,6 @@ void WalkManifold::addWalkEdgePoint(WalkLayer* layer, Vec3 edgePoint, PointInfo 
 
 	// Calc interpolated middle point.
 	if(layer->pointCount == 2) {
-		return;
-
 		float testOffset = settings.cellSize * 0.01f;
 		float ignoreDist = settings.cellSize * 0.001f;
 		float poleExpansion = settings.cellSize * 0.5f;
