@@ -102,7 +102,7 @@ void WalkManifold::rasterize() {
 				Pole* pole = wm->getPole(x,y);				
 
 				pole->pos = vec2((wm->grid.left + x)*wm->settings.cellSize, (wm->grid.bottom + y)*wm->settings.cellSize);;
-				pole->samples = dArray<MeshSample>(5, getTMemory);
+				pole->samples = dArray<MeshSample>(5, getTMemoryInterlocked);
 				DArray<MeshSample>& samples = pole->samples;
 
 				for(auto meshIndex : pole->potentialMeshes) {
@@ -234,7 +234,7 @@ void WalkManifold::rasterize() {
 			WalkManifold* wm = (WalkManifold*)h->data;
 
 			// Maybe these are not necessary anymore.
-			DArray<WalkLayer*> pushedLayers = dArray<WalkLayer*>(3, getTMemory);
+			DArray<WalkLayer*> pushedLayers = dArray<WalkLayer*>(3, getTMemoryInterlocked);
 
 			for(int i = 0; i < h->count; i++) {
 				int x, y;
@@ -295,7 +295,8 @@ void WalkManifold::rasterize() {
 			}
 		};
 
-		splitThreadTask(cells.count, this, threadFunc);
+		// Threading bug here. So we disable threading for now.
+		splitThreadTask(cells.count, this, threadFunc, -1);
 	}
 
 	{
@@ -403,7 +404,7 @@ void WalkManifold::rasterize() {
 					for(auto blockerIndex : pole->potentialBlockers) {
 						bool isBlocked = wm->poleBlockerIntersection(pole->pos, sample.z, wm->allBlockers.data + blockerIndex); // pole->inside
 						if(isBlocked) {
-							if(!sample.blockers.count) sample.blockers = dArray<int>(10, getTMemory);
+							if(!sample.blockers.count) sample.blockers = dArray<int>(10, getTMemoryInterlocked);
 							sample.blockers.push(blockerIndex);
 						}
 					}
@@ -541,10 +542,10 @@ void WalkManifold::rasterize() {
 
 			float flattenPercent = wm->settings.lineFlattenPercent;
 
-			DArray<Line2> collectedLines = dArray<Line2>(5, getTMemory);
-			DArray<Point> points = dArray<Point>(5, getTMemory);
-			DArray<Line2> finalList = dArray<Line2>(5, getTMemory);
-			DArray<LineMarked> markedLines = dArray<LineMarked>(5, getTMemory);
+			DArray<Line2> collectedLines = dArray<Line2>(5, getTMemoryInterlocked);
+			DArray<Point> points = dArray<Point>(5, getTMemoryInterlocked);
+			DArray<Line2> finalList = dArray<Line2>(5, getTMemoryInterlocked);
+			DArray<LineMarked> markedLines = dArray<LineMarked>(5, getTMemoryInterlocked);
 
 			for(int cellIndex = 0; cellIndex < h->count; cellIndex++) {
 				WalkCell* cell = wm->cells + cellIndex + h->index;
@@ -552,7 +553,7 @@ void WalkManifold::rasterize() {
 				for(auto& layer : cell->layers) {
 					if(!layer.lines.count) continue;
 
-					layer.linesNoCleanup = dArray<Line3>(layer.lines, getTMemory);
+					layer.linesNoCleanup = dArray<Line3>(layer.lines, getTMemoryInterlocked);
 
 					float floatOffset;
 					{
@@ -608,7 +609,7 @@ void WalkManifold::rasterize() {
 
 					// Remove unneeded lines.
 					{
-						DArray<int> removeList = dArray<int>(5, getTMemory);
+						DArray<int> removeList = dArray<int>(5, getTMemoryInterlocked);
 
 						for(int i = 0; i < collectedLines.count; i++) {
 							Line2 l0 = collectedLines[i];
@@ -1482,7 +1483,7 @@ void WalkManifold::addWalkEdgePointBlocker(WalkLayer* layer, Vec3 edgePoint, int
 	defer { ReleaseMutex(cell->mutex); };
 
 	if(!layer->blockerPoints.count) {
-		layer->blockerPoints = dArray<BlockerPointList>(10, getTMemory);
+		layer->blockerPoints = dArray<BlockerPointList>(10, getTMemoryInterlocked);
 	}
 
 	BlockerPointList* list = 0;
@@ -1507,7 +1508,7 @@ void WalkManifold::addWalkEdgePointBlocker(WalkLayer* layer, Vec3 edgePoint, int
 	list->points[list->pointCount++] = edgePoint;
 
 	if(list->pointCount == 2) {
-		if(!layer->lines.count) layer->lines = dArray<Line3>(10, getTMemory);
+		if(!layer->lines.count) layer->lines = dArray<Line3>(10, getTMemoryInterlocked);
 
 		// Make sure to push lines in clockwise order from blocker perspective.
 		Line3 line;

@@ -48,6 +48,9 @@ void AnimationPlayer::setAnim(char* name) {
 }
 
 void AnimationPlayer::update(float dt) {
+	if(!animation->frameCount)
+		return;
+
 	this->dt = dt;
 	time += dt;
 

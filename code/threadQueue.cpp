@@ -180,28 +180,3 @@ int ThreadQueue::threadIdToIndex(int id) {
 int ThreadQueue::getThreadId() {
 	return threadIdToIndex(GetCurrentThreadId());
 }
-
-//
-
-struct ThreadHeader {
-	int index;
-	int count;
-	void* data;
-};
-
-void splitThreadTask(int count, void* data, void (*function)(void*), int threadCount = 0) {
-	if(!count) return;
-
-	if(!threadCount) threadCount = theThreadQueue->threadCount+1;
-	DArray<ThreadHeader> threadData = dArray<ThreadHeader>(threadCount, getTMemory);
-
-	Vec2i* ranges = arrayDivideRanges(count, threadCount);
-	if(ranges) {
-		for(int i = 0; i < threadCount; i++) {
-			threadData.push({ranges[i].x, ranges[i].y, data});
-		}
-
-		theThreadQueue->add(function, threadData.data, sizeof(ThreadHeader), threadCount);
-		theThreadQueue->complete();
-	}
-}

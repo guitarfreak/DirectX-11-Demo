@@ -120,7 +120,7 @@ bool menuOptionSliderInt(MainMenu* menu, Vec2 pos, int* value, int rangeMin, int
 //
 
 void renderMenuBackground() {
-	dxSetFrameBuffer("MenuBackground", theGState->gSettings->cur3dBufferRes, 1);
+	dxSetFrameBuffer("MenuBackground", theGState->gSettings->cur3dBufferRes, 1, 0);
 
 	dxSetShader(Shader_Primitive);
 	dxGetShaderVars(Primitive)->viewProj = theGState->gMats.ortho * theGState->gMats.view2d;

@@ -158,7 +158,7 @@ void dxAddFrameBuffer(char* name, DXGI_FORMAT format, bool renderTarget, bool sh
 }
 
 void dxReleaseFrameBuffer(FrameBuffer* fb);
-void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples) {
+void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
 	GraphicsState* gs = theGState;
 	FrameBuffer* fb = dxGetFrameBuffer(name);
 
@@ -184,7 +184,7 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples) {
 	descTex.ArraySize = 1;
 	descTex.Format = fb->format;
 	descTex.SampleDesc.Count = msaaSamples;
-	descTex.SampleDesc.Quality = hasMsaa ? 1 : 0;
+	descTex.SampleDesc.Quality = hasMsaa ? msaaQuality : 0;
 	descTex.Usage = D3D11_USAGE_DEFAULT;
 	descTex.BindFlags = bindFlags;
 	descTex.CPUAccessFlags = 0;

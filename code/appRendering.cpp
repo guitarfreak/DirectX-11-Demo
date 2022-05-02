@@ -5,6 +5,8 @@ void addFrameBuffers() {
 	DXGI_FORMAT dFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	DXGI_FORMAT fFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 	
+	DXGI_FORMAT typelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
+
 	dxAddFrameBuffer("Sky",         fFormat, true,  true,  false);
 	dxAddFrameBuffer("3dMsaa",      fFormat,  true,  false, false);
 	dxAddFrameBuffer("3dNoMsaa",    fFormat,  true, true,  false);
@@ -15,10 +17,10 @@ void addFrameBuffers() {
 	dxAddFrameBuffer("DebugMsaa",   format,  true,  false, false);
 	dxAddFrameBuffer("DebugNoMsaa", format,  false, true,  false);
 	// dxAddFrameBuffer("ds3d",        dFormat, false, false, true );
-	dxAddFrameBuffer("ds3d", DXGI_FORMAT_R24G8_TYPELESS, false, true, true );
+	dxAddFrameBuffer("ds3d", typelessFormat, false, true, true );
 	dxGetFrameBuffer("ds3d")->makeDepthView = true;
 
-	dxAddFrameBuffer("ds3dTemp", DXGI_FORMAT_R24G8_TYPELESS, false, true, true );
+	dxAddFrameBuffer("ds3dTemp", typelessFormat, false, true, true );
 	dxGetFrameBuffer("ds3dTemp")->makeDepthView = true;
 
 	dxAddFrameBuffer("ds",          dFormat, false, false, true );
@@ -38,26 +40,28 @@ void addFrameBuffers() {
 	dxAddFrameBuffer("Test", format,  false, true,  false);
 }
 
-void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples) {
-	int m = msaaSamples;
-	dxSetFrameBuffer("Sky",      res3d, 1);
-	dxSetFrameBuffer("3dMsaa",   res3d, m);
-	dxSetFrameBuffer("3dNoMsaa", res3d, 1);
-	dxSetFrameBuffer("2dMsaa",   res2d, m);
-	dxSetFrameBuffer("2dNoMsaa", res2d, 1);
-	dxSetFrameBuffer("2dTemp",   res2d, 1);
-	dxSetFrameBuffer("ds3d",     res3d, m);
-	dxSetFrameBuffer("ds3dTemp", res3d, m);
-	dxSetFrameBuffer("ds",       res2d, m);
+void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples, int msaaQuality) {
+	int m  = msaaSamples;
+	int mq = msaaQuality;
 
-	dxSetFrameBuffer("Shadow",   vec2i(theGState->shadowMapSize), 1);
+	dxSetFrameBuffer("Sky",      res3d, 1, 0);
+	dxSetFrameBuffer("3dMsaa",   res3d, m, mq);
+	dxSetFrameBuffer("3dNoMsaa", res3d, 1, 0);
+	dxSetFrameBuffer("2dMsaa",   res2d, m, mq);
+	dxSetFrameBuffer("2dNoMsaa", res2d, 1, 0);
+	dxSetFrameBuffer("2dTemp",   res2d, 1, 0);
+	dxSetFrameBuffer("ds3d",     res3d, m, mq);
+	dxSetFrameBuffer("ds3dTemp", res3d, m, mq);
+	dxSetFrameBuffer("ds",       res2d, m, mq);
+
+	dxSetFrameBuffer("Shadow",   vec2i(theGState->shadowMapSize), 1, 0);
 
 	for(int i = 0; i < 5; i++) {
-		dxSetFrameBuffer(fString("Bloom_%i", i),  res3d/(pow(2.0f,i)), 1);
-		dxSetFrameBuffer(fString("Bloom2_%i", i), res3d/(pow(2.0f,i)), 1);
+		dxSetFrameBuffer(fString("Bloom_%i", i),  res3d/(pow(2.0f,i)), 1, 0);
+		dxSetFrameBuffer(fString("Bloom2_%i", i), res3d/(pow(2.0f,i)), 1, 0);
 	}
 
-	dxSetFrameBuffer("BloomHelper", res3d, 1);
+	dxSetFrameBuffer("BloomHelper", res3d, 1, 0);
 }
 
 void clearFrameBuffers() {
@@ -119,10 +123,10 @@ void updateFrameBuffersAndScreenRes(GraphicsSettings* gSettings, float aspectRat
 		backBufferResource->Release();
 	}
 
-	resizeFrameBuffers(res3d, res2d, gSettings->msaaSamples);
+	resizeFrameBuffers(res3d, res2d, gSettings->msaaSamples, gSettings->msaaQuality);
 	if(init) {
-		dxSetFrameBuffer("DebugMsaa",   res2d, gSettings->msaaSamples);
-		dxSetFrameBuffer("DebugNoMsaa", res2d, 1);
+		dxSetFrameBuffer("DebugMsaa",   res2d, gSettings->msaaSamples, gSettings->msaaQuality);
+		dxSetFrameBuffer("DebugNoMsaa", res2d, 1, 0);
 	}
 }
 
@@ -131,8 +135,9 @@ void updateDebugFrameBuffer(bool* update) {
 
 	Vec2i res2d = theGState->screenRes;
 	int m = theGState->gSettings->msaaSamples;
-	dxSetFrameBuffer("DebugMsaa",   res2d, m);
-	dxSetFrameBuffer("DebugNoMsaa", res2d, 1);
+	int mq = theGState->gSettings->msaaQuality;
+	dxSetFrameBuffer("DebugMsaa",   res2d, m, mq);
+	dxSetFrameBuffer("DebugNoMsaa", res2d, 1, 0);
 }
 
 void setupGraphics(GraphicsState* gs, GraphicsSettings gSettings, Camera activeCam, bool init, bool reload) {

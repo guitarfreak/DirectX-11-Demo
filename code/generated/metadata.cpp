@@ -613,6 +613,7 @@ MemberInfo FrameBuffer_MemberInfos[] = {
 MemberInfo GraphicsSettings_MemberInfos[] = {
 	{ TYPE_Vec2i, "cur3dBufferRes", offsetof(GraphicsSettings, cur3dBufferRes), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
 	{ TYPE_int, "msaaSamples", offsetof(GraphicsSettings, msaaSamples), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
+	{ TYPE_int, "msaaQuality", offsetof(GraphicsSettings, msaaQuality), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
 	{ TYPE_float, "resolutionScale", offsetof(GraphicsSettings, resolutionScale), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
 	{ TYPE_float, "aspectRatio", offsetof(GraphicsSettings, aspectRatio), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
 	{ TYPE_int, "fieldOfView", offsetof(GraphicsSettings, fieldOfView), 0, {}, {-1}, 0, 0, 0, 0, {}, -1, -1 },
@@ -720,7 +721,7 @@ StructInfo structInfos[] = {
 	{ "SystemData", sizeof(SystemData), 7, SystemData_MemberInfos, -1, 0, },
 	{ "Texture", sizeof(Texture), 9, Texture_MemberInfos, -1, 0, },
 	{ "FrameBuffer", sizeof(FrameBuffer), 7, FrameBuffer_MemberInfos, -1, 0, },
-	{ "GraphicsSettings", sizeof(GraphicsSettings), 7, GraphicsSettings_MemberInfos, -1, 0, },
+	{ "GraphicsSettings", sizeof(GraphicsSettings), 8, GraphicsSettings_MemberInfos, -1, 0, },
 	{ "GraphicsMatrices", sizeof(GraphicsMatrices), 6, GraphicsMatrices_MemberInfos, -1, 0, },
 	{ "WalkManifoldSettings", sizeof(WalkManifoldSettings), 16, WalkManifoldSettings_MemberInfos, -1, 0, },
 	{ "SkySettings", sizeof(SkySettings), 15, SkySettings_MemberInfos, -1, 0, },

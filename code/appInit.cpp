@@ -26,6 +26,9 @@ void initMemory(AppMemory* appMemory) {
 
 	MemoryArray* tMemory = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
 	initMemoryArray(tMemory, megaBytes(30), 0);
+
+	MemoryArray* tMemoryThreadSafe = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
+	initMemoryArray(tMemoryThreadSafe, megaBytes(1), 0);
 }
 
 void setupMemoryAndGlobals(AppMemory* appMemory, ThreadQueue* threadQueue, MemoryBlock* gMemory, AppData** appData, DebugState** debugState, bool init) {
@@ -36,6 +39,7 @@ void setupMemoryAndGlobals(AppMemory* appMemory, ThreadQueue* threadQueue, Memor
 	{
 		gMemory->pMemory = &appMemory->extendibleMemoryArrays[0];
 		gMemory->tMemory = &appMemory->memoryArrays[0];
+		gMemory->tMemoryThreadSafe = &appMemory->memoryArrays[2];
 		gMemory->dMemory = &appMemory->extendibleBucketMemories[0];
 
 		gMemory->pMemoryDebug = &appMemory->extendibleMemoryArrays[1];
@@ -98,6 +102,7 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 
 	ad->gSettings.fieldOfView = 60;
 	ad->gSettings.msaaSamples = 4;
+	ad->gSettings.msaaQuality = 1;
 	ad->gSettings.resolutionScale = 1;
 	ad->gSettings.nearPlane = 0.1f;
 	ad->gSettings.farPlane = 50;
@@ -107,7 +112,7 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 }
 
 void addFrameBuffers();
-void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, SectionTimer* st) {
+void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, SectionTimer* st, GraphicsSettings* gSettings) {
 
 	*gs = {};
 
@@ -419,6 +424,27 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 		gs->frameBuffers = getPArray(FrameBuffer, gs->frameBufferCountMax);
 
 		addFrameBuffers();
+
+		{
+			gSettings->msaaSamples = 0;
+			gSettings->msaaQuality = 0;
+
+			// Hopefully checking one format is enough?
+			auto format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			// int possibleSampleCounts[] = {0, 1, 2, 4, 8, 16};
+			int possibleSampleCounts[] = {0, 1, 2, 4, 8};
+			// int possibleSampleCounts[] = {0, 1, 2, 4};
+			for(int i = arrayCount(possibleSampleCounts)-1; i >= 0; i--) {
+				int sampleCount = possibleSampleCounts[i];
+				uint numQualityLevels;
+				HRESULT result = theGState->d3dDevice->CheckMultisampleQualityLevels(format, sampleCount, &numQualityLevels);
+				if(result == S_OK && numQualityLevels) {
+					gSettings->msaaSamples = sampleCount;
+					gSettings->msaaQuality = numQualityLevels - 1;
+					break;
+				}
+			}
+		}
 	}
 
 	st->add("framebuffers");
@@ -518,7 +544,8 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 
 	bool freeCam;
 	#if SHIPPING_MODE
-	freeCam = false;
+	// freeCam = false;
+	freeCam = true;
 	#else
 	freeCam = true;
 	#endif
@@ -532,8 +559,10 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 
 	#if SHIPPING_MODE
 	ad->mouseEvents.captureMouse = false;
-	ad->mouseEvents.debugMouse = false;
-	ad->mouseEvents.debugMouseFixed = true;
+	// ad->mouseEvents.debugMouse = false;
+	// ad->mouseEvents.debugMouseFixed = true;
+	ad->mouseEvents.debugMouse = true;
+	ad->mouseEvents.debugMouseFixed = false;
 	#else 
 	ad->mouseEvents.captureMouse = false;
 	ad->mouseEvents.debugMouse = true;
@@ -583,7 +612,8 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 		if(!fileExists(Game_Settings_File)) {
 			GameSettings settings = {};
 
-			settings.fullscreen = true;
+			// settings.fullscreen = true;
+			settings.fullscreen = false;
 			settings.vsync = true;
 			settings.frameRateCap = ad->maxFrameRate;
 			settings.resolutionScale = 1.0f;

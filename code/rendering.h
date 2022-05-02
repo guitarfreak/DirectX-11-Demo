@@ -118,6 +118,7 @@ Meta_Parse_Struct(0);
 struct GraphicsSettings {
 	Vec2i cur3dBufferRes;
 	int msaaSamples;
+	int msaaQuality;
 	float resolutionScale;
 	float aspectRatio;
 	int fieldOfView;

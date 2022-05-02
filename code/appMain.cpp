@@ -107,7 +107,8 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 			float dt = ds->dt;
 
 			Entity* e = ad->camera;
-		   if(ad->mouseEvents.fpsMode) entityMouseLook(e, input, ad->mouseSensitivity);
+		   if(ad->mouseEvents.fpsMode)
+		   	entityMouseLook(e, input, ad->mouseSensitivity);
 
 		   e->acc = vec3(0,0,0);
 		   float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;

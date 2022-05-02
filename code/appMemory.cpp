@@ -5,6 +5,7 @@ struct MemoryBlock {
 
 	ExtendibleMemoryArray* pMemory;
 	MemoryArray* tMemory;
+	MemoryArray* tMemoryThreadSafe;
 	ExtendibleBucketMemory* dMemory;
 
 	ExtendibleMemoryArray* pMemoryDebug;
@@ -55,6 +56,10 @@ inline char* getPString(char* str, int size = -1) {
 
 inline void* getTMemory(int size) {
 	return getMemoryArray(size, theMemory->currentTMemory);
+}
+
+inline void* getTMemoryInterlocked(int size) {
+	return getMemoryArrayInterlocked(size, theMemory->tMemoryThreadSafe);
 }
 
 // Empty function for containers.

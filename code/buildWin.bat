@@ -52,19 +52,19 @@ rem -DEFAULTLIB:Shell32.lib
 set LINKER_LIBS= -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Winmm.lib -DEFAULTLIB:Ole32.lib -DEFAULTLIB:D3D11.lib -DEFAULTLIB:d3dcompiler.lib
 
 set INC=%INC% -I"%VS_PATH%\VC\include"
-set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.17134.0\um"
-set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.17134.0\shared"
+set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\um"
+set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\shared"
 
 if "%~1"=="-x86" goto compilerSelectionX86
 	set                  PATH=%VS_PATH%\VC\bin\amd64;%PATH%
 	set LINC=%LINC% -LIBPATH:"%VS_PATH%\VC\lib\amd64"
-	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.17134.0\um\x64"
+	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x64"
 goto compilerSelectionEnd
 
 :compilerSelectionX86
 	set                  PATH=%VS_PATH%\VC\bin;%PATH%
 	set LINC=%LINC% -LIBPATH:"%VS_PATH%\VC\lib"
-	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.17134.0\um\x86"
+	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x86"
 :compilerSelectionEnd
 
 set   INC_EXTRA=%INC_EXTRA% -I"..\libs\freetype 2.9\include"

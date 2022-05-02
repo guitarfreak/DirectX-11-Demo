@@ -124,6 +124,7 @@ ProfilerTimer* theTimer;
 #include "miscMath.cpp"
 #include "hotload.cpp"
 #include "threadQueue.cpp"
+#include "threadQueueMisc.cpp"
 #include "platformWin32.cpp"
 #include "platformMisc.cpp"
 #include "input.cpp"
@@ -210,6 +211,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 
 	setMemory();
 	clearTMemory();
+	clearMemoryArray(theMemory->tMemoryThreadSafe);
 
 	// @Init.
 	if(init) {
@@ -226,7 +228,7 @@ extern "C" APPMAINFUNCTION(appMain) {
 		audioInit(&ad->audioState, ws->frameRate);
 		st.add("audioInit");
 		
-		graphicsInit(gs, ws, sd, &st);
+		graphicsInit(gs, ws, sd, &st, &ad->gSettings);
 		// st.add("graphicsInit");
 		
 		watchFoldersInit(sd, gs);
