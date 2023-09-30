@@ -1,4 +1,4 @@
-## DirectX 11 demo app thingy.
+## DirectX 11 / game engine demo app.
 
 <p float="right">
 	<a href="https://raw.githubusercontent.com/guitarfreak/DirectX-11-Demo/master/screenshot.png">
@@ -25,7 +25,7 @@
   	</a>
 </p>
 
-In active development.
+Features:
 * Directional lighting.
 * Basic shadow mapping. (Poisson disk sampling.)
 * Normal mapping.
@@ -36,7 +36,7 @@ In active development.
 * Save/Load maps.
 * Command history, Undo/Redo.
 * Introspection/Serialization/Versioning with preprocessing step.
-* WalkManifold. (As shown [here](https://www.youtube.com/watch?v=6QMLAVX5s4o).)
+* WalkManifold (Navmesh). (As shown [here](https://www.youtube.com/watch?v=6QMLAVX5s4o).)
 
 #### Controls
 
