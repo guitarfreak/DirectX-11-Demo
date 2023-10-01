@@ -80,7 +80,6 @@ void initDebugUI(DebugState* ds, bool init) {
 void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
 	if(ds->panelInit) initDebugUI(ds, true);
 
-	ThreadQueue* threadQueue = theThreadQueue;
 	int panelCount = Panel_Type_Size;
 
 	Gui* gui = &ds->gui;
@@ -382,7 +381,7 @@ void updateDebugUI(DebugState* ds, AppData* ad, WindowSettings* ws) {
 
 template <class T> void drawProbabilityGraph(Gui* gui, Rect r, ValueRange<T>* vr);
 
-void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
+void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd, int refreshRate) {
 	ProfilerPanelInfo* pInfo = &ds->profilerPanelInfo;
 
 	ThreadQueue* threadQueue = theThreadQueue;
@@ -460,7 +459,7 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 	//
 
 	Profiler* prof = &ds->profiler;
-	ProfilerTimer* timer = prof->timer;
+	SampleData* sampler = &prof->sampler;
 	Timings* timings = prof->timings[prof->currentFrameIndex];
 	Statistic* statistics = prof->statistics[prof->currentFrameIndex];
 
@@ -472,7 +471,7 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 	float cyclesPerFrame = (float)((3.5f*((float)1/60))*1000*1000*1000);
 	int fontSize = ds->fontHeight;
 	Vec2 textPos = vec2(550, -ds->fontHeight);
-	int infoCount = timer->timerInfoCount;
+	int infoCount = sampler->infos.count;
 
 	//
 
@@ -480,41 +479,8 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 
 	// @Stats
 	case 0: {
-		static float scrollHeight = 0;
-		float yOffset = 0;
-		float wOffset = 0;
-		{
-			static float scrollValue = 0;
-			Rect pr = pri.setT(p.y);
-
-			gui->sScroll.scrollBarPadding = pad.x;
-			gui->sScroll.scrollAmount = eh + pad.y;
-			gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
-		}
-
-		QLayout ql = qLayout(p + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
-		float startY = ql.pos.y;
-
-		defer { gui->qScrollEnd(); };
-		defer { scrollHeight = startY - ql.pos.y - pad.y; };
-
 		int barWidth = 1;
 		int barCount = arrayCount(prof->timings);
-
-		float cols[] = {0,0,0,0,0,0,0,0, barWidth*barCount};
-		char* labels[] = {"File", "Function", "Description", "Cycles", "Hits", "C/H", "Avg. Cycl.", "Total Time", "Graphs"};
-
-		qr = ql.row(cols, arrayCount(cols));
-
-		for(int i = 0; i < arrayCount(cols); i++) {
-			TextBoxSettings tbs = gui->sTextBox; 
-			tbs.boxSettings.borderColor = vec4(0);
-			tbs.textSettings = gui->sText2;
-			if(gui->qButton(qr.next(), fString("<b>%s<b>", labels[i]), &tbs)) {
-				if(abs(pInfo->statsSortingIndex) == i) pInfo->statsSortingIndex *= -1;
-				else pInfo->statsSortingIndex = i;
-			}
-		}
 
 		int* sortIndices = getTArray(int, infoCount);
 		{
@@ -526,9 +492,9 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 			if(between(si, 0, 2)) {
 				char** data = getTArray(char*, count);
 
-				TimerInfo* timerInfos = timer->timerInfos;
+				SampleZoneInfo* timerInfos = sampler->infos.data;
 				for(int i = 0; i < count; i++) {
-					TimerInfo* tInfo = timerInfos + i;
+					SampleZoneInfo* tInfo = timerInfos + i;
 					if(!tInfo->initialised) data[i] = getTString("");
 					else {
 						     if(si == 0) data[i] = getTString(timerInfos[i].file);						
@@ -538,7 +504,7 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 				}
 
 				auto cmp = [](void* a, void* b) { return sortFuncString(VDref(SortPair<char*>, a).key, VDref(SortPair<char*>, b).key); };
-				bubbleSort(data, sortIndices, count, cmp);
+				mergeSort(data, sortIndices, count, cmp);
 
 			} else if(between(si, 3, 7)) {
 				double* data = getTArray(double, count);
@@ -550,7 +516,7 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 				else if(si == 7) for(int i = 0; i < count; i++) data[i] = timings[i].cycles/cyclesPerFrame;
 
 				auto cmp = [](void* a, void* b) { return VDref(SortPair<double>, a).key < VDref(SortPair<double>, b).key; };
-				bubbleSort(data, sortIndices, count, cmp);
+				mergeSort(data, sortIndices, count, cmp);
 	   	}
 
 	   	bool sortDirection = pInfo->statsSortingIndex < 0 ? false : true;
@@ -559,10 +525,56 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 	   	}
 		}
 
+		char* labels[] = {"File", "Function", "Description", "Cycles", "Hits", "C/H", "Avg. Cycl.", "Total", "Graphs"};
+		float sizeForCycles = getTextDim("100,000.00 ns", font).w + fontSize*0.5f;
+		float sizeForPercent = getTextDim("100.00%  ", font).w + fontSize*0.5f;
+		float cols[] = {0.0f,0.20f,0.15f,sizeForCycles,getTextDim("1,000", font).w + fontSize*0.5f, sizeForCycles, sizeForCycles, sizeForPercent, barWidth*barCount};
+
+		QLayout ql = qLayout(p, vec2(ew,eh), pad);
+
+		// Table header.
+		{
+			gui->scissorPush(rectTLDim(ql.pos, ql.dim));
+			defer { gui->scissorPop(); };
+
+			qr = ql.row(cols, arrayCount(cols));
+
+			for(int i = 0; i < arrayCount(cols); i++) {
+				TextBoxSettings tbs = gui->sTextBox; 
+				tbs.boxSettings.borderColor = vec4(0);
+				tbs.textSettings = gui->sText2;
+				if(gui->qButton(qr.next(), fString("<b>%s<b>", labels[i]), &tbs)) {
+					if(abs(pInfo->statsSortingIndex) == i) pInfo->statsSortingIndex *= -1;
+					else pInfo->statsSortingIndex = i;
+				}
+			}
+		}
+
+		static float scrollHeight = 0;
+		float yOffset = 0;
+		float wOffset = 0;
+		{
+			static float scrollValue = 0;
+			Rect pr = pri.setT(ql.pos.y);
+
+			gui->sScroll.scrollBarPadding = pad.x;
+			gui->sScroll.scrollAmount = eh + pad.y;
+			gui->qScroll(pr, scrollHeight, &scrollValue, &yOffset, &wOffset);
+		}
+
+		ql = qLayout(ql.pos + vec2(0,yOffset), vec2(ew - wOffset,eh), pad);
+		float startY = ql.pos.y;
+
+		defer { gui->qScrollEnd(); };
+		defer { scrollHeight = startY - ql.pos.y - pad.y; };
+
+
+
+		double microsecondsPerFrame = (1.0/refreshRate) * 1000000;
+
 		for(int index = 0; index < infoCount; index++) {
 			int i = sortIndices[index];
-
-			TimerInfo* tInfo = timer->timerInfos + i;
+			SampleZoneInfo* tInfo = sampler->infos + i;
 			Timings* timing = timings + i;
 
 			if(!tInfo->initialised) continue;
@@ -570,32 +582,44 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 			ql.pad.y = 0;
 			qr = ql.row(cols, arrayCount(cols));
 
-			gui->qText(qr.next(), fString("%s", tInfo->file + 21), vec2i(-1,0));
+			dxDrawRect(rectBLDim(ql.pos, ql.dim), vec4(0,0,0,index%2 ? 0.15f : 0.3f));
 
-			TextBoxSettings tbs = gui->sTextBox; tbs.boxSettings.borderColor = vec4(0);
-			if(gui->qButton(qr.next(), fString("%s", tInfo->function), vec2i(-1,0), &tbs)) {
-				char* command = fString("%s %s:%i", Editor_Executable_Path, tInfo->file, tInfo->line);
-				shellExecuteNoWindow(command);
-			}
+			int backslashPos = strFindBackwards(tInfo->file, '\\');
+			gui->qText(qr.next(), fString("%s", getTString(tInfo->file + backslashPos)), vec2i(-1,0));
+
+			// TextBoxSettings tbs = gui->sTextBox; tbs.boxSettings.borderColor = vec4(0);
+			// if(gui->qButton(qr.next(), fString("%s", tInfo->function), vec2i(-1,0), &tbs)) {
+			// 	char* command = fString("%s %s:%i", Editor_Executable_Path, tInfo->file, tInfo->line);
+			// 	shellExecuteNoWindow(command);
+			// }
+			gui->qText(qr.next(), fString("%s", tInfo->function), vec2i(-1,0));
 			gui->qText(qr.next(), fString("%s", tInfo->name), vec2i(-1,0));
-			gui->qText(qr.next(), fString("%'I64dc", timing->cycles), vec2i(-1,0));
-			gui->qText(qr.next(), fString("%'I64d", timing->hits), vec2i(-1,0));
-			gui->qText(qr.next(), fString("%'I64dc", timing->cyclesOverHits), vec2i(-1,0));
-			gui->qText(qr.next(), fString("%'I64dc", (i64)statistics[i].avg), vec2i(-1,0)); // Not a i64 but whatever.
-			gui->qText(qr.next(), fString("%.3f%%", ((float)timing->cycles/cyclesPerFrame)*100), vec2i(-1,0));
+
+			double cyclesToMicroSeconds = ds->clockStampToTime*1000;
+			double microsecondsTotal = timing->cycles*cyclesToMicroSeconds;
+			
+			gui->qText(qr.next(), fString("%'.2f μs", microsecondsTotal), vec2i(1,0));
+			gui->qText(qr.next(), fString("%'I64d", timing->hits), vec2i(1,0));
+			gui->qText(qr.next(), fString("%'.2f μs", timing->cyclesOverHits*cyclesToMicroSeconds), vec2i(1,0));
+			gui->qText(qr.next(), fString("%'.2f μs", statistics[i].avg*cyclesToMicroSeconds), vec2i(1,0)); // Not a i64 but whatever.
+			gui->qText(qr.next(), fString("%.2f%%  ", (microsecondsTotal/microsecondsPerFrame)*100), vec2i(1,0));
 
 			// Bar graph.
 
-			// dcState(STATE_LINEWIDTH, barWidth);
-
 			Rect r = qr.next();
+
 			r.left = round(r.left) + 0.5f;
 			r.right = round(r.right) + 0.5f;
+
+			if(gui->scissorTest(r)) continue;
 
 			float rheight = r.h();
 			float fontBaseOffset = 4;
 
 			dxBeginPrimitiveColored(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+			defer { dxEndPrimitive(); };
+
+			DArray<PrimitiveVertex>* array = &theGState->vertexBuffer;
 
 			float xOffset = 0;
 			for(int statIndex = 0; statIndex < barCount; statIndex++) {
@@ -608,10 +632,8 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 				xOffset += barWidth;
 
 				dxPushLine(rmin, rmin + vec2(0,height), vec4(colorOffset,1-colorOffset,0,1));
-				dxFlushIfFull();
+				dxFlushIfFull(2);
 			}
-
-			dxEndPrimitive();
 		}
 
 	} break;
@@ -657,18 +679,6 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 		ql.dim.h = stackCountMain*lineHeight + stackCountThreads*lineHeight*(threadQueue->threadCount);
 		Rect bgRect = ql.getRect();
 		ql.dim.h = eh;
-
-		//
-
-		int swapTimerIndex = 0;
-		for(int i = 0; i < timer->timerInfoCount; i++) {
-			if(!timer->timerInfos[i].initialised) continue;
-
-			if(strCompare(timer->timerInfos[i].name, "Swap")) {
-				swapTimerIndex = i;
-				break;
-			}
-		}
 
 		//
 
@@ -733,7 +743,6 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 			double divMod = (1/div) + 0.05f;
 
 			double timelineSection = div;
-			// while(timelineSection < cam->w*divMod*(gui->windowSettings->currentRes.w/(bgRect.w()))) {
 			while(timelineSection < cam->w*divMod*(650/(bgRect.w()))) {
 				timelineSection *= div;
 				heightMod += 0.1f;
@@ -741,7 +750,6 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 
 			clampMax(&heightMod, 1.0f);
 
-			// dcState(STATE_LINEWIDTH, 3);
 			double startPos = roundMod(cam->left, timelineSection) - timelineSection;
 			double pos = startPos;
 			while(pos < cam->right + timelineSection) {
@@ -775,7 +783,6 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 
 				pos += timelineSection;
 			}
-			// dcState(STATE_LINEWIDTH, 1);
 
 			pos = startPos;
 			timelineSection /= div;
@@ -795,7 +802,13 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 					Vec2 textPos = vec2(pMid,headerRect.bottom + headerRect.h()/3);
 
 					double cycles = timelineSection;
-					drawText(fString("%$_.1fc", cycles), textPos, vec2i(0,0), gui->sText2);
+					double timeInMS = cycles*ds->clockStampToTime;
+					char* str;
+					     if(timeInMS < 0.0001) str = fString("%.1fns", timeInMS*1000*1000);
+					else if(timeInMS < 0.1)    str = fString("%.1fμs", timeInMS*1000);
+					else                       str = fString("%.1fms", timeInMS);
+
+					drawText(str, textPos, vec2i(0,0), gui->sText2);
 				}
 
 				pos += timelineSection;
@@ -817,27 +830,23 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 		bgRect.bottom += 1;
 		gui->qBox(round(bgRect), &bs);
 
-		// {
-		// 	printf("Start\n");
-		// 	int bufferCount = prof->slotBufferCount;
-		// 	for(int i = 0; i < bufferCount; ++i) {
-		// 		GraphSlot* slot = prof->slotBuffer + ((firstIndex+i)%prof->slotBufferMax);
-		// 		if(slot->threadIndex)
-		// 			printf("%i ", slot->threadIndex);
-		// 	}
-		// 	printf("End\n");
-		// }
+		struct TextBoxes {
+			Rect r;
+			char* text;
+			Vec4 c;
+		};
+
+		tMemoryPushMarkerScoped();
+		DArray<TextBoxes> textBoxesToDraw = dArray<TextBoxes>(getTMemory);
+
+		dxBeginPrimitiveColored(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
 		Vec2 pos = bgRect.tl();
 		for(int threadIndex = 0; threadIndex < threadQueue->threadCount+1; threadIndex++) {
 
-			// if(threadIndex == threadQueue->threadCount-1) {
-			// 	__debugbreak();
-			// }
-
 			// Horizontal lines to distinguish thread bars.
 			if(threadIndex > 0) {
-				dxDrawLineH(pos, vec2(bgRect.right, pos.y), cThreadLine);
+				dxPushLineH(pos, vec2(bgRect.right, pos.y), cThreadLine);
 			}
 
 			int bufferCount = prof->slotBufferCount;
@@ -853,8 +862,8 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 				float right = graphCamMapX(cam, slot->cycles + slot->size);
 
 				// Draw vertical line at swap boundaries.
-				if(slot->timerIndex == swapTimerIndex) {
-					dxDrawLineV(vec2(right, bgRect.bottom), vec2(right, bgRect.top), cSwapBoundary);
+				if(slot->timerIndex == prof->sampler.swapInfoIndex) {
+					dxPushLineV(vec2(right, bgRect.bottom), vec2(right, bgRect.top), cSwapBoundary);
 				}
 
 				float y = pos.y - (slot->stackIndex*lineHeight);
@@ -862,30 +871,72 @@ void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd) {
 
 				bool visible = right - left >= 1;
 				if(visible) {
-					TimerInfo* tInfo = timer->timerInfos + slot->timerIndex;
+					SampleZoneInfo* tInfo = sampler->infos + slot->timerIndex;
 
 					Vec4 color = vec4(tInfo->color, 1);
-					char* text = fString("%s %s (%$_.1ic)", tInfo->function, tInfo->name, slot->size);
+
+					double cycles = slot->size;
+					double timeInMS = cycles*ds->clockStampToTime;
+					// char* text;
+					char* text = "a";
+					     if(timeInMS < 0.0001) text = fString("%s %s (%.2fns)", tInfo->function, tInfo->name, timeInMS*1000*1000);
+					else if(timeInMS < 0.1)    text = fString("%s %s (%.2fμs)", tInfo->function, tInfo->name, timeInMS*1000);
+					else                       text = fString("%s %s (%.2fms)", tInfo->function, tInfo->name, timeInMS);
+
 					r.left = max(r.left, bgRect.left);
 
-					if(pointInRect(gui->input->mousePosNegative, r)) {
+					if(pointInRect(gui->input->mousePosNegative, r.expand(-2))) {
 						mouseHighlight = true;
-						hRect = r;
+						hRect = round(r);
 						hc = color;
 						hText = text;
 
 					} else {
-						slotSettings.boxSettings.color = color;
-						gui->qTextBox(r, text, vec2i(-1,0), &slotSettings);
+						textBoxesToDraw.push({round(r).expand(-2), text, color});
 					}
 
 				} else {
-					dxDrawLine(r.b(), r.t(), slotSettings.boxSettings.borderColor);
+					dxPushLine(r.b(), r.t(), slotSettings.boxSettings.borderColor);
 				}
+
+				dxFlushIfFull();
 			}
 
 			if(threadIndex == 0) pos.y -= stackCountMain*lineHeight;
 			else pos.y -= stackCountThreads*lineHeight;
+		}
+
+		// Draw lines.
+		dxEndPrimitive();
+
+		// Draw boxes.
+		{
+			{
+				dxBeginPrimitiveColored();
+				defer { dxEndPrimitive(); };
+				for(auto& it : textBoxesToDraw) {
+					dxPushRect(it.r, it.c);
+					dxFlushIfFull(6);
+				}
+			}
+
+			// Outlines.
+			for(auto& it : textBoxesToDraw) {
+				dxDrawRectOutline(it.r.expand(2), slotSettings.boxSettings.borderColor);
+			}
+		}
+
+		// Draw text;
+		{
+			float cutWidth = slotSettings.sideAlignPadding;
+			for(auto& it : textBoxesToDraw) {
+				if(it.r.w() <= cutWidth) continue;
+
+				slotSettings.boxSettings.color = it.c;
+				gui->scissorPush(it.r);
+				drawText(it.text, it.r.l() + vec2(slotSettings.sideAlignPadding-1,0), vec2i(-1,0), it.r.w(), slotSettings.textSettings);
+				gui->scissorPop();
+			}
 		}
 
 		if(mouseHighlight) {
@@ -2349,7 +2400,7 @@ void manifoldPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd) {
 
 		ql.row(tWidth, 0);
 		gui->qText(ql.next(), "GridRadius", vec2i(-1,0));
-		gui->qSlider(ql.next(), &ad->manifoldGridRadius, 5, 50);
+		gui->qSlider(ql.next(), &ad->manifoldGridRadius, 5, 30);
 
 		ql.row(tWidth, ql.dim.h, 0);
 		gui->qText(ql.next(), "CellUI", vec2i(-1,0));

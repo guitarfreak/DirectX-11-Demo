@@ -38,6 +38,11 @@ void setMemory(bool debug = false) {
 
 inline void* getPMemory(int size) {
 	return getExtendibleMemoryArray(size, theMemory->currentPMemory);
+	
+	// @Test
+	// void * mem = getExtendibleMemoryArray(size, theMemory->currentPMemory);
+	// memset(mem, 0, size);
+	// return mem;
 }
 
 inline char* getPString(int size) { 
@@ -56,10 +61,20 @@ inline char* getPString(char* str, int size = -1) {
 
 inline void* getTMemory(int size) {
 	return getMemoryArray(size, theMemory->currentTMemory);
+
+	// @Test
+	// void* mem = getMemoryArray(size, theMemory->currentTMemory);
+	// memset(mem, 0, size);
+	// return mem;
 }
 
 inline void* getTMemoryInterlocked(int size) {
 	return getMemoryArrayInterlocked(size, theMemory->tMemoryThreadSafe);
+
+	// @Test
+	// void* mem = getMemoryArrayInterlocked(size, theMemory->tMemoryThreadSafe);
+	// memset(mem, 0, size);
+	// return mem;
 }
 
 // Empty function for containers.
@@ -69,14 +84,17 @@ inline void clearTMemory() {
 	clearMemoryArray(theMemory->currentTMemory);
 }
 
-inline void pushMarkerTMemory()  {
+inline void tMemoryPushMarker() {
     theMemory->markerStack[theMemory->markerStackIndex++] = theMemory->currentTMemory->index;
 }
 
-inline void popMarkerTMemory()  {
+inline void tMemoryPopMarker() {
     int storedIndex = theMemory->markerStack[--theMemory->markerStackIndex];
     theMemory->currentTMemory->index = storedIndex;
 }
+
+#define tMemoryPushMarkerScoped() \
+	tMemoryPushMarker(); defer { tMemoryPopMarker(); };
 
 inline char* getTString(int size) { 
 	char* s = getTArray(char, size + 1);
@@ -103,6 +121,11 @@ inline char** getTStringArray(char** strings, int count) {
 
 inline void* getDMemory(int size) {
 	return getExtendibleBucketMemory(theMemory->currentDMemory);
+
+	// @Test	
+	// void* mem = getExtendibleBucketMemory(theMemory->currentDMemory);
+	// memset(mem, 0, size);
+	// return mem;;
 }
 
 inline void freeDMemory(void* address) {

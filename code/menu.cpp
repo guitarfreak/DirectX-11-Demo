@@ -120,7 +120,7 @@ bool menuOptionSliderInt(MainMenu* menu, Vec2 pos, int* value, int rangeMin, int
 //
 
 void renderMenuBackground() {
-	dxSetFrameBuffer("MenuBackground", theGState->gSettings->cur3dBufferRes, 1, 0);
+	dxSetFrameBuffer("MenuBackground", theGState->gSettings->cur3dBufferRes, 1);
 
 	dxSetShader(Shader_Primitive);
 	dxGetShaderVars(Primitive)->viewProj = theGState->gMats.ortho * theGState->gMats.view2d;
@@ -209,7 +209,9 @@ void menuUpdate(AppData* ad, WindowSettings* ws, float fontHeightScaled, bool* t
 	int titleFontHeight = fontHeightScaled * 6.0f;
 	int optionFontHeight = titleFontHeight * 0.45f;
 	Font* titleFont = getFont("Merriweather-Regular.ttf", titleFontHeight);
+	titleFont->enableKerning = true;
 	Font* font = getFont("Merriweather-Regular.ttf", optionFontHeight);
+	font->enableKerning = true;
 
 	Vec4 cBackground = vec4(hslToRgbf(0.93f,0.5f,0.13f),1);
 	Vec4 cTitle = vec4(1,1);
@@ -315,7 +317,7 @@ void menuUpdate(AppData* ad, WindowSettings* ws, float fontHeightScaled, bool* t
 			menu->activeId = 0;
 		}
 
-		p.y -= optionOffset;
+		p.y -= optionOffset*1.5f;
 		if(menuOption(menu, "Exit", p, vec2i(0,0))) {
 			*isRunning = false;
 		}

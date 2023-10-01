@@ -36,6 +36,7 @@ struct Particle {
 	//
 
 	float distToCam;
+	Vec3 globalPos;
 };
 
 Meta_Parse_Enum();
@@ -361,14 +362,7 @@ void particleGetQuad(Particle* p, ParticleSettings* settings, Rect uv, bool loca
 		c.rgb *= settings->brightness;
 	}
 
-	Vec3 pos = p->pos;
-	if(localSpace) {
-		pos = ((*mat) * vec4(pos,1)).xyz;
-
-		// p.vel = xForm.rot * (xForm.scale * p.vel);
-		// float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
-		// p.size = (minScale * p.size);
-	}
+	Vec3 pos = p->globalPos;
 
 	Vec3 right, up;
 	if(settings->stretch) {
@@ -414,8 +408,10 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 	{
 		TIMER_BLOCK_NAMED("ParticleSim");
 
+		Vec3 gravityScaledDt = gravityScaled * dt;
+
 		for(auto& it : particles) {
-			particleSim(&it, gravityScaled * dt, dt);
+			particleSim(&it, gravityScaledDt, dt);
 		}
 	}
 
@@ -516,9 +512,8 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 				}
 			}
 
-			if(!localSpace) {
+			if(!localSpace)
 				p.pos = xForm.trans + xForm.rot * (xForm.scale * p.pos);
-			}
 
 			{
 				float minScale = min(xForm.scale.x, xForm.scale.y, xForm.scale.z);
@@ -534,31 +529,37 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 		}
 	}
 
-	// Remove dead.
-	for(int i = 0; i < particles.count; i++) {
-		Particle* p = particles + i;
-
-		if(p->time >= p->lifeTime) {
-			particles.remove(i);
-			i--;
-		}
-	}	
-
-	// Sort.
 	{
-		TIMER_BLOCK_NAMED("ParticleSort");
+		TIMER_BLOCK_NAMED("ParticleUpdate");
+
+		Mat4 mat = modelMatrix(xForm);
 
 		for(int i = 0; i < particles.count; i++) {
 			Particle* p = particles + i;
 
-			// p->distToCam = len(p->pos - cam->pos);
-			p->distToCam = dot(p->pos - cam->pos, cam->look);
-		}
+			// Remove dead.
+			if(p->time >= p->lifeTime) {
+				particles.remove(i);
+				i--;
+				continue;
+			}
 
-		auto cmp = [](const void* a, const void* b) -> int { 
-			return ((Particle*)a)->distToCam > ((Particle*)b)->distToCam ? -1 : 1;
+			// Calc global pos.
+			if(localSpace) p->globalPos = (mat * vec4(p->pos,1)).xyz;
+			else           p->globalPos = p->pos;
+
+			p->distToCam = lenSquared(p->globalPos - cam->pos);
+		}	
+	}
+
+	{
+		TIMER_BLOCK_NAMED("ParticleSort");
+
+		// Sort.
+		auto cmp = [](Particle& a, Particle& b) -> bool { 
+			return a.distToCam > b.distToCam; 
 		};
-		qsort(particles.data, particles.count, sizeof(Particle), cmp);
+		ksIntrosort(particles.data, particles.count, cmp);
 	}
 
 	if(settings.lifeTime > 0) {
@@ -566,9 +567,8 @@ void ParticleEmitter::update(float dt, XForm xForm, Camera* cam) {
 		if((time >= settings.lifeTime) && particles.count == 0) finishTime += dt;
 
 		// Reset.
-		if(finishTime > settings.restTime) {
+		if(finishTime > settings.restTime)
 			finished = true;
-		}
 	}
 }
 
@@ -607,9 +607,8 @@ void ParticleEmitter::draw(XForm xForm, Camera* cam) {
 		}
 
 		{
-			pushMarkerTMemory();
-			defer{ popMarkerTMemory(); };
-			DArray<PrimitiveVertex> verts = dArray<PrimitiveVertex>(particles.count*6, getTMemory);
+			tMemoryPushMarkerScoped();
+			DArray<PrimitiveVertex> verts; verts.initResize(particles.count*6, getTMemory);
 
 			{
 				struct ThreadData {
@@ -635,26 +634,13 @@ void ParticleEmitter::draw(XForm xForm, Camera* cam) {
 				};
 
 				ThreadData td = {particles.data, verts.data, &settings, uv, localSpace, cam, &mat};
-				splitThreadTask(particles.count, &td, threadFunc);
+				splitThreadTask(particles.count, &td, threadFunc, -1);
 			}
 
-			if(particles.count)
-			{
+			if(particles.count) {
 				dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-				int count = particles.count * 6;
-				int maxCount = (theGState->primitiveVertexBufferMaxCount/6) * 6;
-
-				int index = 0;
-				while(count - index > 0) {
-					int pushCount = min(count - index, maxCount);
-					dxPushVerts(verts.data + index, pushCount);
-					index += pushCount;
-					if(count - index > 0) dxFlush();
-					else dxEndPrimitive();
-				}
+				dxDrawEndPrimitive(verts.data, verts.count, 6);
 			}
-
 		}
 	}
 }

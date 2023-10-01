@@ -14,7 +14,7 @@ int findMember(MemberInfo* mInfo, SData* sData) {
 	return -1;
 };
 
-void serializeData(SData* sData, int type, char* data, char* memberName, MemberInfo* mInfo = 0, char* structBase = 0, int arrayLevel = 0, bool deserialize = false) {
+void serializeData(SData* sData, char type, char* data, char* memberName, MemberInfo* mInfo = 0, char* structBase = 0, int arrayLevel = 0, bool deserialize = false) {
 	if(structBase == 0) structBase = (char*)data;
 
 	int sDataType = getSDataTypeFromMemberInfo(mInfo, arrayLevel);
@@ -41,7 +41,9 @@ void serializeData(SData* sData, int type, char* data, char* memberName, MemberI
 		StructInfo* sInfo = getStructInfo(type);
 
 		if(!deserialize) {
-			*sData = { SData_STRUCT, type, getTString(memberName), sInfo->version };
+			*sData = { SData_STRUCT, type, getTString(memberName) };
+			sData->version = sInfo->version;
+
 			sData->members.init(getTMemory);
 			sData->members.reserve(sInfo->memberCount);
 		}
@@ -77,7 +79,9 @@ void serializeData(SData* sData, int type, char* data, char* memberName, MemberI
 			int arrayMemberOffset = getArrayMemberOffset(mInfo, arrayLevel);
 
 			if(!deserialize) {
-				*sData = { SData_ARRAY, mInfo->type, getTString(memberName), mInfo->arrayCount - arrayLevel };
+				*sData = { SData_ARRAY, (char)mInfo->type, getTString(memberName) };
+				sData->version = mInfo->arrayCount - arrayLevel;
+
 				sData->members.init(getTMemory);
 				sData->members.reserve(arraySize);
 			}
@@ -132,7 +136,7 @@ SData createSMember(MemberInfo* mInfo, int arrayLevel = 0) {
 	int sDataType = getSDataTypeFromMemberInfo(mInfo, arrayLevel);
 
 	if(sDataType == SData_ATOM) {
-		return { SData_ATOM, mInfo->type, getTString(mInfo->name) };
+		return { SData_ATOM, (char)mInfo->type, getTString(mInfo->name) };
 
 	} else if(sDataType == SData_STRUCT) {
 		StructInfo* sInfo = getStructInfo(mInfo->type);
@@ -272,6 +276,8 @@ void writeSData(SData* sData, DArray<char>* buf, int depth = 0) {
 		buf->pushStr(fString("%.*s", depth, tabs));
 		buf->pushStr("],\n");
 	}
+	if(depth == 0) 
+		buf->pushStr("", true);
 }
 
 SData readSData(QuickParser* parser) {

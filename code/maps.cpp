@@ -45,10 +45,10 @@ void defaultMap(EntityManager* em) {
 }
 
 void saveMap(EntityManager* em, char* mapName) {
-	DArray<char> buffer;
-	buffer.init();
+	DArray<char> buffer = dArray<char>();
 	
 	SData sData = {};
+
 	serializeData(&sData, getType(DArray_Entity), (char*)&em->entities, "EntityList");
 	writeSData(&sData, &buffer);
 
@@ -70,7 +70,13 @@ void loadMap(EntityManager* em, char* mapName) {
 	em->entities.clear();
 	em->entities.resize(entityCount);
 
+	// @2023: We store the DArray and not just the entity array?
+	// Can't remember why I did it this way. 
+	int prevReserved = em->entities.reserved;
+
 	serializeData(&sData, getType(DArray_Entity), (char*)&em->entities, "EntityList", 0, 0, 0, true);
+
+	em->entities.reserved = prevReserved;
 
 	int biggestId = 0;
 	for(auto& e : em->entities) {

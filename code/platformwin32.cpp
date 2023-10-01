@@ -210,18 +210,14 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 	// windowClass.hCursor = LoadCursor(0, IDC_ARROW);
 	windowClass.hCursor = 0;
 
-	if(!RegisterClass(&windowClass)) {
-		DWORD errorCode = GetLastError();
-		int dummy = 2;
-	}
+	if(!RegisterClass(&windowClass))
+		assertLogPrint(false, "System", Log_Error, fString("Unable to register window class. (Error code: %d.)", GetLastError()));
 
 	// systemData->windowClass = windowClass;
 	systemData->windowHandle = CreateWindowEx(0, windowClass.lpszClassName, "", ws->style, wx,wy,ww,wh, 0, 0, systemData->instance, 0);
 
 	HWND windowHandle = systemData->windowHandle;
-	if(!windowHandle) {
-		DWORD errorCode = GetLastError();
-	}
+	assertLogPrint(windowHandle, "System", Log_Error, fString("Unable to create window. (Error code: %d.)", GetLastError()));
 
 	SetWindowLongPtr(windowHandle, GWLP_USERDATA, (LONG_PTR)systemData);
 
@@ -266,7 +262,7 @@ void initSystem(SystemData* systemData, WindowSettings* ws, WindowsData wData, V
 		TIMECAPS timecaps;
 		timeGetDevCaps(&timecaps, sizeof(TIMECAPS));
 		int error = timeBeginPeriod(timecaps.wPeriodMin);
-		if(error != TIMERR_NOERROR) printf("Timer error.\n");
+		if(error != TIMERR_NOERROR) logPrint("System", Log_Warning, fString("Couldn't set timer sleep resolution."), true);
 	}
 
 	SetFocus(windowHandle);
@@ -608,8 +604,8 @@ void* mallocWithBaseAddress(void* baseAddress, int sizeInBytes) {
 	return mem;
 }
 
-void atomicAdd(volatile unsigned int* n) { InterlockedIncrement(n); }
-void atomicSub(volatile unsigned int* n) { InterlockedDecrement(n); }
+inline void atomicAdd(volatile unsigned int* n) { InterlockedIncrement(n); }
+inline void atomicSub(volatile unsigned int* n) { InterlockedDecrement(n); }
 
 void swapBuffers(SystemData* systemData) {
 	SwapBuffers(systemData->deviceContext);
@@ -629,6 +625,21 @@ void updateFontSizes(SystemData* sd, int* fontHeight, float fontScale, int* font
 
 	*fontHeight = roundInt(sd->fontHeight * fontScale);
 	*fontHeightScaled = roundInt(sd->fontHeight * windowScale);
+}
+
+char* GetHResultErrorMessageText(HRESULT hr) {
+	DWORD errorCode = HRESULT_CODE(hr);
+
+	WCHAR wszMsgBuff[512];
+	char string[512];
+	DWORD dwChars;
+
+	dwChars = FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, errorCode, 0, wszMsgBuff, 512, NULL );
+
+	int len = wcstombs(string, wszMsgBuff, sizeof(wszMsgBuff));
+
+	char* result = fString("Error Code %d: %s", errorCode, dwChars ? string : "Error message not found.");
+	return result;
 }
 
 #if 0

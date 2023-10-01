@@ -48,7 +48,7 @@ template <class T> void bubbleSort(T* list, int* indices, int size, bool (*compa
 
 //
 
-template <class T> void mergeSort(T* list, int size, bool (*compare) (T* a, T* b)) {
+template <class T> void mergeSort(T* list, int size, bool (*compare) (void* a, void* b)) {
 	T* buffer = (T*)mallocX(sizeof(T)*size);
 
 	int stageCount = ceil(logBase(size, 2));
@@ -150,4 +150,95 @@ template <class T> void radixSort(T* list, int* indices, int size, int* (*getKey
 	for(int i = 0; i < size; i++) indices[i] = pairs[i].index;
 
 	free(pairs);
+}
+
+//
+
+template<class T, class Compare> void interleaveArrays(T* d0, int n0, T* d1, int n1, T* buf, Compare cmp) {
+	int i0 = 0;
+	int i1 = 0;
+	int index = 0;
+
+	int total = n0 + n1;
+	while(index < total) {
+		T cd0 = d0[i0];
+		T cd1 = d1[i1];
+
+		if(i0 == n0) {
+			buf[index++] = cd1;
+			i1++;
+			continue;
+
+		} else if(i1 == n1) {
+			buf[index++] = cd0;
+			i0++;
+			continue;
+		}
+
+		bool result = cmp(cd0, cd1);
+		if(result) {
+			buf[index++] = cd0;
+			i0++;
+		} else {
+			buf[index++] = cd1;
+			i1++;
+		}
+	}
+}
+
+template<class T, class Compare> void introsortThreaded(T* a, int n, Compare cmp) {
+	// static bool start = true;
+	// static Statistic stat = {};
+	// if(start) {
+	// 	stat.begin();
+	// 	start = false;
+	// }
+	// Timer timer;
+	// timer.init();
+	// timer.start();
+
+	// defer {
+	// 	double time = timer.stop();
+	// 	stat.update(time);
+
+	// 	printf("%f %f\n", time, stat.getAvg());
+	// };
+
+	int threadCount = theThreadQueue->threadCount + 1;
+
+	if(n < threadCount * 100) 
+		return ksIntrosort(a, n, cmp);
+
+	struct ThreadData {
+		T* array;
+		Compare cmp;
+	};
+
+	auto func = [](void* data) {
+		ThreadHeader* h = (ThreadHeader*)data;
+		ThreadData* td = (ThreadData*)h->data;
+
+		ksIntrosort(td->array + h->index, h->count, td->cmp);
+	};
+
+	Vec2i* ranges;
+	{
+		ThreadData td = {a, cmp};
+		splitThreadTask(n, &td, func, threadCount, &ranges);
+	}
+
+	T* buf = mallocArray(T, n);
+	defer { free(buf); };
+
+	int totalCount = 0;
+	for(int i = 0; i < threadCount-1; i++) {
+		Vec2i range = ranges[i+1];
+		totalCount += ranges[i].y;
+
+		T* src = i % 2 == 0 ? a : buf;
+		T* dst = i % 2 == 0 ? buf : a;
+		interleaveArrays(src, totalCount, a + range.x, range.y, dst, cmp);
+	}
+
+	if(threadCount % 2 == 0) copyArray(a, buf, T, n);
 }

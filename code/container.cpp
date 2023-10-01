@@ -1,20 +1,21 @@
 
 Meta_Parse_Struct(0);
 template <class T> struct DArray {
-
 	T* data; // @V0 @SizeVar(count)
 	int count; // @V0 @Hide 
 	int reserved; // @V0 @Hide
-	int startSize; // @V0 @Hide
 
-	bool customAlloc; // @V0 @Hide
 	void* (*allocFunc) (int size);
 	void  (*freeFunc) (void* ptr);
 
 	//
 
 	void init(void* (*alloc) (int) = 0, void (*free) (void* ptr) = 0);
-	int  getReservedCount(int newCount);
+	void init(int reservedCount, void* (*alloc) (int));
+	void initResize(int resizedCount, void* (*alloc) (int), bool zeroMemory = false);
+
+	int  getNewSizePow(int newCount);
+	int  getNewSizeDouble(int newCount);
 	void resize(int newCount);
 	void reserve(int reserveCount);
 	void reserveAdd(int reserveAddedCount);
@@ -26,17 +27,24 @@ template <class T> struct DArray {
 	void push(T element);
 	void push(T* element);
 	void push(T* elements, int n);
+	void pushNC(T element);
+	void pushNC(T* element);
+	void pushNC(T* elements, int n);
 	void pushStr(T* string, bool includeZero = false);
 	void push(DArray  array);
 	void push(DArray* array);
 	void insertMove(T element, int index);
 	void insert(T element, int index);
+	void removeMove(int index, int count);
 	T*   find(T value);
 	T*   find(bool (*func) (T* e));
 	int  findI(T value);
 	int  findStr(T value);
 	T*   retrieve(int addedCount);
 	void zeroMemory();
+	void zeroMemoryReserved();
+
+	DArray<T> filter(bool (*test) (void* a), void* (*alloc) (int) = 0);
 
 	bool operator==(DArray<T> array);
 	bool operator!=(DArray<T> array);
@@ -53,71 +61,93 @@ template <class T> struct DArray {
 	T*   operator+(int i);
 	T*   atr(int i);
 
-	T* begin() { return data; };
-	T* end() { return data+count; };
+	T*   begin() { return data; };
+	T*   end() { return data+count; };
 };
 
-template <class T> DArray<T> dArray(void* (*alloc) (int) = 0, void (*free) (void* ptr) = 0) {
-	DArray<T> array;
-	array.init(alloc, free);
-	return array;
+template <class T> inline DArray<T> dArray(void* (*alloc) (int) = 0, void (*free) (void* ptr) = 0) {
+	return {0, 0, 0, alloc, free};
 }
 
-template <class T> DArray<T> dArray(int reservedCount, void* (*alloc) (int)) {
-	DArray<T> array;
-	array.init(alloc);
+template <class T> inline DArray<T> dArray(int reservedCount, void* (*alloc) (int)) {
+	DArray<T> array = {0, 0, 0, alloc};
 	array.reserve(reservedCount);
 	return array;
 }
 
-template <class T> DArray<T> dArray(DArray<T>& da, void* (*alloc) (int)) {
-	DArray<T> array;
-	array.init(alloc);
+template <class T> inline DArray<T> dArrayResize(int count, void* (*alloc) (int), bool zeroMemory = false) {
+	DArray<T> array = {0, 0, 0, alloc};
+	array.reserve(count);
+	array.count = count;
+	if(zeroMemory) array.zeroMemory();
+	return array;
+}
+
+template <class T> inline DArray<T> dArray(DArray<T>& da, void* (*alloc) (int)) {
+	DArray<T> array = {0, 0, 0, alloc};
 	array.reserve(da.count);
 	array.copy(&da);
 	return array;
 }
 
-template <class T> void DArray<T>::init(void* (*allocFunc) (int) = 0, void (*freeFunc) (void* ptr) = 0) {
-	*this = {};
-	startSize = 100;
-
-	if(allocFunc) customAlloc = true;
-	this->allocFunc = allocFunc;
-	this->freeFunc = freeFunc;
+template <class T> inline void DArray<T>::init(void* (*allocFunc) (int) = 0, void (*freeFunc) (void* ptr) = 0) {
+	*this = {0, 0, 0, allocFunc, freeFunc};
 }
 
-template <class T> int DArray<T>::getReservedCount(int newCount) {
-	if(startSize == 0) startSize = 100;
-
-	int reservedCount = max(startSize, reserved);
-	while(reservedCount < newCount) reservedCount *= 2;
-
-	return reservedCount;
+template <class T> inline void DArray<T>::init(int reservedCount, void* (*alloc) (int)) {
+	*this = {0, 0, 0, alloc};
+	reserve(reservedCount);
 }
+
+template <class T> inline void DArray<T>::initResize(int resizedCount, void* (*alloc) (int), bool _zeroMemory) {
+	*this = {0, 0, 0, alloc};
+	reserve(resizedCount);
+	this->count = resizedCount;
+	if(_zeroMemory) zeroMemory();
+}
+
+template <class T> inline int DArray<T>::getNewSizePow(int newCount) {
+	return pow(2.0f, ceil(logBase(max(newCount,2),2)));
+}
+
+template <class T> inline int DArray<T>::getNewSizeDouble(int newCount) {
+	return max(reserved, 2)*2;
+}
+
+// template <class T> void DArray<T>::resize(int newCount) {
+// 	// if(autoDouble) newCount = count ? count*2 : newCount;
+// 	if(autoDouble) newCount = newCount < 2 ? 2 : pow(2.0f, ceil(logBase(newCount,2)));
+
+// 	T* newData = allocFunc ? (T*)allocFunc(sizeof(T)*newCount) :
+// 	                             mallocArray(T, newCount);
+// 	copyArray(newData, data, T, count);
+
+// 	if(data) {
+// 		if(freeFunc) freeFunc(data);
+// 		else ::free(data);
+// 	}
+
+// 	data = newData;
+// 	reserved = newCount;
+// }
 
 template <class T> void DArray<T>::resize(int newCount) {
-	int reservedCount = getReservedCount(newCount);
-
-	T* newData = customAlloc ? (T*)allocFunc(sizeof(T)*reservedCount) :
-	                           mallocArray(T, reservedCount);
-	copyArray(newData, data, T, count);
+	T* newData = allocFunc ? (T*)allocFunc(sizeof(T)*newCount) :
+	                             mallocArray(T, newCount);
+	copyArray(newData, data, T, min(count, newCount));
 
 	if(data) {
-		if(customAlloc) {
+		if(allocFunc) {
 			if(freeFunc) freeFunc(data);
 		} else ::free(data);
 	}
 
 	data = newData;
-	reserved = reservedCount;
+	reserved = newCount;
 }
 
 template <class T> void DArray<T>::reserve(int reserveCount) {
-	if(reserveCount > reserved) {
-		startSize = reserveCount; // Hack.
-		resize(reserveCount);
-	}
+	if(reserveCount > reserved) resize(reserveCount);
 }
 
 template <class T> void DArray<T>::reserveAdd(int reserveAddedCount) {
@@ -138,7 +168,7 @@ template <class T> void DArray<T>::copy(DArray<T>* array) {
 
 template <class T> void DArray<T>::free() {
 	if(data) {
-		customAlloc ? freeFunc(data) : ::free(data);
+		freeFunc ? freeFunc(data) : ::free(data);
 		count = 0;
 		data = 0;
 		reserved = 0;
@@ -150,43 +180,56 @@ template <class T> void DArray<T>::freeResize(int n) {
 	resize(n);
 }
 
-template <class T> void DArray<T>::push(T element) {
-	if(count == reserved) resize(count+1);
+template <class T> inline void DArray<T>::push(T element) {
+	if(count == reserved) resize(getNewSizeDouble(count+1));
 
 	data[count++] = element;
 }
 
-template <class T> void DArray<T>::push(T* element) {
-	if(count == reserved) resize(count+1);
+template <class T> inline void DArray<T>::push(T* element) {
+	if(count == reserved) resize(getNewSizeDouble(count+1));
 
 	data[count++] = *element;
 }
 
-template <class T> void DArray<T>::push(T* elements, int n) {
-	if(count+n-1 >= reserved) resize(count+n);
+template <class T> inline void DArray<T>::push(T* elements, int n) {
+	if(count+n-1 >= reserved) resize(getNewSizePow(count+n));
 
 	copyArray(data+count, elements, T, n);
 	count += n;
 }
 
-template <class T> void DArray<T>::pushStr(T* string, bool includeZero) {
+template <class T> inline void DArray<T>::pushNC(T element) {
+	data[count++] = element;
+}
+
+template <class T> inline void DArray<T>::pushNC(T* element) {
+	data[count++] = *element;
+}
+
+template <class T> inline void DArray<T>::pushNC(T* elements, int n) {
+	copyArray(data+count, elements, T, n);
+	count += n;
+}
+
+template <class T> inline void DArray<T>::pushStr(T* string, bool includeZero) {
 	int size = strLen(string);
 	if(includeZero) size++;
 	push(string, size);
 }
 
-template <class T> void DArray<T>::push(DArray array) {
+template <class T> inline void DArray<T>::push(DArray array) {
 	push(array.data, array.count);
 }
 
-template <class T> void DArray<T>::push(DArray* array) {
+template <class T> inline void DArray<T>::push(DArray* array) {
 	push(array->data, array->count);
 }
 
 template <class T> void DArray<T>::insertMove(T element, int index) {
 	if(index > count-1) return push(element);
 
-	if(count == reserved) resize(count+1);
+	if(count == reserved) resize(getNewSizeDouble(count+1));
 
 	moveArray(data+index+1, data+index, T, count-(index+1));
 	data[index] = element;
@@ -199,6 +242,12 @@ template <class T> void DArray<T>::insert(T element, int index) {
 	if(index == count) return push(element);
 	push(data[index]);
 	data[index] = element;
+}
+
+template <class T> inline void DArray<T>::removeMove(int index, int n) {
+	int end = index + n;
+	moveArray(data + index, data + end, T, count - end);
+	count -= n;
 }
 
 template <class T> T* DArray<T>::find(T value) {
@@ -231,7 +280,7 @@ template <class T> int DArray<T>::findStr(T value) {
 }
 
 template <class T> T* DArray<T>::retrieve(int addedCount) {
-	if(count+addedCount-1 >= reserved) resize(count+addedCount);
+	if(count+addedCount-1 >= reserved) resize(getNewSizePow(count+addedCount));
 
 	T* p = data + count;
 	count += addedCount;
@@ -239,30 +288,43 @@ template <class T> T* DArray<T>::retrieve(int addedCount) {
 	return p;
 }
 
-template <class T> void DArray<T>::zeroMemory() {
+template <class T> inline void DArray<T>::zeroMemory() {
 	memset(data, 0, sizeof(T)*count);
 }
 
-template <class T> bool DArray<T>::operator==(DArray<T> array) {
+template <class T> inline void DArray<T>::zeroMemoryReserved() {
+	memset(data, 0, sizeof(T)*reserved);
+}
+
+template <class T> DArray<T> DArray<T>::filter(bool (*test) (void* a), void* (*alloc) (int)) {
+	DArray<T> results = dArray<T>(alloc);
+	for(auto& it : *this) {
+		if(test(&it)) results.push(it);
+	}
+
+	return results;
+}
+
+template <class T> inline bool DArray<T>::operator==(DArray<T> array) {
 	if(count != array.count) return false;
 	for(int i = 0; i < count; i++) {
 		if(data[i] != array.data[i]) return false;
 	}
 	return true;
 }
-template <class T> bool DArray<T>::operator!=(DArray<T> array) { return !(*this == array); }
+template <class T> inline bool DArray<T>::operator!=(DArray<T> array) { return !(*this == array); }
 
-template <class T> void DArray<T>::clear()           { count = 0; }
-template <class T> T&   DArray<T>::first()           { return data[0]; }
-template <class T> T&   DArray<T>::last()            { return data[count-1]; }
-template <class T> bool DArray<T>::empty()           { return count == 0; };
-template <class T> T    DArray<T>::pop()             { return data[--count]; }
-template <class T> void DArray<T>::pop(int n)        { count -= n; }
-template <class T> void DArray<T>::remove(int i)     { data[i] = data[--count]; }
-template <class T> T&   DArray<T>::operator[](int i) { return data[i]; }
-template <class T> T&   DArray<T>::at(int i)         { return data[i]; }
-template <class T> T*   DArray<T>::operator+(int i)  { return data + i; }
-template <class T> T*   DArray<T>::atr(int i)        { return data + i; }
+template <class T> inline void DArray<T>::clear()           { count = 0; }
+template <class T> inline T&   DArray<T>::first()           { return data[0]; }
+template <class T> inline T&   DArray<T>::last()            { return data[count-1]; }
+template <class T> inline bool DArray<T>::empty()           { return count == 0; };
+template <class T> inline T    DArray<T>::pop()             { return data[--count]; }
+template <class T> inline void DArray<T>::pop(int n)        { count -= n; }
+template <class T> inline void DArray<T>::remove(int i)     { data[i] = data[--count]; }
+template <class T> inline T&   DArray<T>::operator[](int i) { return data[i]; }
+template <class T> inline T&   DArray<T>::at(int i)         { return data[i]; }
+template <class T> inline T*   DArray<T>::operator+(int i)  { return data + i; }
+template <class T> inline T*   DArray<T>::atr(int i)        { return data + i; }
 
 //
 

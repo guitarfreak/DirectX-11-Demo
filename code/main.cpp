@@ -17,18 +17,19 @@
 #include "threadQueue.cpp"
 
 #else 
-
 #include "app.cpp"
 
 #endif
 
+#include "external\physical_processors.cpp"
+
 int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLine, int showCode) {
+	#ifndef SHIPPING_MODE
 
 	AllocConsole();
 	freopen("conin$","r",stdin);
 	freopen("conout$","w",stdout);
 	freopen("conout$","w",stderr);
-	#ifndef SHIPPING_MODE
 
 	HotloadDll hotloadDll;
 	initDll(&hotloadDll, "app.dll", "appTemp.dll", "lock.tmp");
@@ -37,18 +38,19 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
 	WindowsData wData = windowsData(instance, prevInstance, commandLine, showCode);
 
-	SYSTEM_INFO sysinfo;
-	GetSystemInfo(&sysinfo);
-	int coreCount = sysinfo.dwNumberOfProcessors;
+	// SYSTEM_INFO sysinfo;
+	// GetSystemInfo(&sysinfo);
+	// int coreCount = sysinfo.dwNumberOfProcessors;
+
+	int logicalProc = 0;
+	int physicalProc = physicalProcessors(&logicalProc); 
 
 	ThreadQueue threadQueue;
-	// threadQueue.init(coreCount-1, 100);
-	threadQueue.init(coreCount-1, 100);
+	threadQueue.init(physicalProc-1, 100);
 
 	AppMemory appMemory = {};
 
 	bool firstFrame = true;
-	bool secondFrame = false;
 	bool isRunning = true;
 	while(isRunning) {
 		bool reload = false;
@@ -70,3 +72,5 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
 	return 0;
 }
+
+

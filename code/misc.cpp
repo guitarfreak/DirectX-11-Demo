@@ -20,6 +20,7 @@
 
 #define zeroStruct(s, structType) zeroMemory(s, sizeof(structType));
 #define copyArray(dst, src, type, count) memcpy(dst, src, sizeof(type)*(count));
+#define copyStaticArray(dst, src, type) memcpy(dst, src, sizeof(type)*(arrayCount(src)));
 #define moveArray(dst, src, type, count) memmove(dst, src, sizeof(type)*(count));
 #define PVEC2(v) v.x, v.y
 #define PVEC3(v) v.x, v.y, v.z
@@ -44,6 +45,16 @@ void aCoord(int w, int i, int* x, int* y) {
 #define readTypeAndAdvance(buf, type) \
 		(*(type*)buf); buf += sizeof(type); 
 
+void assertPrint(bool check, char* message) {
+	if(!check) {
+		printf(message);
+		if(IsDebuggerPresent()) {
+			__debugbreak();
+		}
+		exit(1);
+	}
+}
+
 int myAssert(bool check) {
 	if(!check) {
 
@@ -61,28 +72,57 @@ inline void* mallocX(size_t size) {
 	return malloc(size);
 }
 
-void zeroMemory(void* memory, int size) {
+inline void zeroMemory(void* memory, int size) {
 	memset(memory, 0, size);
 }
 
-void freeAndSetNullSave(void* data) {
+inline void freeAndSetNullSave(void* data) {
 	if(data) {
 		free(data);
 		data = 0;
 	}
 }
 
-#define reallocArraySave(type, ptr, count) \
-	freeAndSetNullSave(ptr);               \
-	ptr = mallocArray(type, (count));
+// #define mallocArrayResizeSave(type, ptr, count) \
+// 	freeAndSetNullSave(ptr);               \
+// 	(ptr) = mallocArray(type, (count));
 
-#define reallocStructSave(type, ptr) \
-	freeAndSetNullSave(ptr);         \
-	ptr = mallocStruct(type);
+// #define mallocStructResizeSave(type, ptr) \
+// 	freeAndSetNullSave(ptr);         \
+// 	(ptr) = mallocStruct(type);
 
-#define reallocStringSave(ptr, count) \
-	freeAndSetNullSave(ptr);          \
-	ptr = mallocString((count));
+// #define mallocStringResizeSave(ptr, count) \
+// 	freeAndSetNullSave(ptr);          \
+// 	(ptr) = mallocString((count));
+
+inline void _mallocArrayResize(void** data, int* count, int newCount) {
+	if(!(*data)) return;
+	free(*data);
+	*data = malloc(newCount);
+	*count = newCount;
+}
+
+#define mallocArrayResize(type, data, count, newCount) \
+	_mallocArrayResize((void**)data, count, sizeof(type) * (newCount)); \
+	*count /= sizeof(type);
+
+inline void _resizeRingBuffer(void** data, int *count, int *index, int newCount, int elementSize) {
+	void* newData = malloc(newCount * elementSize);
+	
+	// Copy first part of ring buffer to front.
+	memcpy(newData, *data, (*index) * elementSize);
+
+	// Copy second part of ring buffer to end of new buffer.
+	int endSize = (*count) - (*index);
+	memcpy((char*)newData + (newCount - endSize) * elementSize, (char*)(*data) + (*index) * elementSize, endSize * elementSize);
+
+	free(*data);
+	*data = newData;
+	*count = newCount;
+}
+
+#define resizeRingBuffer(type, data, count, index, newCount) \
+	_resizeRingBuffer((void**)(data), count, index, newCount, sizeof(type));
 
 void freeZero(void* data) {
 	if(data) {
@@ -130,3 +170,51 @@ template <class T> deferrer<T> operator*(defer_dummy, T f) { return {f}; }
 #define DEFER_(LINE) zz_defer##LINE
 #define DEFER(LINE) DEFER_(LINE)
 #define defer auto DEFER(__LINE__) = defer_dummy{} *[&]()
+
+//
+
+enum LogPriority {
+	Log_Note,
+	Log_Warning,
+	Log_Error,
+};
+
+struct Logger {
+	char* filePath;
+	bool enabled;
+	void init(char* filePath, bool enabled);
+	void log(char* category, LogPriority priority, char* txt, bool print = false);
+	void assertLog(bool check, char* category, LogPriority priority, char* txt, bool print = false);
+};
+
+void Logger::init(char* filePath, bool enabled) {
+	if(!enabled) return;
+
+	this->filePath = filePath;
+	this->enabled = enabled;
+
+	FILE* file = fopen(filePath, "wb");
+	assertPrint(file, "Error: Could not create log file.\n");
+	fclose(file);
+}
+
+void Logger::log(char* category, LogPriority priority, char* txt, bool print) {
+	if(!enabled) return;
+
+	static char* priorityStrings[] = {"", "Warning: ", "Error: "};
+
+	// Have to always close and reopen to actually save the contents in case the program crashes.
+	FILE* file = fopen(filePath, "ab");
+	myAssert(file);
+	fprintf(file, "%s: %s%s\r\n", category, priorityStrings[priority], txt);
+	fclose(file);
+
+	if(print || priority == Log_Error) printf("%s: %s%s\r\n", category, priorityStrings[priority], txt);
+}
+
+void Logger::assertLog(bool check, char* category, LogPriority priority, char* txt, bool print) {
+	if(!check) {
+		log(category, priority, txt); 
+		assertPrint(check, txt); 
+	}
+}

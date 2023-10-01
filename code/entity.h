@@ -40,6 +40,7 @@ struct Entity {
 	Rect3 aabb; // @Hide
 	Mat4 modelInv; // @Hide
 
+	bool culled;
 	bool deleted; // @V0
 
 	union {
@@ -68,4 +69,6 @@ struct EntityManager {
 	DArray<Entity*>* groupMembers; // @Ignore
 
 	char* currentMap;
+
+	void init() { *this = {}; };
 };

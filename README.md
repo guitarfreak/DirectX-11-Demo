@@ -25,7 +25,8 @@
   	</a>
 </p>
 
-Features:
+#### Features
+
 * Directional lighting.
 * Basic shadow mapping. (Poisson disk sampling.)
 * Normal mapping.
@@ -37,6 +38,11 @@ Features:
 * Command history, Undo/Redo.
 * Introspection/Serialization/Versioning with preprocessing step.
 * WalkManifold (Navmesh). (As shown [here](https://www.youtube.com/watch?v=6QMLAVX5s4o).)
+
+#### How to compile
+
+Run buildReleaseOptimized.bat or buildReleaseOptimizedShip.bat to get a release build. Run code\buildWin.bat for a debug build.\
+Needs a version of Visual Studio. The batch files use vswhere to locate it.
 
 #### Controls
 

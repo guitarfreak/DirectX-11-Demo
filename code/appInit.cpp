@@ -28,7 +28,7 @@ void initMemory(AppMemory* appMemory) {
 	initMemoryArray(tMemory, megaBytes(30), 0);
 
 	MemoryArray* tMemoryThreadSafe = &appMemory->memoryArrays[appMemory->memoryArrayCount++];
-	initMemoryArray(tMemoryThreadSafe, megaBytes(1), 0);
+	initMemoryArray(tMemoryThreadSafe, megaBytes(10), 0);
 }
 
 void setupMemoryAndGlobals(AppMemory* appMemory, ThreadQueue* threadQueue, MemoryBlock* gMemory, AppData** appData, DebugState** debugState, bool init) {
@@ -55,7 +55,8 @@ void setupMemoryAndGlobals(AppMemory* appMemory, ThreadQueue* threadQueue, Memor
 		theGState = &ad->GraphicsState;
 		theAudioState = &ad->audioState;
 		theDebugState = ds;
-		theTimer = ds->profiler.timer;
+		theSampler = &ds->profiler.sampler;
+		theLogger = &ds->logger;
 	}
 
 	*appData = ad;
@@ -82,7 +83,8 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 	#endif
 
 	HWND windowHandle = sd->windowHandle;
-	SetWindowText(windowHandle, APP_NAME);
+	APP_NAME;
+	// SetWindowText(windowHandle, APP_NAME);
 
 	ws->vsync = true;
 	ws->frameRate = ws->refreshRate;
@@ -102,7 +104,6 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 
 	ad->gSettings.fieldOfView = 60;
 	ad->gSettings.msaaSamples = 4;
-	ad->gSettings.msaaQuality = 1;
 	ad->gSettings.resolutionScale = 1;
 	ad->gSettings.nearPlane = 0.1f;
 	ad->gSettings.farPlane = 50;
@@ -111,19 +112,20 @@ void systemInit(AppData* ad, DebugState* ds, SystemData* sd, WindowSettings* ws,
 	pcg32_srandom(0, __rdtsc());
 }
 
-void addFrameBuffers();
-void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, SectionTimer* st, GraphicsSettings* gSettings) {
-
-	*gs = {};
+void addFrameBuffers(int* msaaSamples);
+void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, SectionTimer* st, int* msaaSamples) {
+	gs->init();
 
 	// @SwapChain.
 	{
+		logPrint("Graphics", "Init D3D11.");
+	
 		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
 		{
 			DXGI_MODE_DESC bufferDesc = {};
 			bufferDesc.Width = 0;
 			bufferDesc.Height = 0;
-			bufferDesc.RefreshRate = {ws->refreshRate, 1};
+			bufferDesc.RefreshRate = {(uint)ws->refreshRate, 1};
 			bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 			// bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 			bufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
@@ -154,8 +156,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 		uint flags = D3D11_CREATE_DEVICE_SINGLETHREADED;
 		#endif
 
-		if ( FAILED( D3D11CreateDeviceAndSwapChain( NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, flags, featureLevels, arrayCount(featureLevels), D3D11_SDK_VERSION, &swapChainDesc, &swapChain, &d3dDevice, 0, 0) )) 
-			printf("D3D device creation failed");
+		HRESULT hr = D3D11CreateDeviceAndSwapChain( NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, flags, featureLevels, arrayCount(featureLevels), D3D11_SDK_VERSION, &swapChainDesc, &swapChain, &d3dDevice, 0, 0);
+		assertLogPrint(!hr, "Graphics", Log_Error, fString("Graphics init failed at \"D3D11CreateDeviceAndSwapChain\". (HResult code: %d.)", hr), true);
 
 		gs->swapChain = swapChain;
 		gs->d3dDevice = d3dDevice;
@@ -178,11 +180,10 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 	ID3D11Device* d3dDevice = gs->d3dDevice;
 	ID3D11DeviceContext* d3ddc = gs->d3ddc;
 
-	// uint count = 0;
-	// sd->d3dDevice->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, 8, &count);
-
 	// @Shader.
 	{
+		logPrint("Graphics", "Init shaders.");
+
 		gs->shaderCount = 0;
 		gs->shaders = getPArray(Shader, 10);
 
@@ -190,6 +191,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 			ShaderInfo* info = shaderInfos + i;
 			
 			Shader shader = {};
+
+			shader.name = getPString(info->name);
 			shader.id = i;
 			shader.varsSize = info->varsSize;
 			shader.varsData = (char*)getPMemory(shader.varsSize);
@@ -219,6 +222,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// @Textures.
 	{
+		logPrint("Graphics", "Init textures.");
+
 		gs->textureCount = 0;
 		gs->textureCountMax = 100;
 		gs->textures = getPArray(Texture, gs->textureCountMax);
@@ -228,7 +233,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 			recursiveFolderSearchStart(&fd, App_Texture_Folder);
 			while(recursiveFolderSearchNext(&fd)) {
 
-				if(strFind(fd.fileName, ".dds") == -1) continue;
+				if(strFind(fd.fileName, ".dds") == -1 && 
+				   strFind(fd.fileName, "fontsub") == -1) continue;
 
 				Texture tex = {};
 				tex.name = getPString(fd.fileName);
@@ -241,7 +247,10 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 					tex.cellDim = vec2i(8,8);
 				}
 
-				dxLoadAndCreateTextureDDS(&tex, true);
+				if(strFind(fd.fileName, ".png") != -1)
+					dxLoadAndCreateTexture(&tex);
+				else 
+					dxLoadAndCreateTextureDDS(&tex, true);
 
 				gs->textures[gs->textureCount++] = tex;
 			}
@@ -255,6 +264,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// @Meshes.
 	{
+		logPrint("Graphics", "Init meshes.");
+
 		char* meshesWithAlpha[] = {"entityUI_particle", "treeRealistic"};
 		char* meshesDoubleSided[] = {"entityUI_particle", "treeRealistic"};
 
@@ -278,6 +289,10 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 				m.name = getPString(fd.fileName);
 				m.file = getPString(fd.filePath);
+
+				if (strFind(m.name, "tree") != -1) {
+					int stop = 234;
+				}
 
 				{
 					m.swapWinding = true;
@@ -308,7 +323,9 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 		}
 
 		{
-			gs->primitiveVertexBufferMaxCount = 1000;
+			gs->primitiveVertexBufferMaxCount = 200;
+			int internalBufferCount = 2000;
+			gs->vertexBuffer.init(internalBufferCount, getPMemory);
 
 			D3D11_BUFFER_DESC bd;
 			bd.Usage = D3D11_USAGE_DYNAMIC;
@@ -318,6 +335,12 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 			bd.MiscFlags = 0;
 
 			d3dDevice->CreateBuffer(&bd, NULL, &gs->primitiveVertexBuffer);
+
+			gs->primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_POINTLIST] = 1;
+			gs->primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_LINELIST] = 2;
+			gs->primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP] = 2;
+			gs->primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST] = 3;
+			gs->primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP] = 3;
 		}
 	}
 
@@ -325,6 +348,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// @Material.
 	{
+		logPrint("Graphics", "Init materials.");
+
 		char* materialsWithAlpha[] = {"Metal Grill"};
 
 		gs->materialCount = 0;
@@ -376,6 +401,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// @Samplers.
 	{
+		logPrint("Graphics", "Init samplers.");
+
 		gs->sampler      = createSampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP, 16, D3D11_COMPARISON_LESS);
 		gs->samplerClamp = createSampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_CLAMP, 16, D3D11_COMPARISON_LESS);
 		// gs->samplerClamp = createSampler(D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP, 16, D3D11_COMPARISON_LESS);
@@ -393,11 +420,12 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 		d3dDevice->CreateBlendState(&blendDesc, &gs->blendStates[Blend_State_NoBlend]);
 
 		gs->blendStates[Blend_State_Blend] = 
-			dxCreateBlendState(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
+			dxCreateBlendState(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+			                   D3D11_BLEND_ONE,       D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
 
 		gs->blendStates[Blend_State_DrawOverlay] = 
 			dxCreateBlendState(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
-		                      D3D11_BLEND_ONE,       D3D11_BLEND_ONE,           D3D11_BLEND_OP_ADD);
+		                      D3D11_BLEND_ONE,       D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD);
 
 		gs->blendStates[Blend_State_BlitOverlay] = 
 			dxCreateBlendState(D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD); 
@@ -413,38 +441,24 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 		gs->blendStates[Blend_State_Add] = 
 			dxCreateBlendState(D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD);
+
+		gs->blendStates[Blend_State_Subpixel_Font] = 
+			// dxCreateBlendState(D3D11_BLEND_SRC1_COLOR, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_OP_ADD, 
+			dxCreateBlendState(D3D11_BLEND_SRC1_COLOR, D3D11_BLEND_INV_SRC1_COLOR, D3D11_BLEND_OP_ADD, 
+	                  		 D3D11_BLEND_ONE,       D3D11_BLEND_ZERO, D3D11_BLEND_OP_ADD);
 	}
 
 	st->add("sampler, blending");
 
 	// @FrameBuffers.
 	{
+		logPrint("Graphics", "Init framebuffers.");
+
 		gs->frameBufferCountMax = 30;
 		gs->frameBufferCount = 0;
 		gs->frameBuffers = getPArray(FrameBuffer, gs->frameBufferCountMax);
 
-		addFrameBuffers();
-
-		{
-			gSettings->msaaSamples = 0;
-			gSettings->msaaQuality = 0;
-
-			// Hopefully checking one format is enough?
-			auto format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-			// int possibleSampleCounts[] = {0, 1, 2, 4, 8, 16};
-			int possibleSampleCounts[] = {0, 1, 2, 4, 8};
-			// int possibleSampleCounts[] = {0, 1, 2, 4};
-			for(int i = arrayCount(possibleSampleCounts)-1; i >= 0; i--) {
-				int sampleCount = possibleSampleCounts[i];
-				uint numQualityLevels;
-				HRESULT result = theGState->d3dDevice->CheckMultisampleQualityLevels(format, sampleCount, &numQualityLevels);
-				if(result == S_OK && numQualityLevels) {
-					gSettings->msaaSamples = sampleCount;
-					gSettings->msaaQuality = numQualityLevels - 1;
-					break;
-				}
-			}
-		}
+		addFrameBuffers(msaaSamples);
 	}
 
 	st->add("framebuffers");
@@ -456,6 +470,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// @InitCubeMap.
 	{
+		logPrint("Graphics", "Init cubemaps.");
+
 		gs->cubeMapSize = 1024;
 		Vec2i dim = vec2i(gs->cubeMapSize);
 
@@ -496,6 +512,8 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 
 	// Fonts
 	{
+		logPrint("Graphics", "Init fonts.");
+
 		gs->fontFolders[gs->fontFolderCount++] = getPString(App_Font_Folder);
 		char* windowsFontFolder = fString("%s%s", getenv(Windows_Font_Path_Variable), Windows_Font_Folder);
 		gs->fontFolders[gs->fontFolderCount++] = getPString(windowsFontFolder);
@@ -505,37 +523,32 @@ void graphicsInit(GraphicsState* gs, WindowSettings* ws, SystemData *sd, Section
 }
 
 void appSessionInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
-
 	// Setup app temp settings.
-	AppSessionSettings appSessionSettings = {};
+
+	// @AppSessionDefaults
+	if(!fileExists(App_Session_File)) {
+		AppSessionSettings at = {};
+
+		Rect r = ws->monitors[0].workRect;
+		Vec2 center = vec2(r.cx(), (r.top - r.bottom)/2);
+		Vec2 dim = vec2(r.w(), -r.h());
+		at.windowRect = rectCenDim(center, dim*0.85f);
+
+		at.camPos = vec3(-4,5,3);
+		at.camRot = vec2(0.8f,-0.2f);
+
+		at.save(App_Session_File);
+	}
+
+	// @AppSessionLoad
 	{
-		// @AppSessionDefaults
-		if(!fileExists(App_Session_File)) {
-			AppSessionSettings at = {};
+		AppSessionSettings at;
+		at.load(App_Session_File);
 
-			Rect r = ws->monitors[0].workRect;
-			Vec2 center = vec2(r.cx(), (r.top - r.bottom)/2);
-			Vec2 dim = vec2(r.w(), -r.h());
-			at.windowRect = rectCenDim(center, dim*0.85f);
+		Recti r = rectiRound(at.windowRect);
+		MoveWindow(sd->windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
 
-			at.camPos = vec3(-4,5,3);
-			at.camRot = vec2(0.8f,-0.2f);
-
-			appWriteSessionSettings(App_Session_File, &at);
-		}
-
-		// @AppSessionLoad
-		{
-			AppSessionSettings at = {};
-			appReadSessionSettings(App_Session_File, &at);
-
-			Recti r = rectiRound(at.windowRect);
-			MoveWindow(sd->windowHandle, r.left, r.top, r.right-r.left, r.bottom-r.top, true);
-
-			updateResolution(sd->windowHandle, ws);
-
-			appSessionSettings = at;
-		}
+		updateResolution(sd->windowHandle, ws);
 	}
 }
 
@@ -559,8 +572,6 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 
 	#if SHIPPING_MODE
 	ad->mouseEvents.captureMouse = false;
-	// ad->mouseEvents.debugMouse = false;
-	// ad->mouseEvents.debugMouseFixed = true;
 	ad->mouseEvents.debugMouse = true;
 	ad->mouseEvents.debugMouseFixed = false;
 	#else 
@@ -577,30 +588,13 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 	ad->redrawSkyBox = true;
 	ad->playerHeight = 1.8f;
 
-	ad->entityManager = {};
+	ad->entityManager.init();
 
 	{
-		WalkManifoldSettings s;
-
-		s.cellSize = 0.15f;
-		s.playerRadius = 0.22f;
-		s.playerHeight = ad->playerHeight + 0.5f;
-		s.legHeight = s.playerHeight * 0.4f;
-		s.edgeSearchIterations = 14;
-		s.lineFlattenPercent = 0.07f;
-		s.maxLineCollisionCount = 5;
-
-		s.depthTest = true;
-		s.drawOutsideGrid = false;
-		s.drawLinesNoCleanup = false;
-		s.cGrid = vec4(1,0.8f);
-		s.cGridOutside = vec4(1,0.05f);
-		s.cBlockerLine = vec4(0,1,1,1);
-		s.cBlockerLineNoCleanup = vec4(1,0,0,1);
-		s.cWalkEdge = vec4(1,0,1,1);
+		WalkManifoldSettings s = {};
+		s.init(0.15f, 0.22f, ad->playerHeight + 0.5f, ad->playerHeight * 0.4f);
 
 		ad->manifold.init(&s);
-
 		ad->manifoldGridRadius = 12;
 	}
 
@@ -612,7 +606,6 @@ void appInit(AppData* ad, SystemData* sd, WindowSettings* ws) {
 		if(!fileExists(Game_Settings_File)) {
 			GameSettings settings = {};
 
-			// settings.fullscreen = true;
 			settings.fullscreen = false;
 			settings.vsync = true;
 			settings.frameRateCap = ad->maxFrameRate;

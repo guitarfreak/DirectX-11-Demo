@@ -51,6 +51,7 @@ struct FrameBuffer {
 	union {
 		struct {
 			ID3D11RenderTargetView* renderTargetView; // @Ignore
+			ID3D11RenderTargetView* renderTargetViewSRGB; // @Ignore
 			ID3D11ShaderResourceView* shaderResourceView; // @Ignore
 		};
 
@@ -86,6 +87,7 @@ enum BlendState {
 	Blend_State_BlitOverlay,
 	Blend_State_PreMultipliedAlpha,
 	Blend_State_Add,
+	Blend_State_Subpixel_Font,
 };
 
 struct MeshVertex {
@@ -118,7 +120,6 @@ Meta_Parse_Struct(0);
 struct GraphicsSettings {
 	Vec2i cur3dBufferRes;
 	int msaaSamples;
-	int msaaQuality;
 	float resolutionScale;
 	float aspectRatio;
 	int fieldOfView;

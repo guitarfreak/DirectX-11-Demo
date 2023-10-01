@@ -37,6 +37,9 @@ struct DebugState {
 	Timer swapTimer;
 	Timer frameTimer;
 	Timer debugTimer;
+	u64 clockStamp;
+	Statistic clockConvertStat;
+	double clockStampToTime;
 
 	double dt;
 	double time;
@@ -102,4 +105,6 @@ struct DebugState {
 	Console console;
 	NotificationData noteData;
 	InfoData infoData;
+
+	Logger logger;
 };

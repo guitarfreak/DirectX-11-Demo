@@ -11,41 +11,53 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 
 	char* path = fString("%s%s", fontFolder, file);
 
-
+	// Settings.
 
 	Font font;
-
-	// Settings.
 	
 	bool stemDarkening = true;
-	bool pixelAlign = true;
-	
+	bool pixelAlign = false;
+	bool pixelAlignStartPos = true;
+	bool isSubpixel = false;
+
 	int target;
 	if(height <= 14.0f)      target = FT_LOAD_TARGET_MONO   | FT_LOAD_FORCE_AUTOHINT;
 	else if(height <= 25.0f) target = FT_LOAD_TARGET_NORMAL | FT_LOAD_FORCE_AUTOHINT;
 	else                     target = FT_LOAD_TARGET_NORMAL;
 
-	int loadFlags = FT_LOAD_DEFAULT | target;
+	int loadFlags = FT_LOAD_DEFAULT | target;	
 
 	// FT_RENDER_MODE_NORMAL, FT_RENDER_MODE_LIGHT, FT_RENDER_MODE_MONO, FT_RENDER_MODE_LCD, FT_RENDER_MODE_LCD_V,
-	FT_Render_Mode renderFlags = FT_RENDER_MODE_NORMAL;
+	FT_Render_Mode renderFlags = !isSubpixel ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_LCD;
 
+	// isSubpixel = true;
+	if(isSubpixel) {
+		loadFlags   = FT_LOAD_TARGET_(FT_RENDER_MODE_LIGHT);
+		renderFlags =                 FT_RENDER_MODE_LCD;
+	}
 
-	font.glyphRangeCount = 0;
-	#define setupRange(a,b) vec2i(a, b - a + 1)
-	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x20, 0x7F);
-	font.glyphRanges[font.glyphRangeCount++] = setupRange(0xA1, 0xFF);
-	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x25BA, 0x25C4);
-	font.glyphRanges[font.glyphRangeCount++] = setupRange(0x258C, 0x258C); // ▌
-	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x2192, 0x2192); // →
+	// FT_RENDER_MODE_NORMAL = 0,
+	// FT_RENDER_MODE_LIGHT,
+	// FT_RENDER_MODE_MONO,
+	// FT_RENDER_MODE_LCD,
+	// FT_RENDER_MODE_LCD_V,
 
-	// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x48, 0x49);
-	#undef setupRange
+	{
+		font.glyphRangeCount = 0;
+		auto setupRange = [](int a, int b) { return vec2i(a, b - a + 1); };
+		font.glyphRanges[font.glyphRangeCount++] = setupRange(0x20, 0x7F);
+		font.glyphRanges[font.glyphRangeCount++] = setupRange(0xA1, 0xFF);
+		font.glyphRanges[font.glyphRangeCount++] = setupRange(0x25BA, 0x25C4);
+		font.glyphRanges[font.glyphRangeCount++] = setupRange(0x258C, 0x258C); // ▌
+		font.glyphRanges[font.glyphRangeCount++] = setupRange(0x03BC, 0x03BC); // μ
+		// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x2192, 0x2192); // →
 
-	font.totalGlyphCount = 0;
-	for(int i = 0; i < font.glyphRangeCount; i++) font.totalGlyphCount += font.glyphRanges[i].y;
+		// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x54, 0x54);
+		// font.glyphRanges[font.glyphRangeCount++] = setupRange(0x6D, 0x6D);
 
-
+		font.totalGlyphCount = 0;
+		for(int i = 0; i < font.glyphRangeCount; i++) font.totalGlyphCount += font.glyphRanges[i].y;
+	}
 
 	font.file = getPString(file);
 	font.heightIndex = height;
@@ -69,7 +81,8 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	if(height > 0) {
 		error = FT_Set_Pixel_Sizes(font.face, 0, roundIntf(height) * fullHeightToAscend); assert(error == 0);
 	} else {
-		error = FT_Set_Char_Size(font.face, 0, (roundIntf(-height) * fullHeightToAscend) * pointFraction, 0, 0); assert(error == 0);
+		error = FT_Set_Char_Size(font.face, 0, (roundIntf(-height) * fullHeightToAscend) * pointFraction, 0, 0); 
+		assert(error == 0);
 	}
 
 	// Get true height from freetype.
@@ -80,15 +93,22 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	float scale = (float)face->size->metrics.ascender / (float)face->ascender;
 	font.lineSpacing = roundIntf(((face->height * scale) / pointFraction));
 	font.pixelAlign = pixelAlign;
+	font.pixelAlignStartPos = pixelAlignStartPos;
+	font.hasKerning = FT_HAS_KERNING(font.face);
+	font.enableKerning = false;
+	font.isSubpixel = isSubpixel;
 
 
 
 	int gridSize = (sqrt((float)font.totalGlyphCount) + 1);
 	Vec2i texSize = vec2i(gridSize * font.height);
-	uchar* fontBitmapBuffer = mallocArray(unsigned char, texSize.x*texSize.y);
+	Vec2 texSizeInv = vec2(1.0f / texSize.w, 1.0f / texSize.h);
+
+	int widthMod = isSubpixel ? 3 : 1;
+	uchar* fontBitmapBuffer = mallocArray(unsigned char, texSize.x*widthMod*texSize.y);
 	defer { free(fontBitmapBuffer); };
 
-	memset(fontBitmapBuffer, 0, texSize.x*texSize.y);
+	memset(fontBitmapBuffer, 0, texSize.x*widthMod*texSize.y);
 
 	{
 		font.cData = mallocArray(PackedChar, font.totalGlyphCount);
@@ -104,24 +124,38 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 				Vec2i coordinate = vec2i(glyphIndex%gridSize, glyphIndex/gridSize);
 				Vec2i startPixel = coordinate * font.height;
 
-				font.cData[glyphIndex].x0 = startPixel.x;
-				font.cData[glyphIndex].x1 = startPixel.x + bitmap->width;
-				font.cData[glyphIndex].y1 = startPixel.y + bitmap->rows;
-				font.cData[glyphIndex].y0 = startPixel.y;
+				int x0 = startPixel.x;
+				int x1 = startPixel.x + bitmap->width/(float)widthMod;	
+				int y0 = startPixel.y;
+				int y1 = startPixel.y + bitmap->rows;
+				font.cData[glyphIndex].uv = rect(x0 * texSizeInv.x, y0 * texSizeInv.y, x1 * texSizeInv.x, y1 * texSizeInv.y);
 
-				font.cData[glyphIndex].xBearing = face->glyph->metrics.horiBearingX / pointFraction;
-				font.cData[glyphIndex].yBearing = face->glyph->metrics.horiBearingY / pointFraction;
-				font.cData[glyphIndex].width =    face->glyph->metrics.width        / pointFraction;
-				font.cData[glyphIndex].height =   face->glyph->metrics.height       / pointFraction;
+				float xBearing = face->glyph->metrics.horiBearingX / pointFraction;
+				float yBearing = face->glyph->metrics.horiBearingY / pointFraction;
+				float width    = face->glyph->metrics.width        / pointFraction;
+				// float width    = (face->glyph->metrics.width/(float)widthMod)  / pointFraction;
+				float height   = face->glyph->metrics.height       / pointFraction;
+				Rect r = rectBLDim(xBearing, -(height - yBearing), width, height);
+				r.bottom -= font.baseOffset;
+				r.top    -= font.baseOffset;
+				font.cData[glyphIndex].r = r;
 
 				font.cData[glyphIndex].xadvance = face->glyph->metrics.horiAdvance / pointFraction;
+				font.cData[glyphIndex].xadvanceSubpixelOffset = (face->glyph->lsb_delta + face->glyph->rsb_delta) / pointFraction;
 
 				for(int y = 0; y < bitmap->rows; y++) {
 					for(int x = 0; x < bitmap->width; x++) {
-						Vec2i coord = startPixel + vec2i(x,y);
-						fontBitmapBuffer[coord.y*texSize.w + coord.x] = bitmap->buffer[y*bitmap->width + x];
+						Vec2i coord = vec2i(startPixel.x*widthMod, startPixel.y) + vec2i(x,y);
+						fontBitmapBuffer[coord.y*texSize.w*widthMod + coord.x] = bitmap->buffer[y*(bitmap->pitch) + x];
 					}
 				}
+
+				// for(int i = 0; i < 10; i += 3) {
+				// 	fontBitmapBuffer[0+i] = 0;
+				// 	fontBitmapBuffer[1+i] = 135;
+				// 	fontBitmapBuffer[2+i] = srgbToLinear(189/255.0f)*255;
+				// 	// fontBitmapBuffer[2+i] = 189;
+				// }
 
 				glyphIndex++;
 			}
@@ -131,8 +165,17 @@ Font* fontInit(Font* fontSlot, char* file, float height, bool enableHinting = fa
 	uchar* fontBitmap = mallocArray(unsigned char, texSize.x*texSize.y*4);
 	defer { free(fontBitmap); };
 
-	memset(fontBitmap, 255, texSize.w*texSize.h*4);
-	for(int i = 0; i < texSize.w*texSize.h; i++) fontBitmap[i*4+3] = fontBitmapBuffer[i];
+	if(!isSubpixel) {
+		memset(fontBitmap, 255, texSize.w*texSize.h*4);
+		for(int i = 0; i < texSize.w*texSize.h; i++) fontBitmap[i*4+3] = fontBitmapBuffer[i];	
+	} else {
+		for(int i = 0; i < texSize.w*texSize.h; i++) {
+			fontBitmap[i*4+0] = fontBitmapBuffer[i*3+0];
+			fontBitmap[i*4+1] = fontBitmapBuffer[i*3+1];
+			fontBitmap[i*4+2] = fontBitmapBuffer[i*3+2];
+			fontBitmap[i*4+3] = 255;
+		}		
+	}
 
 	Texture tex = {};
 	tex.format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -264,260 +307,193 @@ int getUnicodeRangeOffset(int c, Font* font) {
 	return unicodeOffset;
 }
 
-// Taken from stbtt_truetype.
-void getPackedQuad(PackedChar *chardata, Vec2i texDim, int char_index, Vec2 pos, Rect* r, Rect* uv, int alignToInteger)
-{
-   PackedChar *b = chardata + char_index;
+float getKerning(int c, int c2, Font* font) {
+	if(!font->hasKerning) return 0;
 
-   if (alignToInteger) {
-   	  r->left = roundf(pos.x + b->xBearing);
-   	  r->bottom = roundf(pos.y - (b->height - b->yBearing));
-   	  r->right = r->left + b->width;
-   	  r->top = r->bottom + b->height;
+	FT_Vector kerning;
 
-   } else {
-   	  r->left = pos.x + b->xBearing;
-   	  r->bottom = pos.y - (b->height - b->yBearing);
-   	  r->right = r->left + b->width;
-   	  r->top = r->bottom + b->height;
-   }
+	uint charIndex1 = FT_Get_Char_Index(font->face, c);
+	uint charIndex2 = FT_Get_Char_Index(font->face, c2);
 
-   Vec2 ip = vec2(1.0f / texDim.w, 1.0f / texDim.h);
-   *uv = rect(b->x0*ip.x, b->y0*ip.y, b->x1*ip.x, b->y1*ip.y);
+	FT_Get_Kerning(font->face, charIndex1, charIndex2, FT_KERNING_DEFAULT, &kerning);
+	float kernAdvance = kerning.x * font->pixelScale;
+	
+	return kernAdvance;
 }
 
-void getTextQuad(int c, Font* font, Vec2 pos, Rect* r, Rect* uv) {
+struct TextMarkerInfo {
+	int index;
+	u8 type;
+	bool enable;
+	Vec3 color;
+};
 
-	int unicodeOffset = getUnicodeRangeOffset(c, font);
-	getPackedQuad(font->cData, font->tex.dim, unicodeOffset, pos, r, uv, font->pixelAlign);
+bool parseTextMarkerAndAdvance(char** _text, TextMarkerInfo* info, bool colorState) {
+	char* text = *_text;
+	if(text[0] != '<') return false;
+	if(!(text[1] != '\0' && text[2] == '>')) return false;
 
-	float off = font->baseOffset;
-	if(font->pixelAlign) off = roundIntf(off);
-	r->bottom -= off;
-	r->top -= off;
-}
-
-float getCharAdvance(int c, Font* font) {
-	int unicodeOffset = getUnicodeRangeOffset(c, font);
-	float result = font->cData[unicodeOffset].xadvance;
-	return result;
-}
-
-float getCharAdvance(int c, int c2, Font* font) {
-	int unicodeOffset = getUnicodeRangeOffset(c, font);
-	float result = font->cData[unicodeOffset].xadvance;
-
-	if(FT_HAS_KERNING(font->face)) {
-		FT_Vector kerning;
-
-		uint charIndex1 = FT_Get_Char_Index(font->face, c);
-		uint charIndex2 = FT_Get_Char_Index(font->face, c2);
-
-		FT_Get_Kerning(font->face, charIndex1, charIndex2, FT_KERNING_DEFAULT, &kerning);
-		float kernAdvance = kerning.x * font->pixelScale;
-
-		result += kernAdvance;
-	}
-
-	return result;
-}
-
-TextSimInfo initTextSimInfo(Vec2 startPos) {
-	TextSimInfo tsi = {};
-	tsi.pos = startPos;
-	tsi.index = 0;
-	tsi.wrapIndex = 0;
-	tsi.lineBreak = false;
-	tsi.breakPos = vec2(0,0);
-	return tsi;
-}
-
-// The marker system is badly designed and has all kinds of edge cases where it breaks if you
-// don't pay attention, so... put markers in sparingly.
-
-int parseTextMarkers(char* text, TextSimInfo* tsi, int* type = 0) {
-	// Return how many characters to skip.
-
-	if(text[0] == '<') {
-		if(text[1] != '\0' && text[2] != '\0' && text[2] == '>') {
-			switch(text[1]) {
-				case 'b': if(type) { *type = TEXT_MARKER_BOLD; } return Marker_Size;
-				case 'i': if(type) { *type = TEXT_MARKER_ITALIC; } return Marker_Size;
-				case 'c': if(type) { *type = TEXT_MARKER_COLOR; } 
-					if(tsi->colorMode) return Marker_Size;
-					else return Marker_Size + 6; // FFFFFF
-			}
+	if(text[1] == 'b') {
+		info->type = TEXT_MARKER_BOLD;
+		*_text += 3;
+		return true;
+	} else if(text[1] == 'i') {
+		info->type = TEXT_MARKER_ITALIC;
+		*_text += 3;
+		return true;
+	} else if(text[1] == 'c') {
+		info->type = TEXT_MARKER_COLOR;
+		if(!colorState) {
+			// Assuming rest of string if formatted correctly.
+			info->color.r = colorIntToFloat(strHexToInt(getTString(text + 3, 2)));
+			info->color.g = colorIntToFloat(strHexToInt(getTString(text + 5, 2)));
+			info->color.b = colorIntToFloat(strHexToInt(getTString(text + 7, 2)));
+			*_text += 9;
+		} else {
+			*_text += 3;
 		}
+		return true;
 	}
 
-	return 0;
+	return false;
 }
 
-void updateMarkers(char* text, TextSimInfo* tsi, Font* font, bool skip = false) {
+struct TextParseInfo {
+	int c;
+	PackedChar *charData;
+	float kerning;
+};
 
-	int type;
-	int length = 0;
-	while(length = parseTextMarkers(text + tsi->index, tsi, &type)) {
-		switch(type) {
-			case TEXT_MARKER_BOLD: {
-				tsi->index += length;
-				tsi->wrapIndex += length;
+struct ParsedTextData {
+	DArray<TextParseInfo> chars;
+	DArray<TextMarkerInfo> markers;
+	bool noLineBreak;
+};
 
-				if(!font->boldFont) return;
-				if(!skip) {
-					if(!tsi->bold && font->boldFont) {
-						dxEndPrimitive();
-						theGState->d3ddc->PSSetShaderResources(0, 1, &font->boldFont->tex.view);
-						dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					} else {
-						dxEndPrimitive();
-						theGState->d3ddc->PSSetShaderResources(0, 1, &font->tex.view);
-						dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+ParsedTextData parseText(char* text, Font* font) {
+	auto chars = dArray<TextParseInfo>(4, getTMemory);
+	auto markers = dArray<TextMarkerInfo>(20, getTMemory);
+	bool noLineBreak = true;
+	{
+		char* t = text;
+		int charIndex = 0;
+		bool markerSwitches[TEXT_MARKER_Size] = {};
+		Font* currentFont = font;
+
+		while(true) {
+			TextMarkerInfo markerInfo;
+			if(t[0] == '<') {
+				if(parseTextMarkerAndAdvance(&t, &markerInfo, markerSwitches[TEXT_MARKER_COLOR])) {
+					markerSwitches[markerInfo.type] = !markerSwitches[markerInfo.type];
+
+					markerInfo.enable = markerSwitches[markerInfo.type];
+					markerInfo.index = charIndex;
+					markers.push(markerInfo);
+
+					if(markerInfo.type == TEXT_MARKER_BOLD && font->boldFont) {
+						if(markerInfo.enable) currentFont = font->boldFont;
+						else currentFont = font;
+
+					} else if(markerInfo.type == TEXT_MARKER_ITALIC && font->italicFont) {
+						if(markerInfo.enable) currentFont = font->italicFont;
+						else currentFont = font;
 					}
-				}
 
-				tsi->bold = !tsi->bold;
-			} break;
-
-			case TEXT_MARKER_ITALIC: {
-				tsi->index += length;
-				tsi->wrapIndex += length;
-
-				if(!font->italicFont) return;
-				if(!skip) {
-					if(!tsi->italic && font->italicFont) {
-						dxEndPrimitive();
-						theGState->d3ddc->PSSetShaderResources(0, 1, &font->italicFont->tex.view);
-						dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					} else {
-						dxEndPrimitive();
-						theGState->d3ddc->PSSetShaderResources(0, 1, &font->tex.view);
-						dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					}
-				}
-
-				tsi->italic = !tsi->italic;
-			} break;
-
-			case TEXT_MARKER_COLOR: {
-				if(skip) {
-					tsi->index += length;
-					tsi->wrapIndex += length;
-					if(type == TEXT_MARKER_COLOR) tsi->colorMode = !tsi->colorMode;
 					continue;
-				} 
-				tsi->index += Marker_Size;
-				tsi->wrapIndex += Marker_Size;
-				Vec3 c;
-				if(!tsi->colorMode) {
-					c.r = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
-					c.g = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
-					c.b = colorIntToFloat(strHexToInt(getTString(&text[tsi->index], 2))); tsi->index += 2;
-					
-					tsi->wrapIndex += 6;
-
-					tsi->colorOverwrite = c;
 				}
+			}
 
-				tsi->colorMode = !tsi->colorMode;
-			} break;
+			int cSize;
+			int c = unicodeDecode((uchar*)t, &cSize);
+			if(c == '\0') break;
+
+			if(c == '\n') noLineBreak = false;
+
+			t += cSize;
+
+			TextParseInfo info;
+			info.c = c;
+			info.charData = currentFont->cData + getUnicodeRangeOffset(c, currentFont);
+			info.kerning = 0;
+
+			chars.push(info);
+
+			if(currentFont->enableKerning && charIndex > 0) {
+				TextParseInfo* prevInfo = &chars[chars.count-2];
+				prevInfo->kerning = getKerning(prevInfo->c, c, currentFont);
+			}
+
+			charIndex++;
 		}
 	}
+
+	ParsedTextData td = {chars, markers, noLineBreak};
+	return td;
 }
 
-int textSim(char* text, Font* font, TextSimInfo* tsi, TextInfo* ti, Vec2 startPos = vec2(0,0), int wrapWidth = 0) {
-	ti->lineBreak = false;
+bool textSim(DArray<TextParseInfo> chars, TextSimInfo* tsi, TextInfo* ti) {
+	if(ti) ti->lineBreak = false;
 
 	if(tsi->lineBreak) {
-		ti->lineBreak = true;
-		ti->breakPos = tsi->breakPos;
+		if(ti) {
+			ti->lineBreak = true;
+			ti->breakPos = tsi->breakPos;
+		}
 		tsi->lineBreak = false;
 	}
 
-	if(text[tsi->index] == '\0') {
-		ti->pos = tsi->pos;
-		ti->index = tsi->index;
-		return 0;
+	if(tsi->index == chars.count) {
+		if(ti) {
+			ti->pos = tsi->pos;
+			ti->index = tsi->index;
+		}
+		return false;		
 	}
 
-	Vec2 oldPos = tsi->pos;
-
-	int i = tsi->index;
-	int tSize;
-	int t = unicodeDecode((uchar*)(&text[i]), &tSize);
-
 	bool wrapped = false;
-
-	if(wrapWidth != 0 && i == tsi->wrapIndex) {
-		int size;
-		int c = unicodeDecode((uchar*)(&text[i]), &size);
+	if(tsi->wrapWidth && tsi->index == tsi->wrapIndex) {
+		int i = tsi->index;
 		float wordWidth = 0;
-		if(c == '\n') wordWidth = getCharAdvance(c, font);
-
-		char* tempText = text;
-		int it = i;
-		while(c != '\n' && c != '\0' && c != ' ') {
-
-			// Awkward.
-			bool hadMarker = false;
-			int markerLength = 0;
-			while(markerLength = parseTextMarkers(tempText + it, tsi)) {
-				// Pretend markers aren't there by moving text pointer.
-				tempText += markerLength;
-				hadMarker = true;
-			}
-			if(hadMarker) {
-				c = unicodeDecode((uchar*)(&tempText[it]), &size);
-				continue;
-			}
-
-			wordWidth += getCharAdvance(c, font);
-			it += size;
-			c = unicodeDecode((uchar*)(&tempText[it]), &size);
+		while(!(chars[i].c == ' ' || i == chars.count || chars[i].c == '\n')) {
+			wordWidth += chars[i].charData->xadvance + chars[i].kerning;
+			i++;
 		}
 
-		if(tsi->pos.x + wordWidth > startPos.x + wrapWidth) {
-			wrapped = true;
-		}
+		if(tsi->pos.x + wordWidth >= tsi->startPos.x + tsi->wrapWidth) wrapped = true;
 
-		if(it != i) tsi->wrapIndex = it;
+		if(i != tsi->index) tsi->wrapIndex = i;
 		else tsi->wrapIndex++;
 	}
 
-	if(t == '\n' || wrapped) {
+	Vec2 oldPos = tsi->pos;
+	TextParseInfo* info = chars + tsi->index;
+
+	if(info->c == '\n' || wrapped) {
 		tsi->lineBreak = true;
-		if(t == '\n') tsi->breakPos = tsi->pos + vec2(getCharAdvance(t, font),0);
-		if(wrapped) tsi->breakPos = tsi->pos;
+		tsi->breakPos = tsi->pos;
+		if(info->c == '\n') tsi->breakPos.x += info->charData->xadvance;
 
-		tsi->pos.x = startPos.x;
-		// tsi->pos.y -= font->height;
-		tsi->pos.y -= font->lineSpacing;
+		tsi->pos.x = tsi->startPos.x;
+		tsi->pos.y -= tsi->font->lineSpacing;
 
-		if(wrapped) {
-			return textSim(text, font, tsi, ti, startPos, wrapWidth);
-		}
-		
+		if(wrapped) return textSim(chars, tsi, ti);
 	} else {
-		getTextQuad(t, font, tsi->pos, &ti->r, &ti->uv);
-
-		if(text[i+1] != '\0') {
-			int tSize2;
-			int t2 = unicodeDecode((uchar*)(&text[i+tSize]), &tSize2);
-			tsi->pos.x += getCharAdvance(t, t2, font);
-		} else tsi->pos.x += getCharAdvance(t, font);
+		tsi->pos.x += info->charData->xadvance + info->kerning;
 	}
 
 	if(ti) {
 		ti->pos = oldPos;
 		ti->index = tsi->index;
-		ti->posAdvance = tsi->pos - oldPos;
+		ti->r = info->charData->r;
+		ti->r.min += ti->pos;
+		ti->r.max += ti->pos;
+		ti->uv = info->charData->uv;
 	}
 
-	tsi->index += tSize;
+	tsi->index++;
 
-	return 1;
+	return true;
 }
-
 
 TextSettings textSettings(Font* font, Vec4 color, int shadowMode, Vec2 shadowDir, float shadowSize, Vec4 shadowColor) {
 	return {font, color, shadowMode, shadowDir, shadowSize, shadowColor};
@@ -529,48 +505,31 @@ TextSettings textSettings(Font* font, Vec4 color) {
 	return {font, color};
 }
 
-Vec2 getTextDim(char* text, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth = 0, bool hExact = false) {
-	float maxX = startPos.x;
-
-	// Vec2 pMin, pMax;
-	// bool init = true;
-
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {
-		Font* f = font;
-		updateMarkers(text, &tsi, font, true);
-		if(tsi.bold) f = font->boldFont;
-		else if(tsi.italic) f = font->italicFont;
-
-		TextInfo ti;
-		if(!textSim(text, f, &tsi, &ti, startPos, wrapWidth)) break;
-
-		maxX = max(maxX, ti.pos.x + ti.posAdvance.x);
-
-		// if(init) {
-		// 	pMin = ti.r.min;
-		// 	pMax = ti.r.max;
-
-		// 	init = false;
-		// }
-
-		// pMin.x = min(pMin.x, ti.r.min.x);
-		// pMax.x = max(pMax.x, ti.r.max.x);
-
-		// if(hExact) {
-		// 	pMin.y = min(pMin.y, ti.r.min.y);
-		// 	pMax.y = max(pMax.y, ti.r.max.y);
-		// }
+Vec2 getTextDim(DArray<TextParseInfo> chars, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth = 0, bool hExact = false, bool getWidth = true, bool getHeight = true, bool noLineBreak = false) {
+	Vec2 dim;
+	if(getHeight && noLineBreak) {
+		getHeight = false;
+		dim.h = font->height;
 	}
 
-	Vec2 dim = vec2(maxX - startPos.x, startPos.y - (tsi.pos.y - font->height));
+	if(!getWidth && !getHeight) return dim;
 
-	// Vec2 dim = pMax - pMin;
-	// if(!hExact) {
-	// 	dim.y = startPos.y - (tsi.pos.y - font->height);
-	// }
+	float maxX = startPos.x;
 
+	TextSimInfo tsi = textSimInfo(startPos, font, wrapWidth);
+	while(true) {
+		if(!textSim(chars, &tsi, 0)) break;
+		if(getWidth) maxX = max(maxX, tsi.pos.x);
+	}
+
+	if(getWidth)  dim.x = maxX - startPos.x;
+	if(getHeight) dim.y = startPos.y - (tsi.pos.y - font->height);
 	return dim;
+}
+
+inline Vec2 getTextDim(char* text, Font* font, Vec2 startPos = vec2(0,0), int wrapWidth = 0, bool hExact = false) {
+	ParsedTextData td = parseText(text, font);
+	return getTextDim(td.chars, font, startPos, wrapWidth, hExact, td.noLineBreak);
 }
 
 float getTextMaxWidth(char* textArray[], int count, Font* font) {
@@ -581,70 +540,96 @@ float getTextMaxWidth(char* textArray[], int count, Font* font) {
 	return maxWidth;
 }
 
-Vec2 getTextStartPos(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-	bool hExact = align.y == 0;
-
-	Vec2 dim = getTextDim(text, font, startPos, wrapWidth, hExact);
-	startPos.x -= (align.x+1)*0.5f*dim.w;
-	startPos.y -= (align.y-1)*0.5f*dim.h;
-
-	return startPos;
+template <class T> inline float getTextMaxWidth(T* array, int count, Font* font, char* (*getText) (T* a)) {
+	float maxWidth = 0;
+	for(int i = 0; i < count; i++) {
+		char* text = getText(array + i); 
+		maxWidth = max(maxWidth, getTextDim(text, font).w);
+	}
+	return maxWidth;
 }
 
-Rect getTextLineRect(char* text, Font* font, Vec2 startPos, Vec2i align = vec2i(-1,1)) {
-	startPos = getTextStartPos(text, font, startPos, align, 0);
+template <class T> float getTextMaxWidth(DArray<T> array, Font* font, char* (*getText) (T* a)) {
+	return getTextMaxWidth(array.data, array.count, font, getText);
+}
 
-	Vec2 textDim = getTextDim(text, font);
-	Rect r = rectTLDim(startPos, textDim);
+Vec2 getTextStartPos(DArray<TextParseInfo> chars, Font* font, Vec2 startPos, Vec2i align = vec2i(-1,1), int wrapWidth = 0, bool noLineBreak = false) {
+	bool hExact = align.y == 0;
 
-	return r;
+	bool getWidth  = align.x != -1;
+	bool getHeight = align.y !=  1;
+	Vec2 dim;
+	if(getWidth || getHeight) {
+		dim = getTextDim(chars, font, startPos, wrapWidth, hExact, getWidth, getHeight, noLineBreak);
+	}
+	if(getWidth)  startPos.x -= (align.x+1)*0.5f*dim.w;
+	if(getHeight) startPos.y -= (align.y-1)*0.5f*dim.h;
+
+	if(font->pixelAlignStartPos) startPos = round(startPos);
+
+	return startPos;
 }
 
 void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSettings settings) {
 	Font* font = settings.font;
 
+	tMemoryPushMarkerScoped();
+	ParsedTextData td = parseText(text, font);
+
 	int cullWidth = wrapWidth;
 	if(settings.cull) wrapWidth = 0;
+	// int cullOffset = font->height * 2;
 
-	startPos = getTextStartPos(text, font, startPos, align, wrapWidth);
+	startPos = getTextStartPos(td.chars, font, startPos, align, wrapWidth, td.noLineBreak);
 
-	//
-
-	GraphicsState* gs = theGState;
-
-	gs->d3ddc->PSSetSamplers(0, 1, &gs->sampler);
-	gs->d3ddc->PSSetShaderResources(0, 1, &font->tex.view);
-
-	dxGetShaderVars(Primitive)->color = vec4(1);
-	dxPushShaderConstants(Shader_Primitive);
-
-	dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	//
+	dxBeginPrimitive(vec4(1), font->tex.view);
+	defer { dxEndPrimitive(); };
 
 	Vec4 currentColor = settings.color;
+	// Vec4 shadowColor = settings.shadowColor;
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
-	while(true) {		
-		Font* f = font;
-		
-		updateMarkers(text, &tsi, font);
-		if(tsi.bold) f = font->boldFont;
-		else if(tsi.italic) f = font->italicFont;
+	TextSimInfo tsi = textSimInfo(startPos, font, wrapWidth);
+	int markerIndex = 0;
+	while(true) {
+		if(td.markers.count) {
+			while(td.markers[markerIndex].index == tsi.index) {
+				auto& marker = td.markers[markerIndex];
+				if(marker.type == TEXT_MARKER_COLOR) {
+					if(marker.enable) currentColor.rgb = marker.color;
+					else currentColor.rgb = settings.color.rgb;
+
+				} else if(marker.type == TEXT_MARKER_BOLD && font->boldFont) {
+					Font* f = marker.enable ? font->boldFont : font;
+					dxFlush();
+					dxSetTexture(f->tex.view);
+
+				} else if(marker.type == TEXT_MARKER_ITALIC && font->italicFont) {
+					Font* f = marker.enable ? font->italicFont : font;
+					dxFlush();
+					dxSetTexture(f->tex.view);
+				}
+				markerIndex++;
+			}
+		}
 
 		TextInfo ti;
-		if(!textSim(text, f, &tsi, &ti, startPos, wrapWidth)) break;
-		if(text[ti.index] == '\n') continue;
+		if(!textSim(td.chars, &tsi, &ti)) break;
 
-		if(settings.cull && (ti.pos.x > startPos.x + cullWidth)) break;
-
+		if(settings.cull) {
+			if(ti.pos.x > startPos.x + cullWidth) break;
+			// if(ti.pos.x > startPos.x + cullWidth-cullOffset) {
+			// 	float cullEnd = startPos.x + cullWidth;
+			// 	float p = 1 - mapRangeClamp(ti.pos.x, cullEnd - cullOffset, cullEnd - font->height*0.7, 0, 1);
+			// 	currentColor.a = settings.color.a * p;
+			// 	shadowColor.a = settings.shadowColor.a * p;
+			// }
+		}
 		if(settings.shadowMode != TEXTSHADOW_MODE_NOSHADOW) {
 			if(settings.shadowMode == TEXTSHADOW_MODE_SHADOW) {
 				Vec2 p = ti.r.min + norm(settings.shadowDir) * settings.shadowSize;
 				Rect sr = rectBLDim(vec2(roundf(p.x), roundf(p.y)), ti.r.dim());
 
 				dxPushRect(sr, settings.shadowColor, ti.uv);
-
 			} else if(settings.shadowMode == TEXTSHADOW_MODE_OUTLINE) {
 				for(int i = 0; i < 8; i++) {
 					// Not sure if we should align to pixels on an outline.
@@ -653,23 +638,13 @@ void drawText(char* text, Vec2 startPos, Vec2i align, int wrapWidth, TextSetting
 					Rect r = ti.r.trans(dir*settings.shadowSize);
 
 					dxPushRect(r, settings.shadowColor, ti.uv);
-
-					// Vec2 dir = rotateVec2(vec2(1,0), (M_2PI/8)*i);
-					// Vec2 p = ti.r.min + dir * settings.shadowSize;
-					// Rect sr = rectBLDim(vec2(roundf(p.x), roundf(p.y)), rectDim(ti.r));
-					// pushRect(sr, ti.uv, z);
 				}
 			}
 		}
 
-		if(tsi.colorMode) currentColor.rgb = tsi.colorOverwrite;
-		else currentColor.rgb = settings.color.rgb;
-
 		dxPushRect(ti.r, currentColor, ti.uv);
 		dxFlushIfFull();
 	}
-
-	dxEndPrimitive();
 }
 void drawText(char* text, Vec2 startPos, TextSettings settings) {
 	return drawText(text, startPos, vec2i(-1,1), 0, settings);
@@ -679,24 +654,20 @@ void drawText(char* text, Vec2 startPos, Vec2i align, TextSettings settings) {
 }
 
 Vec2 textIndexToPos(char* text, Font* font, Vec2 startPos, int index, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-	startPos = getTextStartPos(text, font, startPos, align, wrapWidth);
+	ParsedTextData td = parseText(text, font);
+	startPos = getTextStartPos(td.chars, font, startPos, align, wrapWidth);
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
+	TextSimInfo tsi = textSimInfo(startPos, font, wrapWidth);
 	while(true) {
-		Font* f = font;
-		updateMarkers(text, &tsi, font, true);
-		if(tsi.bold) f = font->boldFont;
-		else if(tsi.italic) f = font->italicFont;
-
 		TextInfo ti;
-		int result = textSim(text, f, &tsi, &ti, startPos, wrapWidth);
+		bool done = !textSim(td.chars, &tsi, &ti);
 
 		if(ti.index == index) {
-			Vec2 pos = ti.pos - vec2(0, f->height/2);
+			Vec2 pos = ti.pos - vec2(0, font->height/2);
 			return pos;
 		}
 
-		if(!result) break;
+		if(done) break;
 	}
 
 	return vec2(0,0);
@@ -706,32 +677,27 @@ void drawTextSelection(char* text, Font* font, Vec2 startPos, int index1, int in
 	if(index1 == index2) return;
 	if(index1 > index2) swap(&index1, &index2);
 
-	startPos = getTextStartPos(text, font, startPos, align, wrapWidth);
+	ParsedTextData td = parseText(text, font);
+
+	startPos = getTextStartPos(td.chars, font, startPos, align, wrapWidth);
 
 	Vec2 lineStart;
-	bool drawSelection = false;
+	bool drawCurrentTextLine = false;
 
-	TextSimInfo tsi = initTextSimInfo(startPos);
+	TextSimInfo tsi = textSimInfo(startPos, font, wrapWidth);
 	while(true) {
-		Font* f = font;
-		updateMarkers(text, &tsi, font, true);
-		if(tsi.bold) f = font->boldFont;
-		else if(tsi.italic) f = font->italicFont;
-
 		TextInfo ti;
-		int result = textSim(text, f, &tsi, &ti, startPos, wrapWidth);
+		bool done = !textSim(td.chars, &tsi, &ti);
 
-		bool endReached = ti.index == index2;
-
-		if(drawSelection) {
+		if(drawCurrentTextLine) {
+			bool endReached = ti.index == index2;
 			if(ti.lineBreak || endReached) {
-
 				Vec2 lineEnd;
 				if(ti.lineBreak) lineEnd = ti.breakPos;
-				else if(!result) lineEnd = tsi.pos;
+				else if(done) lineEnd = tsi.pos;
 				else lineEnd = ti.pos;
 
-				Rect r = rect(lineStart - vec2(0,f->height), lineEnd);
+				Rect r = rect(lineStart - vec2(0, font->height), lineEnd);
 				dxDrawRect(r, color);
 
 				lineStart = ti.pos;
@@ -740,41 +706,38 @@ void drawTextSelection(char* text, Font* font, Vec2 startPos, int index1, int in
 			}
 		}
 
-		if(!drawSelection && (ti.index >= index1)) {
-			drawSelection = true;
+		if(!drawCurrentTextLine && (ti.index >= index1)) {
+			drawCurrentTextLine = true;
 			lineStart = ti.pos;
 		}
 
-		if(!result) break;
+		if(done) break;
 	}
 }
 
 int textMouseToIndex(char* text, Font* font, Vec2 startPos, Vec2 mousePos, Vec2i align = vec2i(-1,1), int wrapWidth = 0) {
-	startPos = getTextStartPos(text, font, startPos, align, wrapWidth);
+	ParsedTextData td = parseText(text, font);
+	startPos = getTextStartPos(td.chars, font, startPos, align, wrapWidth);
 
 	if(mousePos.y > startPos.y) return 0;
 	
 	bool foundLine = false;
-	TextSimInfo tsi = initTextSimInfo(startPos);
+	TextSimInfo tsi = textSimInfo(startPos, font, wrapWidth);
 	while(true) {
-		Font* f = font;
-		updateMarkers(text, &tsi, font, true);
-		if(tsi.bold) f = font->boldFont;
-		else if(tsi.italic) f = font->italicFont;
-
 		TextInfo ti;
-		int result = textSim(text, f, &tsi, &ti, startPos, wrapWidth);
+		bool done = !textSim(td.chars, &tsi, &ti);
 		
-		bool fLine = between(mousePos.y, ti.pos.y - f->height, ti.pos.y);
+		bool fLine = between(mousePos.y, ti.pos.y - font->height, ti.pos.y);
 		if(fLine) foundLine = true;
 		else if(foundLine) return ti.index-1;
 
-	    if(foundLine) {
-	    	float charMid = ti.pos.x + ti.posAdvance.x*0.5f;
+		if(foundLine) {
+			float posAdvanceX = tsi.pos.x - ti.pos.x;
+			float charMid = ti.pos.x + posAdvanceX*0.5f;
 			if(mousePos.x < charMid) return ti.index;
 		}
 
-		if(!result) break;
+		if(done) break;
 	}
 
 	return tsi.index;

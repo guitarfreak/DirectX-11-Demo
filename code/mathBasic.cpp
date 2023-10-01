@@ -30,7 +30,7 @@ inline int mod(int a, int b) {
 
 inline float modf(float val, float d) {
 	float result = fmod(val, d);
-	if(result < 0 && abs(result) < d) {
+	if(result < 0 && fabs(result) < d) {
 		result = d + result;
 	}
 
@@ -43,34 +43,28 @@ template <class T> inline void swap(T* a, T* b) {
 	*b = temp;
 }
 
-inline float diff(float a, float b) { return abs(a - b); }
+inline float diff    (float a, float b) { return fabs(a - b); }
 inline float sameSign(float a, float b) { return (a < 0 && b < 0) || (a > 0 && b > 0); }
 
-template <class T> inline T min(T a, T b) { return a <= b ? a : b; }
+template <class T> inline T min(T a, T b)      { return a <= b ? a : b; }
 template <class T> inline T min(T a, T b, T c) { return min(min(a, b), min(b, c)); }
-template <class T> inline T max(T a, T b) { return a >= b ? a : b; }
+template <class T> inline T max(T a, T b)      { return a >= b ? a : b; }
 template <class T> inline T max(T a, T b, T c) { return max(max(a, b), max(b, c)); }
 
-template <class T> inline T clampMin(T a, T mi) { return max(a, mi); };
-template <class T> inline T clampMax(T a, T ma) { return min(a, ma); };
-template <class T> inline T clamp(T a, T mi, T ma) { return min(max(a, mi), ma); };
-template <class T> inline T clamp01(T a) { return clamp(a, (T)0, (T)1); };
+template <class T> inline T clampMin(T a, T mi)       { return max(a, mi); };
+template <class T> inline T clampMax(T a, T ma)       { return min(a, ma); };
+template <class T> inline T clamp   (T a, T mi, T ma) { return min(max(a, mi), ma); };
+template <class T> inline T clamp (T a)               { return clamp(a, (T)0, (T)1); };
 
-template <class T> inline void clampMin(T* a, T mi) { *a = clampMin(*a, mi); };
-template <class T> inline void clampMax(T* a, T ma) { *a = clampMax(*a, ma); };
-template <class T> inline void clamp(T* a, T mi, T ma) { *a = clamp(*a, mi, ma); };
-template <class T> inline void clamp01(T* a) { *a = clamp01(*a); };
+template <class T> inline void clampMin(T* a, T mi)       { *a = clampMin(*a, mi); };
+template <class T> inline void clampMax(T* a, T ma)       { *a = clampMax(*a, ma); };
+template <class T> inline void clamp   (T* a, T mi, T ma) { *a = clamp(*a, mi, ma); };
+template <class T> inline void clamp (T* a)               { *a = clamp(*a); };
 
 float lerp(float percent, float min, float max) { return min + percent * (max-min); }
 
 template <class T> inline T mapRange(T value, T min, T max, T rangeMin, T rangeMax) {
-	T result = ((double)(value-min)/((max-min)-(min-min))) * (rangeMax-rangeMin) + rangeMin;
-	return result;
-};
-
-template <class T> inline T mapRange01(T value, T min, T max) {
-	T result = ((double)(value-min)/((max-min)-(min-min)));
-	return result;
+	return ((double)(value-min)/((max-min)-(min-min))) * (rangeMax-rangeMin) + rangeMin;
 };
 
 inline float mapRangeClamp(float value, float min, float max, float rangeMin, float rangeMax) {
@@ -80,6 +74,14 @@ inline float mapRangeClamp(float value, float min, float max, float rangeMin, fl
 	return result;
 };
 
+template <class T> inline T mapRange01(T value, T min, T max) {
+	return ((double)(value-min)/((max-min)-(min-min)));
+};
+
+template <class T> inline T mapRange01Clamp(T value, T min, T max) {
+	return clamp(mapRange01(value, min, max));
+};
+
 template <class T> inline bool between(T v, T min, T max) { return v >= min && v <= max; }
 
 inline float radianToDegree(float angle) { return angle*(180.0f / M_PI); }
@@ -87,21 +89,24 @@ inline float degreeToRadian(float angle) { return angle*(M_PI / 180.0f); }
 
 inline int sign(float x) { return x < 0 ? -1 : (x > 0 ? 1 : 0); }	
 
-inline int roundInt(double i) { return floor(i + 0.5); }
-inline int roundIntf(float i) { return floor(i + 0.5f); }
+inline int floorX(double x) { return (int) x - (x < (int) x); }
+inline int ceilX (double x) { return (int) x + (x > (int) x); }
 
-inline double roundUp(double i) { return ceil(i); }
-inline float roundUpf(float i) { return ceil(i); }
-inline double round(double i) { return floor(i + 0.5); }
-inline float roundf(float i) { return floor(i + 0.5f); }
-inline double roundDown(double i) { return floor(i); }
-inline float roundDownf(float i) { return floor(i); }
+inline int roundInt (double i) { return floorX(i + 0.5); }
+inline int roundIntf(float i)  { return floorX(i + 0.5f); }
 
-inline double roundDigits(double f, int d) { return floor(f*(10*d) + 0.5) / (10*d); };
-inline double roundMod(double i, double s) { return (round(i/s))*s; }
+inline double roundUp   (double i) { return ceilX(i); }
+inline float  roundUpf  (float i)  { return ceilX(i); }
+inline double round     (double i) { return floorX(i + 0.5); }
+inline float  roundf    (float i)  { return floorX(i + 0.5f); }
+inline double roundDown (double i) { return floorX(i); }
+inline float  roundDownf(float i)  { return floorX(i); }
 
-inline int roundMod(int i, int s) { return (i/s)*s; }
-inline int roundModUp(int i, int s) { return ceil(i/(double)s)*s; }
+inline double roundDigits(double f, int d)    { return floorX(f*(10*d) + 0.5) / (10*d); };
+inline double roundMod   (double i, double s) { return (round(i/s))*s; }
+
+inline int roundMod  (int i, int s) { return (i/s)*s; }
+inline int roundModUp(int i, int s) { return ceilX(i/(double)s)*s; }
 
 inline double divSafe(double a, double b) { return b==0 ? 0 : a/b; }
 inline int triangularNumber(int n) { return n*(n+1) / 2; }
@@ -111,7 +116,7 @@ inline int evenDivide(int size, int count, int* index) {
 	if(size == 0 || count == 0) return 0;
 
 	double div = (double)size / count;
-	*index = round((div - floor(div)) * count);
+	*index = round((div - floorX(div)) * count);
 	if((*index) == 0) *index = count;
-	return ceil(div);
+	return ceilX(div);
 }

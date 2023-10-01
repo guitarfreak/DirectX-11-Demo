@@ -254,20 +254,20 @@ void Console::update(Input* input, Vec2 currentRes, int fontHeight, float dt) {
 	// Calculate smoothstep.
 
 	float distance = pos - targetPos;
-	if(abs(distance) > 0) {
+	if(fabs(distance) > 0) {
 		float consoleMovement = cs.consoleSpeed * dt;
 		pos = lerp(consoleMovement, pos, targetPos);
 
 		// Clamp if we overstepped the target position.
 		float newDistance = pos - targetPos;
-		if(abs(newDistance) <= 1.0f) pos = targetPos;
+		if(fabs(newDistance) <= 1.0f) pos = targetPos;
 	}
 
 	//
 
 	Vec2 res = currentRes;
-	float consoleTotalHeight = abs(pos);
-	clampMin(&consoleTotalHeight, abs(smallPos));
+	float consoleTotalHeight = fabs(pos);
+	clampMin(&consoleTotalHeight, (float)fabs(smallPos));
 
 	float inputHeight = cs.inputFont->height * cs.inputHeightPadding;
 	float bodyTextHeight = cs.bodyFont->height * cs.bodyFontHeightPadding;
@@ -680,8 +680,8 @@ void Console::updateBody() {
 	float smallPos = -currentRes.y * CONSOLE_SMALL_PERCENT;
 
 	Vec2 res = currentRes;
-	float consoleTotalHeight = abs(pos);
-	clampMin(&consoleTotalHeight, abs(smallPos));
+	float consoleTotalHeight = fabs(pos);
+	clampMin(&consoleTotalHeight, (float)fabs(smallPos));
 
 	float inputHeight = cs.inputFont->height * cs.inputHeightPadding;
 	float bodyTextHeight = cs.bodyFont->height * cs.bodyFontHeightPadding;
@@ -716,7 +716,7 @@ void Console::updateBody() {
 				if(input->keysDown[KEYCODE_CTRL]) cs.scrollWheelAmount *= cs.scrollWheelAmountMod;
 
 				scrollPercent += -input->mouseWheel * (cs.scrollWheelAmount / heightDiff);
-				clamp01(&scrollPercent);
+				clamp(&scrollPercent);
 			}
 
 			// Enable scrollbar keyboard navigation if we're not typing anything into the input console.
@@ -731,7 +731,7 @@ void Console::updateBody() {
 					scrollPercent += dir * (consoleHeight*0.8f / heightDiff);
 				}
 
-				clamp01(&scrollPercent);
+				clamp(&scrollPercent);
 			}
 
 			// @CodeDuplication.

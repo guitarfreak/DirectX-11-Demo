@@ -153,75 +153,88 @@ void WalkManifold::rasterize() {
 	{
 		TIMER_BLOCK_NAMED("CreateLayers");
 
-		for(auto& cell : cells) {
-			cell.layers = dArray<WalkLayer>(3, getTMemory);
+		// I have no idea if this threaded version actually works. But it seems to.
+		auto threadFunc = [](void* data) {
+			TIMER_BLOCK();
+			ThreadHeader* h = (ThreadHeader*)data;
+			WalkManifold* wm = (WalkManifold*)h->data;
 
-			int maxSampleCount = 0;
-			int startPoleIndex = 0;
-			for(int i = 0; i < arrayCount(cell.poles); i++) {
-				Pole* pole = cell.poles[i];
-				if(pole->samples.count > maxSampleCount) {
-					maxSampleCount = pole->samples.count;
-					startPoleIndex = i;
-				}
-			}
+			for(int i = 0; i < h->count; i++) {
+				int x, y;
+				aCoord(wm->cellsDim.w, h->index + i, &x, &y);
+				WalkCell& cell = *wm->getCell(x,y);
 
-			for(int i = 0; i < 4; i++) {
-				int poleIndex = (i + startPoleIndex) % 4;
-				Pole* pole = cell.poles[poleIndex];
+				cell.layers = dArray<WalkLayer>(3, getTMemoryInterlocked);
 
-				for(int sampleIndex = 0; sampleIndex < pole->samples.count; sampleIndex++) {
-					MeshSample& sample = pole->samples[sampleIndex];
-
-					WalkLayer* layer = 0;
-					float minDist = FLT_MAX;
-					for(auto& la : cell.layers) {
-						if(la.poles[poleIndex].valid) continue;
-
-						float dist = la.zRange.max < sample.z ? sample.z - la.zRange.max : 
-						            (la.zRange.min > sample.z ? la.zRange.min - sample.z : 0);
-
-						// If next sample fits better, skip.
-						if(sampleIndex+1 < pole->samples.count) {
-							MeshSample& sample2 = pole->samples[sampleIndex+1];
-							float dist2 = la.zRange.max < sample2.z ? sample2.z - la.zRange.max : 
-							             (la.zRange.min > sample2.z ? la.zRange.min - sample2.z : 0);
-							if(dist2 < dist) continue;
-						}
-
-						if(dist < minDist && dist < settings.playerHeight) {
-							minDist = dist;
-							layer = &la;
-							continue;
-						}
-					}
-
-					if(!layer) {
-						WalkLayer la = {};
-						for(int i = 0; i < 4; i++) la.poles[i].pos.xy = cell.poles[i]->pos;
-						la.poles[poleIndex].valid = true;
-						la.poles[poleIndex].pos.z = sample.z;
-						la.poles[poleIndex].sample = &sample;
-
-						la.zRange = vec2(sample.z);
-						la.cell = &cell;
-						cell.layers.push(la);
-
-					} else {
-						layer->poles[poleIndex] = {true, vec3(pole->pos, sample.z), &sample};
-						layer->zRange.min = min(layer->zRange.min, sample.z);
-						layer->zRange.max = max(layer->zRange.max, sample.z);
+				int maxSampleCount = 0;
+				int startPoleIndex = 0;
+				for(int i = 0; i < arrayCount(cell.poles); i++) {
+					Pole* pole = cell.poles[i];
+					if(pole->samples.count > maxSampleCount) {
+						maxSampleCount = pole->samples.count;
+						startPoleIndex = i;
 					}
 				}
-			}
 
-			auto cmp = [](const void* a, const void* b) -> int { 
-				Vec2 zr0 = ((WalkLayer*)a)->zRange;
-				Vec2 zr1 = ((WalkLayer*)b)->zRange;
-				return ((zr0.min + zr0.max)/2.0f) < ((zr1.min + zr1.max)/2.0f) ? -1 : 1;
-			};
-			qsort(cell.layers.data, cell.layers.count, sizeof(WalkLayer), cmp);
-		}
+				for(int i = 0; i < 4; i++) {
+					int poleIndex = (i + startPoleIndex) % 4;
+					Pole* pole = cell.poles[poleIndex];
+
+					for(int sampleIndex = 0; sampleIndex < pole->samples.count; sampleIndex++) {
+						MeshSample& sample = pole->samples[sampleIndex];
+
+						WalkLayer* layer = 0;
+						float minDist = FLT_MAX;
+						for(auto& la : cell.layers) {
+							if(la.poles[poleIndex].valid) continue;
+
+							float dist = la.zRange.max < sample.z ? sample.z - la.zRange.max : 
+							            (la.zRange.min > sample.z ? la.zRange.min - sample.z : 0);
+
+							// If next sample fits better, skip.
+							if(sampleIndex+1 < pole->samples.count) {
+								MeshSample& sample2 = pole->samples[sampleIndex+1];
+								float dist2 = la.zRange.max < sample2.z ? sample2.z - la.zRange.max : 
+								             (la.zRange.min > sample2.z ? la.zRange.min - sample2.z : 0);
+								if(dist2 < dist) continue;
+							}
+
+							if(dist < minDist && dist < wm->settings.playerHeight) {
+								minDist = dist;
+								layer = &la;
+								continue;
+							}
+						}
+
+						if(!layer) {
+							WalkLayer la = {};
+							for(int i = 0; i < 4; i++) la.poles[i].pos.xy = cell.poles[i]->pos;
+							la.poles[poleIndex].valid = true;
+							la.poles[poleIndex].pos.z = sample.z;
+							la.poles[poleIndex].sample = &sample;
+
+							la.zRange = vec2(sample.z);
+							la.cell = &cell;
+							cell.layers.push(la);
+
+						} else {
+							layer->poles[poleIndex] = {true, vec3(pole->pos, sample.z), &sample};
+							layer->zRange.min = min(layer->zRange.min, sample.z);
+							layer->zRange.max = max(layer->zRange.max, sample.z);
+						}
+					}
+				}
+
+				auto cmp = [](const void* a, const void* b) -> int { 
+					Vec2 zr0 = ((WalkLayer*)a)->zRange;
+					Vec2 zr1 = ((WalkLayer*)b)->zRange;
+					return ((zr0.min + zr0.max)/2.0f) < ((zr1.min + zr1.max)/2.0f) ? -1 : 1;
+				};
+				qsort(cell.layers.data, cell.layers.count, sizeof(WalkLayer), cmp);
+			}
+		};
+
+		splitThreadTask(cells.count, this, threadFunc);
 	}
 
 	// Calc walk edges.
@@ -251,7 +264,7 @@ void WalkManifold::rasterize() {
 						LayerPole* p[2] = {layer->poles + is.e[0], layer->poles + is.e[1]};
 
 						if(!p[0]->valid && !p[1]->valid) continue;
-						if( p[0]->valid &&  p[1]->valid && abs(p[0]->pos.z - p[1]->pos.z) <= wm->settings.legHeight) continue;
+						if( p[0]->valid &&  p[1]->valid && fabs(p[0]->pos.z - p[1]->pos.z) <= wm->settings.legHeight) continue;
 
 						// Check if we have adjacent layers on top or right that will take care of those
 						// walk edge points or if we have to calculate them ourselves.
@@ -270,7 +283,7 @@ void WalkManifold::rasterize() {
 
 							if(abovePole->valid) {
 								p[i] = abovePole;
-								playerHeightMode = (abs(p[(i+1)%2]->pos.z - p[i]->pos.z) < wm->settings.playerHeight) ? 1 : 2;
+								playerHeightMode = (fabs(p[(i+1)%2]->pos.z - p[i]->pos.z) < wm->settings.playerHeight) ? 1 : 2;
 								if(i == 0) playerHeightMode *= -1;
 							}
 						}
@@ -389,16 +402,9 @@ void WalkManifold::rasterize() {
 			ThreadHeader* h = (ThreadHeader*)data;
 			WalkManifold* wm = (WalkManifold*)h->data;
 
-			for(int i = 0; i < h->count; i++) {
-				Pole* pole = wm->poles + h->index + i;
-
-				int x, y;
-				aCoord(wm->gridDim.w, h->index + i, &x, &y);
-				WalkCell* cell = wm->getCell(x,y);
-
-				if(cell->coord == vec2i(-12,-1)) {
-					int stopt = 234;
-				}
+			int index;
+			while(h->addStackIndex(&index, 5)) {
+				Pole* pole = wm->poles + index;
 
 				for(auto& sample : pole->samples) {
 					for(auto blockerIndex : pole->potentialBlockers) {
@@ -463,16 +469,28 @@ void WalkManifold::rasterize() {
 	{
 		TIMER_BLOCK_NAMED("BlockerEdges");
 
+		struct ThreadData {
+			WalkManifold* wm;
+
+			bool collectCells;
+			DArray<int> collectedCells;
+		};
+
 		auto threadFunc = [](void* data) {
 			TIMER_BLOCK();
 			ThreadHeader* h = (ThreadHeader*)data;
-			WalkManifold* wm = (WalkManifold*)h->data;
+			ThreadData* td = (ThreadData*)h->data;
+			WalkManifold* wm = td->wm;
 
-			int count = h->count;
-			for(int i = 0; i < count; i++) {
+			int index;
+			while(h->incStackIndex(&index)) {
 				int x, y;
-				aCoord(wm->cellsDim.w, h->index + i, &x, &y);
+				aCoord(wm->cellsDim.w, index, &x, &y);
 				WalkCell* cell = wm->getCell(x,y);
+
+				if (cell->coord == vec2i(0, 1)) {
+					int stop = 234;
+				}
 
 				for(auto& layer : cell->layers) {
 					for(int edgeIndex = 0; edgeIndex < 4; edgeIndex++) {
@@ -513,12 +531,12 @@ void WalkManifold::rasterize() {
 							}
 						}
 					}
-
 				}
 			}
 		};
 
-		splitThreadTask(cells.count, this, threadFunc);
+		ThreadData td = {this, true, dArray<int>(cells.count, getTMemoryInterlocked)};
+		splitThreadTask(cells.count, &td, threadFunc);
 	}
 
 	{
@@ -547,8 +565,9 @@ void WalkManifold::rasterize() {
 			DArray<Line2> finalList = dArray<Line2>(5, getTMemoryInterlocked);
 			DArray<LineMarked> markedLines = dArray<LineMarked>(5, getTMemoryInterlocked);
 
-			for(int cellIndex = 0; cellIndex < h->count; cellIndex++) {
-				WalkCell* cell = wm->cells + cellIndex + h->index;
+			int index;
+			while(h->addStackIndex(&index, 10)) {
+				WalkCell* cell = wm->cells + index;
 
 				for(auto& layer : cell->layers) {
 					if(!layer.lines.count) continue;
@@ -557,10 +576,10 @@ void WalkManifold::rasterize() {
 
 					float floatOffset;
 					{
-						float maxVal = max(max(abs(cell->poles[0]->pos.x), 
-						                       abs(cell->poles[0]->pos.y)),
-						                   max(abs(cell->poles[2]->pos.x),
-						                       abs(cell->poles[2]->pos.y)));
+						float maxVal = max(max((float)fabs(cell->poles[0]->pos.x), 
+						                       (float)fabs(cell->poles[0]->pos.y)),
+						                   max((float)fabs(cell->poles[2]->pos.x),
+						                       (float)fabs(cell->poles[2]->pos.y)));
 						floatOffset = floatPrecisionOffset(maxVal, 5, 0.0f);
 					}
 
@@ -608,6 +627,8 @@ void WalkManifold::rasterize() {
 					}
 
 					// Remove unneeded lines.
+					// @Note(2023): Why do we keep checking lines that have been already removed?
+					// Why do we check a/b and then b/a later? J should start at i, no?
 					{
 						DArray<int> removeList = dArray<int>(5, getTMemoryInterlocked);
 
@@ -1251,7 +1272,6 @@ bool WalkManifold::adjacentLayerSharesEdge(WalkLayer* layer, Vec2i coord, int ed
 	   return true;
 	}
 
-
 	return false;
 }
 
@@ -1337,7 +1357,7 @@ Vec3 WalkManifold::calcWalkEdgePoint(LayerPole* p0, LayerPole* p1, int zTestMode
 
 			bool hit = poleMeshIntersection(c, mesh0, &z);
 			hits[hit] = true;
-			if(hit && abs(startZ - z) > settings.legHeight) hit = false;
+			if(hit && fabs(startZ - z) > settings.legHeight) hit = false;
 
 			p[hit ? 0 : 1] = c;
 		}
@@ -1358,13 +1378,13 @@ Vec3 WalkManifold::calcWalkEdgePoint(LayerPole* p0, LayerPole* p1, int zTestMode
 			if(hit1) hits[1] = true;
 
 			if(zTestMode) {
-				if(hit1 && abs(startZ - z1) <= settings.playerHeight) {
+				if(hit1 && fabs(startZ - z1) <= settings.playerHeight) {
 					if(zTestMode == 1) hit0 = false; 
 					else if(zTestMode == 2) hit1 = false; 
 				}
 			}
 
-			bool leg0 = abs(startZ - z0) <= settings.legHeight;
+			bool leg0 = fabs(startZ - z0) <= settings.legHeight;
 			if     (!hit0 && !hit1) p[1] = c;
 			else if( hit0 && !hit1) p[leg0 ? 0 : 1] = c;
 			else if(!hit0 &&  hit1) p[1] = c;
@@ -1417,6 +1437,7 @@ void WalkManifold::addWalkEdgePoint(WalkLayer* layer, Vec3 edgePoint, PointInfo 
 
 	// Calc interpolated middle point.
 	if(layer->pointCount == 2) {
+
 		float testOffset = settings.cellSize * 0.01f;
 		float ignoreDist = settings.cellSize * 0.001f;
 		float poleExpansion = settings.cellSize * 0.5f;

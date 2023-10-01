@@ -69,18 +69,26 @@ struct GraphicsState {
 
 	DXTimer timer; // @Ignore
 
+	// D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP = 5,
+	int primitiveVertexCount[D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP+1];
+
 	//
 
 	int currentShader;
 
-	PrimitiveVertex* pVertexArray; // @Ignore
-	int pVertexCount; // @Ignore
+	// PrimitiveVertex* pVertexArray; // @Ignore
+	DArray<PrimitiveVertex> vertexBuffer; // @Ignore
+
 	uint currentTopology;
 
 	Vec2i screenRes;
 	Rect screenRect;
 
 	float zLevel;
+
+	//
+
+	void init() { *this = {}; };
 };
 
 extern GraphicsState* theGState;

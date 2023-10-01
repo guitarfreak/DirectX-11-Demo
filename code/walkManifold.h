@@ -104,6 +104,39 @@ struct WalkManifoldSettings {
 	Vec4 cBlockerLine;
 	Vec4 cBlockerLineNoCleanup;
 	Vec4 cWalkEdge;
+
+	void init(float cellSize, float playerRadius, float playerHeight, float legHeight) { 
+		*this = {}; 
+
+		this->cellSize = cellSize;
+		this->playerRadius = playerRadius;
+		this->playerHeight = playerHeight;
+		this->legHeight = legHeight;
+
+		defaults();
+	}
+
+	void defaults() {
+		edgeSearchIterations = 14;
+		lineFlattenPercent = 0.07f;
+		maxLineCollisionCount = 5;
+
+		depthTest = true;
+		drawOutsideGrid = false;
+		drawLinesNoCleanup = false;
+		cGrid = vec4(1,0.8f);
+		cGridOutside = vec4(1,0.05f);
+		cBlockerLine = vec4(0,1,1,1);
+		cBlockerLineNoCleanup = vec4(1,0,0,1);
+		cWalkEdge = vec4(1,0,1,1);
+	};
+
+	// WalkManifoldSettings(float playerRadius, float legheight, float playerheight, float cellSize) {
+	// 	this->playerRadius = playerRadius;
+	// 	this->legHeight = legHeight;
+	// 	this->playerHeight = playerHeight;
+	// 	this->cellSize = cellSize;
+	// }
 };
 
 struct WalkManifold {

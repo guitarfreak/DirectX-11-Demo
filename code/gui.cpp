@@ -1148,6 +1148,10 @@ void Gui::scissorPop() {
 	pfScissorTestScreen(scissor);
 }
 
+bool Gui::scissorTest(Rect r) {
+	return pfGetRectScissor(scissor, r).empty();
+}
+
 void Gui::popupPush(PopupData data) {
 	popupStack[popupStackCount++] = data;
 }
@@ -1335,6 +1339,16 @@ void Gui::drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSett
 	// guiScissorTestScreen(scissor);
 	drawBox(r, scissor, settings.boxSettings);
 
+	if(align.x == -1) r.left += settings.sideAlignPadding;
+	if(align.x == 1) r.right -= settings.sideAlignPadding;
+
+	float borderSize = 0;
+	if(settings.boxSettings.borderColor.a != 0) borderSize = 1;
+
+	drawText(r, text, align, scissor, settings.textSettings, borderSize);
+}
+
+void Gui::drawTextBoxText(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings) {
 	if(align.x == -1) r.left += settings.sideAlignPadding;
 	if(align.x == 1) r.right -= settings.sideAlignPadding;
 
@@ -1790,7 +1804,7 @@ int Gui::qSlider(Rect r, int type, void* val, void* min, void* max, SliderSettin
 			floatVal = sliderGetValue(pos, r, sliderSize, floatMin, floatMax, true);
 
 			if(set.resetDistance > 0) {
-				if(abs(r.cy() - input->mousePosNegative.y) > set.resetDistance) {
+				if(fabs(r.cy() - input->mousePosNegative.y) > set.resetDistance) {
 					if(typeIsInt) floatVal = editInt;
 					else floatVal = editFloat;
 				}

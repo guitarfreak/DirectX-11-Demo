@@ -24,6 +24,10 @@ char* fString(char* text, ...) {
 	return buffer;
 }
 
+char* fStringCombine(char* text, char* textToAppend) {
+	return fString("%s%s", text, textToAppend);
+}
+
 //
 
 struct QuickParser {
@@ -185,3 +189,5 @@ char* QuickParser::skipTo(char* cs, bool getStr) {
 void QuickParser::error() {
 	assert(false);
 }
+
+

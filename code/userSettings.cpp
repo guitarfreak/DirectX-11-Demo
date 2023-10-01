@@ -7,7 +7,9 @@
 #define HOTRELOAD_SHADERS 0
 #define WINDOW_TOPMOST_DEBUG 1
 
-#define USE_FIBERS 1
+#define USE_FIBERS 0
+
+#define LOGGING_ENABLED 1
 
 #define Editor_Executable_Path "C:\\Program Files\\Sublime Text 3\\sublime_text.exe"
 #define Windows_Font_Folder "\\Fonts\\"
@@ -16,6 +18,7 @@
 #define App_Session_File   ".\\session.tmp"
 #define Game_Settings_File ".\\settings.tmp"
 #define Gui_Session_File   ".\\guiSettings.tmp"
+#define Log_File           ".\\log.txt"
 #define Saves_Folder       ".\\saves\\"
 #define Save_State1        "saveState1.sav"
 
@@ -31,5 +34,6 @@
 #define App_Material_Folder DATA_FOLDER("Materials\\")
 #define App_Mesh_Folder     DATA_FOLDER("Meshes\\")
 #define App_Map_Folder      DATA_FOLDER("Maps\\")
+#define App_Settings_Folder DATA_FOLDER("Settings\\")
 
 #define Map_File_Extension  ".map"

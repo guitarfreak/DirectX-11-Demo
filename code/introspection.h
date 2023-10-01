@@ -48,6 +48,8 @@ struct UnionInfo {
 	char* varName;
 };
 
+struct StructInfo* getStructInfo(int type);
+
 struct MemberInfo {
 	int type;
 	char* name;
@@ -69,7 +71,8 @@ struct MemberInfo {
 	int vMin;
 	int vMax;
 
-	// StructInfo* sInfo() { return getStructInfo(type); };
+	struct StructInfo* structInfo() { return getStructInfo(type); }
+	bool isPrimitive();
 	// MemberInfo* get(int memberIndex) { return getStructInfo(type)->list + memberIndex; };
 };
 
@@ -80,8 +83,9 @@ struct StructInfo {
 	MemberInfo* list;
 
 	int initBoolOffset;
-
 	int version;
+
+	bool isPrimitive() { return memberCount == 0; }
 };
 
 struct MemberInfoData {
@@ -177,3 +181,14 @@ struct ExpansionIndex {
 
 //
 
+// struct NewMemberThing {
+// 	int type;
+// 	void* data;
+
+// 	NewMemberThing(char* typeName, void* data) {
+// 		this->type = getTypeByName(typeName);
+// 		this->data = data;
+// 	}
+// };
+
+// int getTypeByName(char* typeName) {

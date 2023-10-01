@@ -143,8 +143,8 @@ void updateHud(DebugState* ds, AppData* ad, WindowSettings* ws) {
 
 	addDebugInfo( fString("Window size: (%i,%i)", PVEC2(theGState->screenRes) ));
 
-	addDebugInfo( fString("BufferIndex: %i",      ds->profiler.timer->bufferIndex ));
-	addDebugInfo( fString("LastBufferIndex: %i",  ds->profiler.timer->lastBufferIndex ));
+	addDebugInfo( fString("BufferIndex: %i",      ds->profiler.sampler.bufferIndex ));
+	addDebugInfo( fString("LastBufferIndex: %i",  ds->profiler.sampler.lastBufferIndex ));
 
 	InfoData* id = &ds->infoData;
 	for(int i = 0; i < id->count; i++) {

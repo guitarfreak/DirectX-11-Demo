@@ -214,7 +214,7 @@ void deleteObjects(EntityManager* em, DArray<int>* selected, HistoryData* hd, bo
 	hd->tempObjects.clear();
 
 	// Sort selected objects for undo remove.
-	auto cmp = [](int* a, int* b) { return a < b; };
+	auto cmp = [](void* a, void* b) { return *(int*)a < *(int*)b; };
 	mergeSort<int>(selected->data, selected->count, cmp);
 
 	for(int i = 0; i < selected->count; i++) {
@@ -669,6 +669,8 @@ void updateEntityUI(DebugState* ds, EntityManager* em, bool levelEdit) {
 				eui->objectDistanceVector = eui->currentObjectDistanceVector;
 			}
 		}
+
+		collectByType(em);
 	}
 
 	if(eui->selectionState != ENTITYUI_ACTIVE) {
@@ -799,7 +801,7 @@ void updateEntityUI(DebugState* ds, EntityManager* em, bool levelEdit) {
 					float angle = asin(length);
 					if(dot(start, end) < 0) {
 						if(angle > 0) angle = M_PI_2 + M_PI_2-angle;
-						else angle = -M_PI_2 - (M_PI_2-abs(angle));
+						else angle = -M_PI_2 - (M_PI_2-fabs(angle));
 					}
 
 					if(eui->snappingEnabled) angle = roundMod(angle, M_PI_4);

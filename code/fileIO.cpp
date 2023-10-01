@@ -72,7 +72,7 @@ int readFileToBufferMalloc(char* fileName, char** buffer) {
 	return size;
 }
 
-char* readFileToBufferZeroTerminated(char* fileName) {
+char* readFileToBufferZeroTerminated(char* fileName, void* (*alloc) (int) = 0) {
 	FILE* file = fopen(fileName, "rb");
 	if(file == 0) return 0;
 
@@ -80,7 +80,7 @@ char* readFileToBufferZeroTerminated(char* fileName) {
 	int size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 
-	char* buffer = (char*)mallocX(size+1);
+	char* buffer = alloc ? (char*)alloc(size+1) : (char*)mallocX(size+1);
 
 	fread(buffer, size, 1, file);
 
@@ -148,12 +148,16 @@ void writeDataToFile(char* data, int size, char* fileName) {
 	fclose(file);
 }
 
-void readDataFromFile(char* data, char* fileName) {
+bool readDataFromFile(char* data, char* fileName) {
 	FILE* file = fopen(fileName, "rb");
+
+	if(!file) return false;
 
 	int size = fileSize(file);
 	fread(data, size, 1, file);
 	fclose(file);
+
+	return true;
 }
 
 int getFileName(char* file) {

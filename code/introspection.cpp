@@ -1,5 +1,5 @@
 
-#include "generated\\metadata.cpp"
+#include "generated\metadata.cpp"
 
 #define getType(typeName) TYPE_##typeName
 #define getEnumInfo(enumName) enumName##_EnumInfos
@@ -7,6 +7,10 @@
 
 StructInfo* getStructInfo(int type) {
 	return structInfos + type;
+}
+
+bool typeIsPrimitive(int type) {
+	return structInfos[type].memberCount == 0;
 }
 
 int getTypeByName(char* typeName) {
@@ -17,16 +21,16 @@ int getTypeByName(char* typeName) {
 	return -1;
 }
 
-bool typeIsPrimitive(StructInfo* info) {
-	return info->memberCount == 0;
+//
+
+bool MemberInfo::isPrimitive() { 
+	return structInfo()->isPrimitive(); 
 }
+
+//
 
 bool typeIsPrimitive(MemberInfo* mInfo) {
-	return typeIsPrimitive(getStructInfo(mInfo->type));
-}
-
-bool typeIsPrimitive(int type) {
-	return structInfos[type].memberCount == 0;
+	return mInfo->structInfo()->isPrimitive();
 }
 
 bool memberIsVersioned(MemberInfo* mInfo, int version) {
@@ -47,7 +51,6 @@ int getTypeArraySize(char* structBase, ArrayInfo aInfo, char* arrayBase = 0) {
 
 	return arraySize;
 }
-
 int getArrayMemberOffset(MemberInfo* mInfo, int arrayLevel) {
 	ArrayInfo* aInfo = mInfo->arrays + arrayLevel;
 
@@ -476,8 +479,7 @@ char* typeInfoToStr(TypeTraverse tt, int expandLevel = 0, int maxArrayCount = 0,
 	int currentTextWidth = 0;
 	int currentTextIndex = 0;
 
-	DArray<char> str;
-	str.init(getTMemory);
+	DArray<char> str = dArray<char>(getTMemory);
 
 	int elementCount = 0;
 
@@ -561,4 +563,306 @@ char* structToStr(int type, void* data, int expandLevel = 0, char* name = "", in
 void printStruct(int type, void* data, int expandLevel = 0, char* name = "", int maxArrayCount = 0, int maxElementCount = 0) {
 	printf(structToStr(type, data, expandLevel, name, maxArrayCount, maxElementCount, true));
 	printf("\n");
+}
+
+//
+
+/*
+
+getTypeInfo(void* obj, "typename").getMember("membername");
+                                  .getMember(2);
+                                  .setMember();
+<member>.name/value
+
+
+
+
+// int var = 2234;
+// Mat4 mat;
+// char* name1 = (char*)typeid(var).name();
+// char* name2 = (char*)typeid(var).raw_name();
+// char* name3 = (char*)typeid(mat).name();
+
+// printf("%s\n %s\n %s\n", name1, name2, name3);
+
+
+// Entity entity;
+getTypeInfo("Entity", entity).getMember("member").value()/name()/setValue(void*)
+getTypeInfo("Entity", entity).getMember("member").getMember("asdf")
+getTypeInfo("Entity", entity)[123]
+getTypeInfo("Entity", entity).getMember(123);
+
+// Bonus
+getTypeInfo("Entity", entity).getMember("member").next()/prev()/isLast()/isFirst();
+getTypeInfo("Entity", entity).getMember("member").print()?/printValue?/valueToString?
+
+// getTypeInfo("Entity", entity).getMember("member").value()/name()/setValue(void*)
+
+*/
+
+#define MakeMemberHandle(type, variable) memberHandle(getType(type), &variable)
+
+struct MemberHandle {
+	bool ignoreHiddenMembers;
+
+	//
+
+	MemberInfo startMemberInfo;
+
+	StructInfo* structInfo;
+	void* basePointer;
+	MemberInfo* memberInfo;
+
+	//
+
+	int arrayIndex;
+	int memberIndex;
+	int memberCount;
+
+	// 
+
+	int type;
+	int size;
+	int sDataType;
+	void* pointer;
+
+	//
+
+	int zeroInt;
+
+
+	void init() { *this = {}; }
+	void init(int type, void* data, char* name = "") {
+		*this = {};
+
+		this->structInfo = getStructInfo(type);
+		this->basePointer = data;
+
+		this->type = type;
+		this->size = this->structInfo->size;
+		this->pointer = data;
+
+		this->memberCount = 1;
+
+		// We start the stack by simulating a member info.
+		// startMemberInfo.type = type;
+		// startMemberInfo.name = name;
+		// startMemberInfo.offset = 0;
+		// startMemberInfo.arrayCount = 0;
+		// startMemberInfo.uInfo = {-1};
+		// startMemberInfo.vMin = -1;
+		// startMemberInfo.vMax = -1;
+
+		// Hack: we hand input global vars that push() uses.
+		// memberInfo = &startMemberInfo;
+		// this->type = SData_STRUCT;
+		// this->data = (char*)data;
+	}
+
+	bool isPrimitive() { return typeIsPrimitive(type); };
+
+	char* typeStr();
+	char* memberStr();
+	char* valueStr();
+
+	MemberHandle getMember(char* memberName) {
+		if(arrayIndex) return {};
+
+		StructInfo* sInfo = !memberInfo ? structInfo : memberInfo->structInfo();
+
+		for(int i = 0; i < sInfo->memberCount; i++) {
+			if(strCompare(sInfo->list[i].name, memberName)) {
+				return getMember(i);
+			}
+		}
+
+		return {};
+	}
+
+	void initMember(int index) {
+		bool notArray = arrayIndex == 0;
+		// Have to change memberInfo if it's not an array.
+		if(notArray) {
+			memberInfo = structInfo->list + index;
+		}
+
+		int offset = notArray ? memberInfo->offset : index * getArrayMemberOffset(memberInfo, arrayIndex-1);
+		pointer = (char*)pointer + offset;
+
+		sDataType = getSDataTypeFromMemberInfo(memberInfo, arrayIndex);
+
+		// Handle null pointer as zero.
+		if(sDataType == SData_ARRAY) {
+			char* arrayBase = castTypeArray((char*)pointer, memberInfo->arrays + arrayIndex-1);
+			if(!arrayBase) {
+				sDataType = SData_ATOM;
+				type = TYPE_int;
+				pointer = &zeroInt;
+			}
+		}
+
+		//
+
+		type = memberInfo->type;
+		memberIndex = 0;
+
+		// Have to get() first.
+		if(sDataType == SData_STRUCT) {
+			structInfo = getStructInfo(type);
+			memberCount = structInfo->memberCount;
+			basePointer = pointer;
+		} else {
+			ArrayInfo* arrayInfo = memberInfo->arrays + arrayIndex;
+			char* arrayBase = castTypeArray((char*)pointer, arrayInfo);
+			int arraySize = getTypeArraySize((char*)basePointer, *arrayInfo, (char*)arrayBase);
+			pointer = arrayBase;
+			arrayIndex++;
+			memberCount = arraySize;
+		}
+	}
+
+	MemberHandle getMember(int index) {
+
+		// if(e->memberIndex >= e->memberCount) return;
+
+		memberIndex = index;
+
+		MemberHandle mh = *this;
+		mh.initMember(index);
+
+		return mh;
+
+
+		/*
+		if(memberInfo) {
+			if(sDataType == SData_ATOM) return {};
+
+			if(mh.arrayIndex < memberInfo->arrayCount) {
+				mh.arrayIndex++;
+			} else {
+				mh.structInfo = memberInfo->structInfo();
+			}
+		}
+
+		if(!mh.arrayIndex) {
+			mh.memberInfo = mh.structInfo->list + index;
+			mh.memberIndex = index;
+		}
+		int offset = !mh.arrayIndex ? mh.memberInfo->offset : mh.memberIndex * getArrayMemberOffset(mh.memberInfo, mh.arrayIndex-1);
+
+		mh.type = mh.memberInfo->type;
+		mh.size = structInfo->size;
+		mh.sDataType = getSDataTypeFromMemberInfo(mh.memberInfo, mh.arrayIndex);
+		// mh.pointer = !mh.arrayIndex ? (char*)basePointer + offset : 0;
+		mh.pointer = (char*)basePointer + offset;
+
+		// {
+		// 	ArrayInfo* aInfo = mh.memberInfo->arrays + mh.arrayIndex;
+		// 	char* arrayBase = castTypeArray((char*)pointer, aInfo);
+		// 	mh.arraySize = getTypeArraySize((char*)mh.basePointer, *aInfo, (char*)arrayBase);
+		// 	mh.pointer = arrayBase;
+		// }
+
+		mh.basePointer = mh.pointer;
+		*/
+
+
+
+
+
+
+
+		// if(type == SData_STRUCT) {
+		// 	stack[stackCount++] = { mInfo->type, mInfo, data, data, 0, 0, stackCount == 0 ? 1 : getStructInfo(mInfo->type)->memberCount, true };
+		// } else {
+		// 	ArrayInfo* aInfo = mInfo->arrays + e->arrayIndex;
+		// 	char* arrayBase = castTypeArray(data, aInfo);
+		// 	int arraySize = getTypeArraySize((char*)e->structBase, *aInfo, (char*)arrayBase);
+
+		// 	stack[stackCount++] = { mInfo->type, mInfo, arrayBase, e->structBase, e->arrayIndex+1, 0, arraySize, true };
+		// }
+
+		// e = stack + stackCount - 1;
+		// skip();
+
+
+
+		// Handle null pointer as zero.
+		// if(sDataType == SData_ARRAY) {
+		// 	char* arrayBase = castTypeArray(data, mInfo->arrays + e->arrayIndex-1);
+		// 	if(!arrayBase) {
+		// 		sDataType = SData_ATOM;
+		// 		memberType = TYPE_int;
+		// 		data = (char*)&temp;
+		// 	}
+		// }
+
+
+
+
+
+		// if(e->memberIndex >= e->memberCount) return;
+
+		// bool notArray = e->arrayIndex == 0;
+		// if(stackCount == 1)
+		// 	mInfo = &startMemberInfo;
+		// else 
+		// 	mInfo = notArray ? getStructInfo(e->type)->list + e->memberIndex : e->mInfo;
+
+		// memberType = mInfo->type;
+
+		// type = getSDataTypeFromMemberInfo(mInfo, e->arrayIndex);
+
+		// int offset = notArray ? mInfo->offset : e->memberIndex * getArrayMemberOffset(mInfo, e->arrayIndex-1);
+		// data = e->data + offset;
+
+		// // Handle null pointer as zero.
+		// if(type == SData_ARRAY) {
+		// 	char* arrayBase = castTypeArray(data, mInfo->arrays + e->arrayIndex-1);
+		// 	if(!arrayBase) {
+		// 		type = SData_ATOM;
+		// 		memberType = TYPE_int;
+		// 		data = (char*)&temp;
+		// 	}
+		// }
+
+		return mh;
+	}
+
+	// char* name() {
+	// 	return memberInfo->name;
+	// }
+
+	void setValue(void* data) { memcpy(pointer, data, size); }
+};
+
+inline MemberHandle memberHandle(int type, void* data) {
+	MemberHandle mh;
+	mh.init(type, data);
+
+	return mh;
+}
+
+char* MemberHandle::typeStr() {
+	char* name = !memberInfo ? structInfo->name : getStructInfo(memberInfo->type)->name;
+
+	// if(sDataType == SData_ARRAY) {
+	// 	ArrayInfo* aInfo = memberInfo->arrays + e->arrayIndex-1;
+	// 	name = (aInfo->type == ARRAYTYPE_CONSTANT ? 
+	// 	            fString("%s [%i]", name, aInfo->size) : 
+	// 	            fString("%s %.*s", name, memberInfo->arrayCount, "*****"));
+	// }
+
+	return name;
+}
+
+char* MemberHandle::memberStr() {
+	// char* name = arrayIndex == 0 ? mInfo->name : fString("[%i]", e->memberIndex);
+	char* name = !memberInfo ? "Base" : memberInfo->name;
+	return name;
+}
+
+char* MemberHandle::valueStr() {
+	if(!isPrimitive()) return "";
+	return typeToStr(type, pointer);
 }

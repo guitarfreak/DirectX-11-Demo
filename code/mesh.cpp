@@ -106,6 +106,7 @@ void dxLoadMesh(Mesh* m, ObjLoader* parser) {
 
 	for(int i = 0; i < parser->objectArray.count; i++) {
 		Mesh::Group* g = m->groups + i;
+		*g = {};
 		g->offset = parser->objectArray[i].offset;
 		g->size = parser->objectArray[i].size;
 		g->smoothing = parser->objectArray[i].smoothing;
@@ -253,9 +254,15 @@ void dxDrawObject(XForm xForm, Vec4 color, char* meshName, char* materialName, b
 	}
 
 	if(setAlpha) {
-		dxSetBlendState(Blend_State_BlendAlphaCoverage);
-		if(shadow) dxGetShaderVars(Shadow)->sharpenAlpha = 1;
-		else       dxGetShaderVars(Main)->sharpenAlpha = 1;
+		if (shadow) {
+			// @Note(2023): Doing Blend_State_BlendAlphaCoverage when drawing shadow doesn't work.
+			// Not sure why.
+			dxSetBlendState(Blend_State_Blend);
+			dxGetShaderVars(Shadow)->sharpenAlpha = 1;
+		} else {
+			dxSetBlendState(Blend_State_BlendAlphaCoverage);
+			dxGetShaderVars(Main)->sharpenAlpha = 1;
+		}
 
 	} else {
 		dxSetBlendState(Blend_State_Blend);

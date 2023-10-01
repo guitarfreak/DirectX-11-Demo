@@ -282,7 +282,6 @@ union Rect3 {
 
 	Vec3  dim();
 	Vec3  c  ();
-	XForm xf();
 };
 
 Meta_Parse_Struct(0);
@@ -330,7 +329,7 @@ inline float randomOffset(float offset) {
 inline Vec2 vec2(float a, float b) { return {a, b}; };
 inline Vec2 vec2(float a) { return {a, a}; };
 
-inline Vec2 vec2(Vec2i a) { return {a.x, a.y}; }
+inline Vec2 vec2(Vec2i a) { return {(float)a.x, (float)a.y}; }
 inline Vec2 vec2(Vec3 a) { return {a.x, a.y}; }
 
 inline Vec2 operator*(Vec2 a, float b) { return {a.x*b, a.y*b}; };
@@ -378,8 +377,8 @@ inline float dotUnitToPercent(float dotProduct) { return 1 - acos(dotProduct)/M_
 
 inline Vec2 clampMin(Vec2 v, Vec2 d) { return {max(v.x, d.x), max(v.y, d.y)}; }
 inline Vec2 clampMax(Vec2 v, Vec2 d) { return {min(v.x, d.x), min(v.y, d.y)}; }
-inline Vec2 clamp(Vec2 v, Rect r) { return {clamp(v.x, r.left, r.right), 
-	                                        clamp(v.y, r.bottom, r.top)}; }
+inline Vec2 clamp(Vec2 v, Rect r)    { return {clamp(v.x, r.left, r.right), 
+	                                            clamp(v.y, r.bottom, r.top)}; }
 inline void clamp(Vec2* v, Rect r) { *v = clamp(*v, r); };
 
 float mapRange(float v, Vec2 d, Vec2 r) { return mapRange(v, d.x, d.y, r.x, r.y); };
@@ -395,7 +394,7 @@ inline Vec2 lerp(float percent, Vec2 min, Vec2 max) {
 	return result;
 }
 
-Vec2 round(Vec2 a) { return {roundf(a.x), roundf(a.y)}; }
+inline Vec2 round(Vec2 a) { return {roundf(a.x), roundf(a.y)}; }
 
 //
 
@@ -642,17 +641,16 @@ inline bool lineCircleIntersection(Vec2 lp0, Vec2 lp1, Vec2 cp, float r, Vec2 * 
 	return false;
 }
 
-float floatPrecisionOffset(float f, float scale, float min) {
-	float maxVal = f;
-	float next = nextafter(maxVal, FLT_MAX);
+float floatPrecisionOffset(float f, int scale, float min) {
+	float next = f;
+	for (int i = 0; i < scale; i++)
+		next = nextafterf(next, FLT_MAX);
 	
-	float offset = (next - maxVal)*scale;
-	offset = max(offset, min);
-
+	float offset = max(next - f, min);
 	return offset;
 }
 
-float floatPrecisionOffset(Vec2 a, Vec2 b, float scale, float min) {
+float floatPrecisionOffset(Vec2 a, Vec2 b, int scale, float min) {
 	return floatPrecisionOffset(max(max(a.x, a.y), max(b.x, b.y)), scale, min);
 }
 
@@ -796,7 +794,7 @@ Vec2 circumcenter(Vec2 a, Vec2 b, Vec2 c) {
 inline Vec2i vec2i(int a, int b) { return {a, b}; };
 inline Vec2i vec2i(int a) { return {a, a}; };
 
-inline Vec2i vec2i(Vec2 a) { return {a.x, a.y}; }
+inline Vec2i vec2i(Vec2 a) { return {(int)a.x, (int)a.y}; }
 
 inline Vec2i operator*(Vec2i a, int b) { return {a.x*b, a.y*b}; };
 inline Vec2i operator*(int b, Vec2i a) { return {a.x*b, a.y*b}; };
@@ -839,7 +837,7 @@ inline Vec3 vec3(float a, float b, float c) { return {a, b, c}; };
 inline Vec3 vec3(float a) { return {a, a, a}; };
 
 inline Vec3 vec3(float a[3]) { return {a[0], a[1], a[2]}; }
-inline Vec3 vec3(Vec3i a) { return {a.x, a.y, a.z}; }
+inline Vec3 vec3(Vec3i a) { return {(float)a.x, (float)a.y, (float)a.z}; }
 inline Vec3 vec3(Vec2 a) { return {a.x, a.y, 0}; }
 inline Vec3 vec3(Vec2 a, float b) { return {a.x, a.y, b}; }
 inline Vec3 vec3(float b, Vec2 a) { return {b, a.x, a.y}; }
@@ -876,9 +874,15 @@ inline bool operator!=(Vec3 a, Vec3 b) { return !(a==b); };
 inline float dot(Vec3 a, Vec3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
 inline float dot(Vec3 a) { return dot(a,a); }
 inline float len(Vec3 a) { return sqrt(dot(a)); };
+inline float lenSquared(Vec3 a) { return dot(a); };
 inline Vec3 cross(Vec3 a, Vec3 b) { return {a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, 
 	                                        a.x*b.y-a.y*b.x}; }
 inline Vec3 norm(Vec3 a) { return a/len(a); };
+
+inline Vec3 clamp(Vec3 a) { 
+	return { min(max(a.x, 0.0f), 1.0f), min(max(a.y, 0.0f), 1.0f), 
+	         min(max(a.z, 0.0f), 1.0f),  }; 
+};
 
 Vec3 lerp(float percent, Vec3 a, Vec3 b) {
 	a.x = lerp(percent, a.x, b.x);
@@ -953,7 +957,7 @@ Vec3 lineClosestPoint(Vec3 p0, Vec3 d0, Vec3 p1, Vec3 d1) {
 }
 
 int getBiggestAxis(Vec3 v, int smallerAxis[2] = 0) {
-	float values[3] = {abs(v.x), abs(v.y), abs(v.z)};
+	float values[3] = {fabs(v.x), fabs(v.y), fabs(v.z)};
 	float maximum = max(values[0], values[1], values[2]);
 	int biggestAxis;
 	if(values[0] == maximum) biggestAxis = 0;
@@ -1242,7 +1246,7 @@ float linePlaneIntersection(Vec3 lp, Vec3 ld, Vec3 pp, Vec3 pn, Vec3 pu, Vec2 di
 		float angle = acos(ix/lenIp);
 		float iy = lenIp*sin(angle); // sin(angle)
 
-		if(abs(ix) > dim.y/2.0f || abs(iy > dim.x/2.0f)) return -1;
+		if(fabs(ix) > dim.y/2.0f || fabs(iy) > dim.x/2.0f) return -1;
 
 		if(intersection) {
 			*intersection = lp + ld*distance;
@@ -1310,7 +1314,7 @@ float lineSphereIntersection(Vec3 lp, Vec3 ld, Vec3 sp, float sr, Vec3* intersec
 inline Vec3i vec3i(int a, int b, int c) { return {a, b, c}; };
 inline Vec3i vec3i(int a) { return {a, a, a}; };
 
-inline Vec3i vec3i(Vec3 a) { return {a.x, a.y, a.z}; }
+inline Vec3i vec3i(Vec3 a) { return {(int)a.x, (int)a.y, (int)a.z}; }
 inline Vec3i vec3i(Vec2i a) { return {a.x, a.y, 0}; }
 inline Vec3i vec3i(Vec2i a, int b) { return {a.x, a.y, b}; }
 
@@ -1374,6 +1378,11 @@ inline Vec4 & operator/=(Vec4& a, float b) { return a = a / b; };
 inline bool operator==(Vec4 a, Vec4 b) { return (a.x==b.x) && (a.y==b.y) && 
 	                                            (a.z==b.z) && (a.w==b.w); };
 inline bool operator!=(Vec4 a, Vec4 b) { return !(a==b); };
+
+inline Vec4 clamp(Vec4 a) { 
+	return { min(max(a.x, 0.0f), 1.0f), min(max(a.y, 0.0f), 1.0f), 
+	         min(max(a.z, 0.0f), 1.0f), min(max(a.w, 0.0f), 1.0f) }; 
+};
 
 //
 // @Mat4
@@ -1447,37 +1456,37 @@ inline Mat4 scaleMatrix(Vec3 a) {
 }
 
 inline void rotationMatrix(Mat4* m, Vec3 a) {
-	*m = {	cos(a.y)*cos(a.z), cos(a.z)*sin(a.x)*sin(a.y)-cos(a.x)*sin(a.z), cos(a.x)*cos(a.z)*sin(a.x)+sin(a.x)*sin(a.z), 0,
-			cos(a.y)*sin(a.z), cos(a.x)*cos(a.z)+sin(a.x)*sin(a.y)*sin(a.z), -cos(a.z)*sin(a.x)+cos(a.x)*sin(a.y)*sin(a.z), 0,
-			-sin(a.y), 		   cos(a.y)*sin(a.x), 							 cos(a.x)*cos(a.y), 0,
-			0, 0, 0, 1};
+	*m = {  cosf(a.y)*cosf(a.z), cosf(a.z)*sinf(a.x)*sinf(a.y)-cosf(a.x)*sinf(a.z),  cosf(a.x)*cosf(a.z)*sinf(a.x)+sinf(a.x)*sinf(a.z), 0,
+			  cosf(a.y)*sinf(a.z), cosf(a.x)*cosf(a.z)+sinf(a.x)*sinf(a.y)*sinf(a.z), -cosf(a.z)*sinf(a.x)+cosf(a.x)*sinf(a.y)*sinf(a.z), 0,
+			           -sinf(a.y),                               cosf(a.y)*sinf(a.x), 							            cosf(a.x)*cosf(a.y), 0,
+			                    0,                                                 0,                                                  0, 1};
 }
 
 inline void rotationMatrixX(Mat4* m, float a) {
 	float ca = cos(a);
 	float sa = sin(a);
-	*m = {	1, 0, 0, 0,
-			0, ca, sa, 0,
-			0, -sa, ca, 0,
-			0, 0, 0, 1};
+	*m = { 1,   0,  0, 0,
+			 0,  ca, sa, 0,
+			 0, -sa, ca, 0,
+			 0,   0,  0, 1};
 }
 
 inline void rotationMatrixY(Mat4* m, float a) {
 	float ca = cos(a);
 	float sa = sin(a);
-	*m = {	ca, 0, -sa, 0,
-			0, 1, 0, 0,
-			sa, 0, ca, 0,
-			0, 0, 0, 1};
+	*m = { ca, 0, -sa, 0,
+			  0, 1,   0, 0,
+			 sa, 0,  ca, 0,
+			  0, 0,   0, 1};
 }
 
 inline void rotationMatrixZ(Mat4* m, float a) {
 	float ca = cos(a);
 	float sa = sin(a);
-	*m = {	ca, sa, 0, 0,
+	*m = { ca, sa, 0, 0,
 			-sa, ca, 0, 0,
-			0, 0, 1, 0,
-			0, 0, 0, 1};
+			  0,  0, 1, 0,
+			  0,  0, 0, 1};
 }
 
 inline void translationMatrix(Mat4* m, Vec3 a) {
@@ -1556,10 +1565,10 @@ inline void projMatrix(Mat4* m, float fov, float ar, float n, float f) {
 	// ar -> w / h
 	// fov -> vertical
 	*m = { 
-		1/(ar*tan(fov*0.5f)), 0,                 0,              0,
-		0,                    1/(tan(fov*0.5f)), 0,              0,
-		0,                    0,                 -((f+n)/(f-n)), -((2*f*n)/(f-n)),
-		0,                    0,                 -1,             0 
+		1/(ar*tanf(fov*0.5f)), 0,                  0,              0,
+		0,                     1/(tanf(fov*0.5f)), 0,              0,
+		0,                     0,                 -((f+n)/(f-n)), -((2*f*n)/(f-n)),
+		0,                     0,                 -1,              0 
 	};
 }
 
@@ -1918,6 +1927,7 @@ XForm xForm(Vec3 trans, Quat rot) { return { trans, rot, vec3(1.0f) }; }
 XForm xForm(Vec3 trans, Vec3 scale) { return { trans, quat(), scale }; }
 XForm xForm(Vec3 trans) { return { trans, quat(), vec3(1.0f) }; }
 XForm xForm() { return { vec3(0.0f), quat(), vec3(1.0f) }; }
+XForm xForm(Rect3 r) { return { r.c(), quat(), r.dim() }; }
 
 // Slow...
 inline Vec3 operator*(XForm xf, Vec3 v) {
@@ -2086,10 +2096,10 @@ inline Vec2  Rect::b    () { return {c().x, bottom}; }
 
 inline Rect operator+(Rect r, Vec2 off) { return {r.min+off, r.max+off}; };
 inline Rect & operator+=(Rect& r, Vec2 off) { return r = r + off; };
-Rect operator*(Rect r, Vec2 dim) { return rectCenDim(r.c(), r.dim()*dim); };
-Rect operator*(Rect r, float s) { return rectCenDim(r.c(), r.dim()*s); };
-Rect operator*=(Rect r, Vec2 dim) { return r = r * dim; };
-Rect operator*=(Rect r, float s) { return r = r * s; };
+inline Rect operator*(Rect r, Vec2 dim) { return rectCenDim(r.c(), r.dim()*dim); };
+inline Rect operator*(Rect r, float s) { return rectCenDim(r.c(), r.dim()*s); };
+inline Rect operator*=(Rect r, Vec2 dim) { return r = r * dim; };
+inline Rect operator*=(Rect r, float s) { return r = r * s; };
 
 inline Rect Rect::setC   (Vec2 p)    { return rectCenDim(p, dim()); }
 inline Rect Rect::setDim (Vec2 d)    { return rectCenDim(c(), d); }
@@ -2321,7 +2331,6 @@ Rect3 rect3Expand(Rect3 r, Vec3 dim) { return {r.min-dim/2, r.max+dim/2}; };
 inline Vec3  Rect3::dim  () { return max - min; };
 inline Vec3  Rect3::c    () { return min + dim()/2; };
 
-inline XForm Rect3::xf   () { return xForm(c(), dim()); }
 inline bool operator==(Rect3 a, Rect3 b) { return a.min == b.min && a.max == b.max; };
 
 //

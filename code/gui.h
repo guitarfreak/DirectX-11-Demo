@@ -413,6 +413,7 @@ struct Gui {
 
 	void scissorPush(Rect scissor);
 	void scissorPop();
+	bool scissorTest(Rect r);
 	void popupPush(PopupData data);
 	void popupPop();
 
@@ -438,6 +439,7 @@ struct Gui {
 	void drawText(Rect r, char* text, Vec2i align, Rect scissor, TextSettings settings, float borderSize = 0);
 	void drawBox(Rect r, Rect scissor, BoxSettings settings, bool rounding = true);
 	void drawTextBox(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings);
+	void drawTextBoxText(Rect r, char* text, Vec2i align, Rect scissor, TextBoxSettings settings);
 	void drawTextEditBox(char* text, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings);
 	void drawTextEditBox(void* val, int mode, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings);
 	void drawTextEditBox(int number, Rect textRect, bool active, Rect scissor, TextEditVars editVars, TextEditSettings editSettings);

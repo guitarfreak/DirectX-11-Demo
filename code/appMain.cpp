@@ -2,13 +2,8 @@
 void gameLoad(AppData* ad) {
 	EntityManager* em = &ad->entityManager;
 
-	if(!em->currentMap) {
+	if(!em->currentMap)
 		loadMap(em, "showcase");
-		// loadMap(em, "levelTest");
-
-	} else {
-		// loadMap(em, em->currentMap);
-	}
 
 	if(!ad->levelEdit) {
 		for(auto& e : em->entities) {
@@ -28,6 +23,7 @@ void gameLoad(AppData* ad) {
 				}
 
 				addEntity(em, playerCam);
+				break;
 			}
 		}
 	}
@@ -107,26 +103,25 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 			float dt = ds->dt;
 
 			Entity* e = ad->camera;
-		   if(ad->mouseEvents.fpsMode)
-		   	entityMouseLook(e, input, ad->mouseSensitivity);
+			if(ad->mouseEvents.fpsMode) 
+				entityMouseLook(e, input, ad->mouseSensitivity);
 
-		   e->acc = vec3(0,0,0);
-		   float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
-		   if(input->keysDown[KEYCODE_BACKSPACE]) speed = 0.1f;
-		   entityKeyboardAcceleration(e, input, e->camRot, speed, 2.0f, true);
+			e->acc = vec3(0,0,0);
+			float speed = !input->keysDown[KEYCODE_T] ? 25 : 250;
+			if(input->keysDown[KEYCODE_BACKSPACE]) speed = 0.1f;
+			entityKeyboardAcceleration(e, input, e->camRot, speed, 2.0f, true);
 
-		   e->vel = e->vel + e->acc*dt;
-		   float friction = 0.01f;
-		   e->vel = e->vel * pow(friction,dt);
+			e->vel = e->vel + e->acc*dt;
+			float friction = 0.01f;
+			e->vel = e->vel * pow(friction,dt);
 
-		   if(e->acc == vec3(0,0,0) && 
-		      between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
-		   	e->vel = vec3(0.0f);
-		   }
+			if(e->acc == vec3(0,0,0) && 
+				between(e->vel.x + e->vel.y + e->vel.z, -0.0001f, 0.0001f)) {
+				e->vel = vec3(0.0f);
+			}
 
-		   if(e->vel != vec3(0,0,0)) {
-		   	e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
-		   }
+			if(e->vel != vec3(0,0,0)) 
+				e->xf.trans = e->xf.trans - 0.5f*e->acc*dt*dt + e->vel*dt;
 		}
 
 		{
@@ -135,6 +130,8 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 			updateEntities(em, input, ad->dt, ad->freeCam, ad->mouseEvents, ad->mouseSensitivity, &ds->entityUI, playerCam, ad->levelEdit);
 
 			{
+				TIMER_BLOCK_NAMED("PlayerMovement");
+
 				DArray<WalkMesh> walkMeshes = dArray<WalkMesh>(getTMemory);
 				for(auto& e : ad->entityManager.entities) {
 					if(!strCompare(e.name, "walkmesh")) continue;
@@ -233,9 +230,21 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 					ThreadHeader* h = (ThreadHeader*)data;
 					ThreadData* d = (ThreadData*)h->data;
 
-					for(int i = 0; i < h->count; i++) {
-						Entity* e = d->effects[i + h->index];
+					int index;
+					while(h->incStackIndex(&index)) {
+						Entity* e = d->effects[index];
 						e->particleEmitter.update(d->dt, e->xf, &theGState->activeCam);
+
+						Rect3 aabb = e->aabb;
+						for(auto& it : e->particleEmitter.particles) {
+							if     (it.globalPos.x < aabb.min.x) aabb.min.x = it.globalPos.x;
+							else if(it.globalPos.x > aabb.max.x) aabb.max.x = it.globalPos.x;
+							if     (it.globalPos.y < aabb.min.y) aabb.min.y = it.globalPos.y;
+							else if(it.globalPos.y > aabb.max.y) aabb.max.y = it.globalPos.y;
+							if     (it.globalPos.z < aabb.min.z) aabb.min.z = it.globalPos.z;
+							else if(it.globalPos.z > aabb.max.z) aabb.max.z = it.globalPos.z;
+						}
+						e->aabb = aabb;
 					}
 				};
 
@@ -479,6 +488,66 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 
 	// @Rendering.
 
+	// Frustum culling.
+	{
+		TIMER_BLOCK_NAMED("Cull");
+
+		// https://fgiesen.wordpress.com/2010/10/17/view-frustum-culling/
+		// Method 3.
+
+		float nearPlane = theGState->gSettings->nearPlane;
+		float farPlane = theGState->gSettings->farPlane;
+
+		Mat4 projNoZ;
+		{
+			GraphicsSettings* gSettings = theGState->gSettings;
+			projNoZ = projMatrixZ01(degreeToRadian(gSettings->fieldOfView), gSettings->aspectRatio, gSettings->nearPlane, gSettings->farPlane);
+			projNoZ.e2[2][2] = 0;
+			projNoZ.e2[2][3] = 0;
+			projNoZ.e2[3][3] = 0;
+		}
+		Mat4 viewProj = projNoZ * theGState->gMats.view;
+
+		for(auto& e : ad->entityManager.entities) {
+			e.culled = false;
+
+			Rect3 b = e.aabb;
+			Vec4 vs[] = {vec4(b.min,0), vec4(b.max,0),
+			             vec4(b.min.x, b.min.y, b.max.z,0), vec4(b.min.x, b.max.y, b.max.z,0), 
+			             vec4(b.max.x, b.min.y, b.min.z,0), vec4(b.max.x, b.max.y, b.min.z,0), 
+			             vec4(b.max.x, b.min.y, b.max.z,0), vec4(b.min.x, b.max.y, b.min.z,0),};
+
+			// To clipspace.
+			for(auto& v : vs) {
+				v = viewProj * vec4(v.xyz,1);
+			}
+
+			bool outside = false;
+			for(int i = 0; i < 6; i++) {
+				bool inside = false;
+				for(int pi = 0; pi < 8; pi++) {
+					Vec4 v = vs[pi];
+					switch(i) {
+						case 0: inside = v.x >= -v.w; break;
+						case 1: inside = v.x <=  v.w; break;
+						case 2: inside = v.y >= -v.w; break;
+						case 3: inside = v.y <=  v.w; break;
+						case 4: inside = v.w >=  nearPlane; break;
+						case 5: inside = v.w <=  farPlane; break;
+					}
+					if(inside) break;
+				}
+
+				if(!inside) {
+					outside = true;
+					break;
+				}
+			}
+
+			e.culled = outside;
+		}
+	}
+
 	// @3d.
 	{
 		TIMER_BLOCK_NAMED("3dScene");
@@ -515,14 +584,34 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 		{
 			// Setup light view and projection.
 			{
-				XForm rbb = aabbToObb(ad->sceneBoundingBox.xf(), ad->sky->skySettings.sunRot);
+				XForm rbb = aabbToObb(xForm(ad->sceneBoundingBox), ad->sky->skySettings.sunRot);
 				Mat4 viewLight = viewMatrix(rbb.trans, dxGetShaderVars(Sky)->sunDir);
 				Mat4 projLight = orthoMatrixZ01(rbb.scale.y, rbb.scale.z, -rbb.scale.x*0.5f, rbb.scale.x*0.5f);
 
 				ad->viewProjLight = projLight * viewLight;
 			}
 
-			Mat4 viewProjLight = ad->viewProjLight;
+			Camera cam = theGState->activeCam;
+
+			// Sort and draw from front to back.
+			// We don't care about possible non opacive textures in meshes right now.
+			DArray<SortPair<float>> sorted = dArray<SortPair<float>>(getTMemory);
+			{
+				for(auto& e : ad->entityManager.entities) {
+					if(!entityIsValid(&e)) continue;
+
+					float distToCam = len(e.aabb.c() - cam.pos);
+					int index = &e - ad->entityManager.entities.data;
+					sorted.push({distToCam, index});
+				}
+
+				{
+					auto cmp = [](const void* a, const void* b) -> int { 
+						return ((SortPair<float>*)a)->key < ((SortPair<float>*)b)->key ? -1 : 1;
+					};
+					qsort(sorted.data, sorted.count, sizeof(SortPair<float>), cmp);
+				}
+			}
 
 			// Render scene.
 			for(int stage = 0; stage < 2; stage++) {
@@ -543,7 +632,7 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 					dxViewPort(vp);
 
 					dxSetShader(Shader_Shadow);
-					dxGetShaderVars(Shadow)->viewProj = viewProjLight;
+					dxGetShaderVars(Shadow)->viewProj = ad->viewProjLight;
 
 				} else {
 					dxBindFrameBuffer("3dMsaa", "ds3d");
@@ -553,16 +642,17 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 					FrameBuffer* fb = dxGetFrameBuffer("Shadow");
 					gs->d3ddc->PSSetShaderResources(5, 1, &fb->shaderResourceView);
 
-					dxGetShaderVars(Main)->mvpShadow.viewProj = viewProjLight;
+					dxGetShaderVars(Main)->mvpShadow.viewProj = ad->viewProjLight;
 				}
 
-				for(int i = 0; i < ad->entityManager.entities.count; i++) {
-					Entity* e = ad->entityManager.entities.data + i;
-					if(!entityIsValid(e)) continue;
+				bool test = false;
+				for(auto& it : sorted) {
+					Entity* e = ad->entityManager.entities.data + it.index;
 
 					if(e->type == ET_Player && !ad->freeCam) continue;
-
 					if(e->noRender) continue;
+
+					if(stage == 1 && e->culled && !strCompare(e->name, "figure")) continue;
 
 					XForm xf = e->xf;
 					if(e->type == ET_ParticleEffect ||
@@ -671,11 +761,15 @@ void gameLoop(AppData* ad, DebugState* ds, WindowSettings* ws, bool showUI, bool
 	renderBloom(gs->gMats);
 
 	// @2d.
+	if(false)
 	{
 		dxBindFrameBuffer("2dMsaa", "ds");
 		dxSetShader(Shader_Primitive);
 		dxLineAA(1);
 
 		Rect sr = gs->screenRect;
+
+		dxDrawRect(sr, vec4(0.2f,1));
+		// dxDrawRect(rectTLDim(50,-200, 100,100), vec4(1,1), dxGetTexture("misc\\test.dds")->view);
 	}
 }

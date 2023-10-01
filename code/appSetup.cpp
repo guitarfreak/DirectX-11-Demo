@@ -28,8 +28,6 @@ void handleReload(SystemData* sd, WindowSettings* ws) {
 			} else break;
 		}
 	}
-
-
 }
 
 void updateTimers(DebugState* ds, GraphicsState* gs, int refreshRate, double* dt, double* time, int* frameCount, bool init) {
@@ -39,6 +37,8 @@ void updateTimers(DebugState* ds, GraphicsState* gs, int refreshRate, double* dt
 	if(init) {
 		ds->frameTimer.start();
 		ds->dt = 1/(float)refreshRate;
+		ds->clockStamp = __rdtsc();
+		ds->clockConvertStat.begin();
 
 	} else {
 		ds->dt = ds->frameTimer.update();
@@ -51,6 +51,12 @@ void updateTimers(DebugState* ds, GraphicsState* gs, int refreshRate, double* dt
 			ds->fpsTime = 0;
 			ds->fpsCounter = 0;
 		}
+
+		u64 stamp = __rdtsc() - ds->clockStamp;
+		ds->clockStamp = __rdtsc();
+		double clockToTime = (ds->dt*1000) / stamp;
+		ds->clockConvertStat.update(clockToTime);
+		ds->clockStampToTime = ds->clockConvertStat.getAvg();
 	}
 
 	*dt = ds->dt;
@@ -243,6 +249,6 @@ void saveAppSessionAndSettings(AppData* ad, WindowSettings* ws, SystemData* sd) 
 		at.camPos = ad->camera->xf.trans;
 		// at.camRot = ad->camera->camRot;
 
-		saveAppSettings(at);
+		at.save(App_Session_File);
 	}
 }

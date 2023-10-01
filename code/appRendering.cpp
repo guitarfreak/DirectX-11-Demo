@@ -1,26 +1,27 @@
 
-void addFrameBuffers() {
+void addFrameBuffers(int* msaaSamples) {
 	// DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 	DXGI_FORMAT dFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	DXGI_FORMAT fFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 	
-	DXGI_FORMAT typelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
+	DXGI_FORMAT typelessFormat = DXGI_FORMAT_R8G8B8A8_TYPELESS;
 
 	dxAddFrameBuffer("Sky",         fFormat, true,  true,  false);
 	dxAddFrameBuffer("3dMsaa",      fFormat,  true,  false, false);
 	dxAddFrameBuffer("3dNoMsaa",    fFormat,  true, true,  false);
-	dxAddFrameBuffer("2dMsaa",      fFormat,  true,  false, false);
+	dxAddFrameBuffer("2dMsaa",      fFormat,  true,  true, false); // TODO: Remove shader resource view.
+
 	dxAddFrameBuffer("2dNoMsaa",    fFormat,  true,  true,  false);
 	dxAddFrameBuffer("2dTemp",      fFormat,  false, false, false);
 
-	dxAddFrameBuffer("DebugMsaa",   format,  true,  false, false);
+	dxAddFrameBuffer("DebugMsaa",   typelessFormat,  true,  false, false); // TODO: Remove 
 	dxAddFrameBuffer("DebugNoMsaa", format,  false, true,  false);
 	// dxAddFrameBuffer("ds3d",        dFormat, false, false, true );
-	dxAddFrameBuffer("ds3d", typelessFormat, false, true, true );
+	dxAddFrameBuffer("ds3d", DXGI_FORMAT_R24G8_TYPELESS, false, true, true );
 	dxGetFrameBuffer("ds3d")->makeDepthView = true;
 
-	dxAddFrameBuffer("ds3dTemp", typelessFormat, false, true, true );
+	dxAddFrameBuffer("ds3dTemp", DXGI_FORMAT_R24G8_TYPELESS, false, true, true );
 	dxGetFrameBuffer("ds3dTemp")->makeDepthView = true;
 
 	dxAddFrameBuffer("ds",          dFormat, false, false, true );
@@ -37,31 +38,49 @@ void addFrameBuffers() {
 
 	dxAddFrameBuffer("MenuBackground",       DXGI_FORMAT_R16G16B16A16_FLOAT,  true, true, false);
 
-	dxAddFrameBuffer("Test", format,  false, true,  false);
+	// dxAddFrameBuffer("Test", DXGI_FORMAT_R8G8B8A8_TYPELESS, true, true, false);
+	dxAddFrameBuffer("FontTemp", fFormat, true, true, false);
+
+	//
+
+	{
+		DXGI_FORMAT formatsThatUseMSAA[] = { fFormat, DXGI_FORMAT_R24G8_TYPELESS, dFormat, typelessFormat };
+		char* msaaBuffers[] = {"3dMsaa", "2dMsaa", "ds3d", "ds3dTemp", "ds", "FontTemp", "DebugMsaa"};
+		for(int i = 0; i < arrayCount(msaaBuffers); i++) {
+			FrameBuffer* fb = dxGetFrameBuffer(msaaBuffers[i]);
+
+			uint numQualityLevels;
+			HRESULT result = theGState->d3dDevice->CheckMultisampleQualityLevels(fb->format, *msaaSamples, &numQualityLevels);
+			if(result != 0 || numQualityLevels < (*msaaSamples))
+				*msaaSamples = max((int)numQualityLevels, 1);
+		}
+	}
 }
 
-void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples, int msaaQuality) {
-	int m  = msaaSamples;
-	int mq = msaaQuality;
+void resizeFrameBuffers(Vec2i res3d, Vec2i res2d, int msaaSamples) {
+	int m = msaaSamples;
 
-	dxSetFrameBuffer("Sky",      res3d, 1, 0);
-	dxSetFrameBuffer("3dMsaa",   res3d, m, mq);
-	dxSetFrameBuffer("3dNoMsaa", res3d, 1, 0);
-	dxSetFrameBuffer("2dMsaa",   res2d, m, mq);
-	dxSetFrameBuffer("2dNoMsaa", res2d, 1, 0);
-	dxSetFrameBuffer("2dTemp",   res2d, 1, 0);
-	dxSetFrameBuffer("ds3d",     res3d, m, mq);
-	dxSetFrameBuffer("ds3dTemp", res3d, m, mq);
-	dxSetFrameBuffer("ds",       res2d, m, mq);
+	dxSetFrameBuffer("Sky",      res3d, 1);
+	dxSetFrameBuffer("3dMsaa",   res3d, m);
+	dxSetFrameBuffer("3dNoMsaa", res3d, 1);
+	dxSetFrameBuffer("2dMsaa",   res2d, m);
+	dxSetFrameBuffer("2dNoMsaa", res2d, 1);
+	dxSetFrameBuffer("2dTemp",   res2d, 1);
+	dxSetFrameBuffer("ds3d",     res3d, m);
+	dxSetFrameBuffer("ds3dTemp", res3d, m);
+	dxSetFrameBuffer("ds",       res2d, m);
 
-	dxSetFrameBuffer("Shadow",   vec2i(theGState->shadowMapSize), 1, 0);
+	dxSetFrameBuffer("Shadow",   vec2i(theGState->shadowMapSize), 1);
 
 	for(int i = 0; i < 5; i++) {
-		dxSetFrameBuffer(fString("Bloom_%i", i),  res3d/(pow(2.0f,i)), 1, 0);
-		dxSetFrameBuffer(fString("Bloom2_%i", i), res3d/(pow(2.0f,i)), 1, 0);
+		dxSetFrameBuffer(fString("Bloom_%i", i),  res3d/(pow(2.0f,i)), 1);
+		dxSetFrameBuffer(fString("Bloom2_%i", i), res3d/(pow(2.0f,i)), 1);
 	}
 
-	dxSetFrameBuffer("BloomHelper", res3d, 1, 0);
+	dxSetFrameBuffer("BloomHelper", res3d, 1);
+
+	// dxSetFrameBuffer("Test", res2d, 1);
+	dxSetFrameBuffer("FontTemp", res2d, m);
 }
 
 void clearFrameBuffers() {
@@ -80,7 +99,8 @@ void clearFrameBuffers() {
 
 	dxClearFrameBuffer("BloomHelper", vec4(0,1));
 
-	// dxClearFrameBuffer("Test", vec4(0.0f));
+	// dxClearFrameBuffer("Test", vec4(0.0f, 1.0f));
+	dxClearFrameBuffer("FontTemp", vec4(0.0f, 1.0f));
 }
 
 void updateFrameBuffersAndScreenRes(GraphicsSettings* gSettings, float aspectRatio, Vec2i currentRes, bool init) {
@@ -123,10 +143,10 @@ void updateFrameBuffersAndScreenRes(GraphicsSettings* gSettings, float aspectRat
 		backBufferResource->Release();
 	}
 
-	resizeFrameBuffers(res3d, res2d, gSettings->msaaSamples, gSettings->msaaQuality);
+	resizeFrameBuffers(res3d, res2d, gSettings->msaaSamples);
 	if(init) {
-		dxSetFrameBuffer("DebugMsaa",   res2d, gSettings->msaaSamples, gSettings->msaaQuality);
-		dxSetFrameBuffer("DebugNoMsaa", res2d, 1, 0);
+		dxSetFrameBuffer("DebugMsaa",   res2d, gSettings->msaaSamples);
+		dxSetFrameBuffer("DebugNoMsaa", res2d, 1);
 	}
 }
 
@@ -135,9 +155,8 @@ void updateDebugFrameBuffer(bool* update) {
 
 	Vec2i res2d = theGState->screenRes;
 	int m = theGState->gSettings->msaaSamples;
-	int mq = theGState->gSettings->msaaQuality;
-	dxSetFrameBuffer("DebugMsaa",   res2d, m, mq);
-	dxSetFrameBuffer("DebugNoMsaa", res2d, 1, 0);
+	dxSetFrameBuffer("DebugMsaa",   res2d, m);
+	dxSetFrameBuffer("DebugNoMsaa", res2d, 1);
 }
 
 void setupGraphics(GraphicsState* gs, GraphicsSettings gSettings, Camera activeCam, bool init, bool reload) {
@@ -329,15 +348,36 @@ void resolveFrameBuffersAndSwap(DebugState* ds, GraphicsState* gs, Vec2i current
 
 		dxBindFrameBuffer("2dNoMsaa");
 		FrameBuffer* fb = dxGetFrameBuffer("DebugNoMsaa");
-		// dxDrawRect(rectTLDim(0,0,fb->dim.w,fb->dim.h), vec4(1,ds->guiAlpha), fb->shaderResourceView);		
 		dxDrawRect(rectTLDim(0,0,fb->dim.w,fb->dim.h), vec4(ds->guiAlpha,ds->guiAlpha), fb->shaderResourceView);		
 		//
 
 		dxSetBlendState(Blend_State_NoBlend);
 		dxDepthTest(false);
 		gs->d3ddc->OMSetRenderTargets(1, &gs->backBufferView, 0);
-		// dxDrawRect(getScreenRect(currentRes), vec4(1), dxGetFrameBuffer("2dNoMsaa")->shaderResourceView);
 		dxDrawRect(theGState->screenRect, vec4(1), dxGetFrameBuffer("2dNoMsaa")->shaderResourceView);
+
+
+		// dxSetBlendState(Blend_State_Blend);
+
+		// dxBindFrameBuffer("Test");
+		// // dxDrawRect(rectTLDim(0,0,100,100), vec4(0.5f,1));
+
+		// {
+		// 	dxDrawRect(rectTLDim(0,0,1000,1000), vec4(0,1));
+		// 	dxDrawRect(rectTLDim(0,-60,1000,1000), vec4(1,1));
+
+		// 	int fh = 12*1.3f;
+		// 	TextSettings ts = {getFont("LiberationSans-Regular.ttf", fh), vec4(1.0f,1)};
+		// 	TextSettings ts2 = {getFont("LiberationSans-Regular.ttf", fh), vec4(0.0f,1)};
+
+		// 	drawText("this is some text!!!", vec2(20,-40), vec2i(-1,1), ts); 
+		// 	drawText("this is some text!!!", vec2(20,-80), vec2i(-1,1), ts2); 
+		// }
+
+		// dxSetBlendState(Blend_State_NoBlend);
+
+		// gs->d3ddc->OMSetRenderTargets(1, &gs->backBufferView, 0);
+		// dxDrawRect(theGState->screenRect, vec4(1), dxGetFrameBuffer("Test")->shaderResourceView);
 	}
 
 	if(ds->cpuInterval.update(ds->dt, ds->debugTimer.stop())) {
@@ -356,7 +396,7 @@ void resolveFrameBuffersAndSwap(DebugState* ds, GraphicsState* gs, Vec2i current
 	}
 
 	{
-		TIMER_BLOCK_NAMED("Swap");
+		TIMER_BLOCK_NAMED(SWAP_REGION_NAME);
 
 		*vsyncTempTurnOff = false;
 
@@ -587,6 +627,9 @@ void renderBloom(GraphicsMatrices gMats) {
 				dxDrawRect(rectTLDim(vec2(0,0), dim), vec4(1,1,1,1), dxGetFrameBuffer(cBuf)->shaderResourceView, rect(0,1,1,0));
 
 			 	swap(&cBuf, &oBuf);
+
+			 	dxBindFrameBuffer(0, 0);
+			 	theGState->d3ddc->PSSetShaderResources(0, 1, &dxGetFrameBuffer(cBuf)->shaderResourceView);
 			}
 		}
 
@@ -624,6 +667,10 @@ void renderBloom(GraphicsMatrices gMats) {
 				dxDrawRect(rectTLDim(vec2(0,0), dim), vec4(1,1,1,1), dxGetFrameBuffer(cBuf)->shaderResourceView, rect(0,1,1,0));
 
 			 	swap(&cBuf, &oBuf);
+
+			 	// Remove warnings.
+				dxBindFrameBuffer(0, 0);
+				theGState->d3ddc->PSSetShaderResources(0, 1, &dxGetFrameBuffer(cBuf)->shaderResourceView);
 			}
 		}
 
@@ -699,6 +746,7 @@ void drawParticles(EntityManager* em, Mat4 viewProjLight) {
 		dxSetTexture(dxGetFrameBuffer("ds3d")->shaderResourceView, 7);
 
 		defer { 
+			dxSetTexture(0, 7);
 			dxSetBlendState(Blend_State_Blend); 
 			dxDepthTest(true); 
 			dxBindFrameBuffer("3dMsaa", "ds3d"); 
@@ -708,6 +756,8 @@ void drawParticles(EntityManager* em, Mat4 viewProjLight) {
 			Entity* e = sortData[i].a;
 
 			if(e->type == ET_ParticleEffect) {
+				if(e->culled) continue;
+
 				e->particleEmitter.draw(e->xf, cam);
 
 			} else if(e->type == ET_Group) {
@@ -716,7 +766,8 @@ void drawParticles(EntityManager* em, Mat4 viewProjLight) {
 					for(int i = 0; i < list->count; i++) {
 						Entity* e = list->data[i];
 						if(e->type != ET_ParticleEffect) continue;
-						
+						if(e->culled) continue;
+
 						e->particleEmitter.draw(e->xf, cam);
 					}
 				}

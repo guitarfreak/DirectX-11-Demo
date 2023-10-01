@@ -231,8 +231,7 @@ Entity* addEntity(EntityManager* em, Entity e) {
 }
 
 DArray<Entity> addEntities(EntityManager* em, Entity* list, int count) {
-	DArray<Entity> addedList;
-	addedList.init(getTMemory);
+	DArray<Entity> addedList = dArray<Entity>(getTMemory);
 	for(int i = 0; i < count; i++) {
 		Entity* e = addEntity(em, list + i);
 		addedList.push(e);
@@ -458,7 +457,8 @@ void updateEntities(EntityManager* em, Input* input, float dt, bool freeCam, Mou
 
 		// Calc bounding box.
 		{
-			if(!strLen(e->mesh)) e->aabb = {};
+			if(!strLen(e->mesh) || !dxGetMesh(e->mesh)) 
+				e->aabb = {};
 			else {
 				Rect3 aabb;
 				Mesh* mesh = dxGetMesh(e->mesh);

@@ -1,33 +1,32 @@
 
-PrimitiveVertex* dxBeginPrimitive(uint topology = -1) {
-	GraphicsState* gs = theGState;
+#define gs theGState
 
-	if(topology != -1) 
-		gs->d3ddc->IASetPrimitiveTopology((D3D11_PRIMITIVE_TOPOLOGY)topology);
+DArray<PrimitiveVertex>& dxBeginPrimitive(uint topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
+	gs->d3ddc->IASetPrimitiveTopology((D3D11_PRIMITIVE_TOPOLOGY)topology);
 
 	gs->currentTopology = topology;
 
-	D3D11_MAPPED_SUBRESOURCE sub;
-	gs->d3ddc->Map(gs->primitiveVertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &sub);
-
-	gs->pVertexArray = (PrimitiveVertex*)sub.pData;
-	gs->pVertexCount = 0;
-
-	return gs->pVertexArray;
+	gs->vertexBuffer.count = 0;
+	return gs->vertexBuffer;
 }
 
-PrimitiveVertex* dxBeginPrimitive(Vec4 color, uint topology = -1) {
-	GraphicsState* gs = theGState;
+DArray<PrimitiveVertex>& dxBeginPrimitive(Vec4 color, ID3D11ShaderResourceView* view, uint topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
+	theGState->d3ddc->PSSetSamplers(0, 1, &theGState->sampler);
+	theGState->d3ddc->PSSetShaderResources(0, 1, &view);
+	dxGetShaderVars(Primitive)->color = vec4(1);
+	dxPushShaderConstants(Shader_Primitive);
 
+	return dxBeginPrimitive(topology);
+}
+
+DArray<PrimitiveVertex>& dxBeginPrimitive(Vec4 color, uint topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
 	dxGetShaderVars(Primitive)->color = color;
 	dxPushShaderConstants(Shader_Primitive);
 
 	return dxBeginPrimitive(topology);
 }
 
-PrimitiveVertex* dxBeginPrimitiveColored(Vec4 color, uint topology = -1) {
-	GraphicsState* gs = theGState;
-
+DArray<PrimitiveVertex>& dxBeginPrimitiveColored(Vec4 color, uint topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
 	gs->d3ddc->PSSetShaderResources(0, 1, &gs->textureWhite->view);
 	gs->d3ddc->PSSetSamplers(0, 1, &gs->samplerClamp);
 
@@ -36,153 +35,288 @@ PrimitiveVertex* dxBeginPrimitiveColored(Vec4 color, uint topology = -1) {
 
 	return dxBeginPrimitive(topology);
 }
-PrimitiveVertex* dxBeginPrimitiveColored(uint topology) {
+DArray<PrimitiveVertex>& dxBeginPrimitiveColored(uint topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
 	return dxBeginPrimitiveColored(vec4(1), topology);
 }
 
-void dxEndPrimitive(int vertexCount = theGState->pVertexCount) {
-	GraphicsState* gs = theGState;
+void dxMapDraw(PrimitiveVertex* verts, int count) {
+	if(!count) return;
+	
+	D3D11_MAPPED_SUBRESOURCE sub;
+	gs->d3ddc->Map(gs->primitiveVertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &sub);
+
+	memcpy(sub.pData, verts, sizeof(PrimitiveVertex) * count);
 
 	gs->d3ddc->Unmap(gs->primitiveVertexBuffer, 0);
-	gs->d3ddc->Draw(vertexCount, 0);
+	gs->d3ddc->Draw(count, 0);
+}
+
+inline void dxEndPrimitive() { 
+	dxMapDraw(gs->vertexBuffer.data, gs->vertexBuffer.count);
+}
+
+inline void dxEndPrimitive(int count) { 
+	dxMapDraw(gs->vertexBuffer.data, count);
+}
+
+void dxDrawEndPrimitive(PrimitiveVertex* verts, int count, int vertsPerPrimitive) {
+	int vertsPerBatch = roundDown(gs->primitiveVertexBufferMaxCount / vertsPerPrimitive) * vertsPerPrimitive;
+
+	int pushedVerts = 0;
+	while(pushedVerts != count) {
+		int currentBatch = min(vertsPerBatch, count - pushedVerts);
+		dxMapDraw(verts + pushedVerts, currentBatch);
+		pushedVerts += currentBatch;
+	}
 }
 
 void dxFlush() {
-	GraphicsState* gs = theGState;
-
 	dxEndPrimitive();
-	dxBeginPrimitive(gs->currentTopology);
+	gs->vertexBuffer.count = 0;
 }
 
 void dxFlushIfFull() {
-	GraphicsState* gs = theGState;
+	if(gs->vertexBuffer.count >= gs->primitiveVertexBufferMaxCount) {
+		int toDraw = roundMod(gs->primitiveVertexBufferMaxCount, gs->primitiveVertexCount[gs->currentTopology]);
 
-	if(gs->pVertexCount >= gs->primitiveVertexBufferMaxCount-12) {
+		dxEndPrimitive(toDraw);
+		if(gs->vertexBuffer.count == toDraw) gs->vertexBuffer.count = 0;
+		else gs->vertexBuffer.removeMove(0, toDraw);
+	}
+}
+
+void dxFlushIfFull(int batchVertexCount) {
+	if(gs->vertexBuffer.count + batchVertexCount > gs->primitiveVertexBufferMaxCount) {
 		dxEndPrimitive();
-		dxBeginPrimitive(gs->currentTopology);
+		gs->vertexBuffer.count = 0;
 	}
 }
 
 // @2d
 
-PrimitiveVertex pVertex(Vec2 p, float z = theGState->zLevel) {
-	return { p.x, p.y, z, 1,1,1,1, 0,0 };
+inline PrimitiveVertex pVertex(Vec2 p,                  float z = gs->zLevel) { return { p.x, p.y, z, 1,1,1,1, 0,0 }; }
+inline PrimitiveVertex pVertex(Vec2 p,         Vec2 uv, float z = gs->zLevel) { return { p.x, p.y, z, 1,1,1,1, uv.x, uv.y }; }
+inline PrimitiveVertex pVertex(Vec2 p, Vec4 c,          float z = gs->zLevel) { return { p.x, p.y, z, c }; }
+inline PrimitiveVertex pVertex(Vec2 p, Vec4 c, Vec2 uv, float z = gs->zLevel) { return { p.x, p.y, z, c, uv }; }
+inline PrimitiveVertex pVertex(Vec3 p)                                        { return { p, 1,1,1,1 }; }
+inline PrimitiveVertex pVertex(Vec3 p, Vec4 c)                                { return { p, c }; }
+
+inline void dxPushVertex(PrimitiveVertex  v)            { gs->vertexBuffer.pushNC(v); }
+inline void dxPushVerts (PrimitiveVertex* v, int count) { gs->vertexBuffer.pushNC(v, count); }
+
+inline void dxPushLine(Vec2 a, Vec2 b) {
+	PrimitiveVertex verts[] = {
+		pVertex(a), 
+		pVertex(b), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-PrimitiveVertex pVertex(Vec2 p, Vec2 uv, float z = theGState->zLevel) {
-	return { p.x, p.y, z, 1,1,1,1, uv.x, uv.y };
+inline void dxPushLine(Vec2 a, Vec2 b, Vec4 c) {
+	PrimitiveVertex verts[] = {
+		pVertex(a, c), 
+		pVertex(b, c), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-PrimitiveVertex pVertex(Vec2 p, Vec4 c, float z = theGState->zLevel) {
-	return { p.x, p.y, z, c };
+inline void dxPushLineH(Vec2 a, Vec2 b, Vec4 color, bool roundUp = false) {
+	float off = roundUp ? 0.5f : -0.5f;
+	return dxPushLine(round(a) + vec2(0, off), round(b) + vec2(0, off), color);
 }
 
-PrimitiveVertex pVertex(Vec2 p, Vec4 c, Vec2 uv, float z = theGState->zLevel) {
-	return { p.x, p.y, z, c, uv };
+inline void dxPushLineV(Vec2 a, Vec2 b, Vec4 color, bool roundUp = false) {
+	float off = roundUp ? 0.5f : -0.5f;
+	return dxPushLine(round(a) + vec2(off, 0), round(b) + vec2(off, 0), color);
 }
 
-PrimitiveVertex pVertex(Vec3 p) {
-	return { p, 1,1,1,1 };
+inline void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c) {
+	PrimitiveVertex verts[] = {
+		pVertex(a), 
+		pVertex(b), 
+		pVertex(c), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-PrimitiveVertex pVertex(Vec3 p, Vec4 c) {
-	return { p, c };
-}
-
-void dxPushVertex(PrimitiveVertex v) {
-	theGState->pVertexArray[theGState->pVertexCount++] = v;
-}
-
-void dxPushVerts(PrimitiveVertex* v, int count) {
-	for(int i = 0; i < count; i++) {
-		theGState->pVertexArray[theGState->pVertexCount++] = v[i];
-	}
-}
-
-void dxPushLine(Vec2 a, Vec2 b, Vec4 c) {
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(a, c);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b, c);
-}
-
-void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c) {
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(a);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(c);
-}
-
-void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c, Vec4 color) {
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(a, color);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b, color);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(c, color);
-}
-
-void dxPushRect(Rect r, Rect uv) {
-	GraphicsState* gs = theGState;
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.bl(), uv.tl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tl(), uv.bl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.br(), uv.tr());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.br(), uv.tr());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tl(), uv.bl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tr(), uv.br());
+inline void dxPushTriangle(Vec2 a, Vec2 b, Vec2 c, Vec4 color) {
+	PrimitiveVertex verts[] = {
+		pVertex(a, color), 
+		pVertex(b, color), 
+		pVertex(c, color), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
 void dxPushRect(Rect r, Vec4 c, Rect uv) {
-	GraphicsState* gs = theGState;
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.bl(), c, uv.tl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tl(), c, uv.bl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.br(), c, uv.tr());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.br(), c, uv.tr());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tl(), c, uv.bl());
-	gs->pVertexArray[gs->pVertexCount++] = pVertex(r.tr(), c, uv.br());
+	Vec2 rtl = r.tl();
+	Vec2 rbr = r.br();
+	Vec2 uvtl = uv.tl();
+	Vec2 uvbr = uv.br();
+	PrimitiveVertex verts[] = {
+		{ r.min.x, r.min.y, gs->zLevel, c, uvtl   },
+		{ rtl.x,   rtl.y,   gs->zLevel, c, uv.min },
+		{ rbr.x,   rbr.y,   gs->zLevel, c, uv.max },
+		{ rbr.x,   rbr.y,   gs->zLevel, c, uv.max },
+		{ rtl.x,   rtl.y,   gs->zLevel, c, uv.min },
+		{ r.max.x, r.max.y, gs->zLevel, c, uvbr   },
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-void dxPushQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Vec4 color, Rect uv = rect()) {
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(a,theGState->zLevel), color, uv.bl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(b,theGState->zLevel), color, uv.tl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(c,theGState->zLevel), color, uv.tr() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(c,theGState->zLevel), color, uv.tr() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(d,theGState->zLevel), color, uv.br() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { vec3(a,theGState->zLevel), color, uv.bl() };
+inline void dxPushRect(Rect r, Rect uv) { dxPushRect(r, vec4(1), uv); }
+
+inline void dxPushRect(Rect r, Vec4 c)  { 
+	Vec2 rtl = r.tl();
+	Vec2 rbr = r.br();
+	PrimitiveVertex verts[] = {
+		{ r.min.x, r.min.y, gs->zLevel, c, },
+		{ rtl.x,   rtl.y,   gs->zLevel, c, },
+		{ rbr.x,   rbr.y,   gs->zLevel, c, },
+		{ rbr.x,   rbr.y,   gs->zLevel, c, },
+		{ rtl.x,   rtl.y,   gs->zLevel, c, },
+		{ r.max.x, r.max.y, gs->zLevel, c, },
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-void dxPushLine(Vec3 a, Vec3 b, Vec4 c) {
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(a, c);
-	theGState->pVertexArray[theGState->pVertexCount++] = pVertex(b, c);
+void dxPushRect4(Rect r, Rect uv) {
+	PrimitiveVertex verts[] = {
+		pVertex(r.bl(), uv.bl()), 
+		pVertex(r.tl(), uv.tl()), 
+		pVertex(r.br(), uv.br()), 
+		pVertex(r.tr(), uv.tr()), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-void dxPushTriangle(Vec3 a, Vec3 b, Vec3 c, Vec4 color, Rect uv = rect()) {
-	theGState->pVertexArray[theGState->pVertexCount++] = { a, color, uv.bl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { b, color, uv.tl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { c, color, uv.tr() };
+void dxPushQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Vec4 color, Rect uv) {
+	PrimitiveVertex verts[] = {
+		{ vec3(a,gs->zLevel), color, uv.bl() }, 
+		{ vec3(b,gs->zLevel), color, uv.tl() }, 
+		{ vec3(c,gs->zLevel), color, uv.tr() }, 
+		{ vec3(c,gs->zLevel), color, uv.tr() }, 
+		{ vec3(d,gs->zLevel), color, uv.br() }, 
+		{ vec3(a,gs->zLevel), color, uv.bl() }, 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
+}
+
+void dxPushQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Vec4 color) {
+	PrimitiveVertex verts[] = {
+		{ vec3(a,gs->zLevel), color }, 
+		{ vec3(b,gs->zLevel), color }, 
+		{ vec3(c,gs->zLevel), color }, 
+		{ vec3(c,gs->zLevel), color }, 
+		{ vec3(d,gs->zLevel), color }, 
+		{ vec3(a,gs->zLevel), color }, 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
+}
+
+
+inline void dxPushLine(Vec3 a, Vec3 b, Vec4 c) {
+	PrimitiveVertex verts[] = {
+		pVertex(a, c), 
+		pVertex(b, c), 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
+}
+
+inline void dxPushTriangle(Vec3 a, Vec3 b, Vec3 c, Vec4 color, Rect uv = rect()) {
+	PrimitiveVertex verts[] = {
+		{ a, color, uv.bl() }, 
+		{ b, color, uv.tl() }, 
+		{ c, color, uv.tr() }, 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
 void dxPushQuad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec4 color, Rect uv = rect()) {
-	theGState->pVertexArray[theGState->pVertexCount++] = { a, color, uv.bl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { b, color, uv.tl() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { c, color, uv.tr() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { c, color, uv.tr() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { d, color, uv.br() };
-	theGState->pVertexArray[theGState->pVertexCount++] = { a, color, uv.bl() };
+	PrimitiveVertex verts[] = {
+		{ a, color, uv.bl() }, 
+		{ b, color, uv.tl() }, 
+		{ c, color, uv.tr() }, 
+		{ c, color, uv.tr() }, 
+		{ d, color, uv.br() }, 
+		{ a, color, uv.bl() }, 
+	};
+	gs->vertexBuffer.pushNC(verts, arrayCount(verts));
 }
 
-void dxGetQuad(PrimitiveVertex* verts, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec4 color, Rect uv = rect()) {
-	verts[0] = { a, color, uv.bl() };
-	verts[1] = { b, color, uv.tl() };
-	verts[2] = { c, color, uv.tr() };
-	verts[3] = { c, color, uv.tr() };
-	verts[4] = { d, color, uv.br() };
-	verts[5] = { a, color, uv.bl() };
+inline void dxGetQuad(PrimitiveVertex* dstVerts, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec4 color, Rect uv = rect()) {
+	PrimitiveVertex verts[] = {
+		{ a, color, uv.bl() }, 
+		{ b, color, uv.tl() }, 
+		{ c, color, uv.tr() }, 
+		{ c, color, uv.tr() }, 
+		{ d, color, uv.br() }, 
+		{ a, color, uv.bl() }, 
+	};
+	copyStaticArray(dstVerts, verts, PrimitiveVertex);
 }
 
 //
 
 void dxDrawLine(Vec2 a, Vec2 b, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	dxPushLine(a, b);
+	dxEndPrimitive();
+}
 
-	v[0] = pVertex(a);
-	v[1] = pVertex(b);
+void dxDrawLineTri(Vec2 a, Vec2 b, Vec4 color, float w = 1) {
+	dxBeginPrimitiveColored(color);
+	Vec2 dir = b - a;
+	Vec2 right = norm(rotateRight(dir)) * w * 0.5f;
+	dxPushQuad(a - right, b - right, b + right, a + right, color);
+	dxEndPrimitive();
+}
 
-	dxEndPrimitive(2);
+void dxDrawLineStripTri(Vec2* p, int count, Vec4 color, float w = 1) {
+	dxBeginPrimitiveColored();
+
+	Vec2 dir, left;
+	Vec2 a, b, c, d;
+	float w2 = w * 0.5f;
+
+	for(int i = 0; i < count-1; i++) {
+		if(p[i] == p[i+1]) continue;
+
+		if(i == 0) {
+			dir = norm(p[i] - p[i+1]);
+			left = rotateRight(dir);
+			Vec2 l = left * w2;
+			a = p[i] - l;
+			b = p[i] + l;
+			continue;
+		}
+
+		Vec2 dir2 = norm(p[i] - p[i+1]);
+		Vec2 dirDiag = norm(((-dir) + dir2) * 0.5f);
+
+		float invDot = 1.0f / dot(dirDiag, left); 
+		float offsetLength = invDot * w2;
+
+		c = p[i] + dirDiag * offsetLength;
+		d = p[i] + dirDiag * -offsetLength;		
+
+		dxPushQuad(a, b, c, d, color);
+		dxFlushIfFull();
+
+		a = d;
+		b = c;
+		left = rotateRight(dir2);
+		dir = dir2;
+	}
+
+	dir = norm(p[count-2] - p[count-1]);
+	left = rotateRight(dir);
+	Vec2 l = left * w2;
+	c = p[count-1] + l;
+	d = p[count-1] - l;
+
+	dxPushQuad(a, b, c, d, color);
+	dxEndPrimitive();
 }
 
 void dxDrawLineH(Vec2 a, Vec2 b, Vec4 color, bool roundUp = false) {
@@ -196,19 +330,13 @@ void dxDrawLineV(Vec2 a, Vec2 b, Vec4 color, bool roundUp = false) {
 }
 
 void dxDrawPolygon(Vec2* points, int count, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-
-	for(int i = 0; i < count-1; i++) {
-		dxPushLine(points[i], points[i+1], vec4(1,1));
-	}
-	dxPushLine(points[count-1], points[0], color);
-
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	for(int i = 0; i < count-1; i++) dxPushLine(points[i], points[i+1]);
+	dxPushLine(points[count-1], points[0]);
 	dxEndPrimitive();
 }
 
 void dxDrawRect(Rect r, Vec4 color, ID3D11ShaderResourceView* view = 0, Rect uv = rect(0,1,1,0)) {
-	GraphicsState* gs = theGState;
-
 	if(!view) view = gs->textureWhite->view;
 	gs->d3ddc->PSSetShaderResources(0, 1, &view);
 	gs->d3ddc->PSSetSamplers(0, 1, &gs->samplerClamp);
@@ -216,14 +344,9 @@ void dxDrawRect(Rect r, Vec4 color, ID3D11ShaderResourceView* view = 0, Rect uv 
 	dxGetShaderVars(Primitive)->color = color;
 	dxPushShaderConstants(Shader_Primitive);
 
-	PrimitiveVertex* v = dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-
-	v[0] = pVertex(r.bl(), uv.bl());
-	v[1] = pVertex(r.tl(), uv.tl());
-	v[2] = pVertex(r.br(), uv.br());
-	v[3] = pVertex(r.tr(), uv.tr());
-
-	dxEndPrimitive(4);
+	dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+	dxPushRect4(r, uv);
+	dxEndPrimitive();
 }
 
 void dxDrawRectOutline(Rect r, Vec4 color) {	
@@ -232,7 +355,7 @@ void dxDrawRectOutline(Rect r, Vec4 color) {
 
 	dxPushLine(r.bl() + vec2(0,0.5f),  r.tl() + vec2(0,0.5f),  color);
 	dxPushLine(r.tl() + vec2(0.5f,0),  r.tr() + vec2(0.5f,0),  color);
-	dxPushLine(r.tr() + vec2(0,-0.5f), r.br() + vec2(0,-0.5f), color);
+	dxPushLine(r.tr() + vec2(0,-1.0f), r.br() + vec2(0,-1.0f), color);
 	dxPushLine(r.br() + vec2(-0.5f,0), r.bl() + vec2(-0.5f,0), color);
 
 	dxEndPrimitive();
@@ -244,14 +367,14 @@ void dxDrawRectOutlined(Rect r, Vec4 color, Vec4 colorOutline) {
 }
 
 void dxDrawRectGradientH(Rect r, Vec4 c0, Vec4 c1) {	
-	PrimitiveVertex* v = dxBeginPrimitiveColored(vec4(1), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+	dxBeginPrimitiveColored(vec4(1), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
-	v[0] = pVertex(r.bl(), c0);
-	v[1] = pVertex(r.tl(), c1);
-	v[2] = pVertex(r.br(), c0);
-	v[3] = pVertex(r.tr(), c1);
-
-	dxEndPrimitive(4);
+	dxPushVertex(pVertex(r.bl(), c0));
+	dxPushVertex(pVertex(r.tl(), c1));
+	dxPushVertex(pVertex(r.br(), c0));
+	dxPushVertex(pVertex(r.tr(), c1));
+	
+	dxEndPrimitive();
 }
 
 void dxDrawRectRounded(Rect r, Vec4 color, float size, bool outline = false) {
@@ -280,44 +403,99 @@ void dxDrawRectRounded(Rect r, Vec4 color, float size, bool outline = false) {
 
 	uint topology = outline ? D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP : 
 	                          D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, topology);
-	int vc = 0;
-
+	dxBeginPrimitiveColored(color, topology);
 	Rect rc = r.expand(-size*2);
 	Vec2 corners[] = { rc.tr(), rc.br(), rc.bl(), rc.tl() };
 	for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
 		Vec2 corner = corners[cornerIndex];
 		float startAngle = M_PI_2*cornerIndex;
 
-		// v[vc++] = pVertex(corner);
-		// v[vc++] = pVertex(corner + vec2(-1,0) * size);
-
 		int st = outline ? steps : steps-1;
 		for(int i = 0; i < st; i++) {
 			float a = startAngle + i*(M_PI_2/(steps-1));
 			Vec2 d = vec2(sin(a), cos(a));
-			v[vc++] = pVertex(corner + d*size);
+			dxPushVertex( pVertex(corner + d*size) );
 
 			if(!outline) {
 				a = startAngle + (i+1)*(M_PI_2/(steps-1));
 				d = vec2(sin(a), cos(a));
-				v[vc++] = pVertex(corner + d*size);
+				dxPushVertex( pVertex(corner + d*size) );
 
-				v[vc++] = pVertex(corner);
+				dxPushVertex( pVertex(corner) );
 			}
 		}
-
-		// v[vc++] = pVertex(corner + vec2(0,1) * size);
-		// v[vc++] = pVertex(corner);
-
 	}
-	if(outline) v[vc++] = pVertex(vec2(rc.right, rc.top + size));
+	if(outline) dxPushVertex( pVertex(vec2(rc.right, rc.top + size)) );
 
-	dxEndPrimitive(vc);
+	dxEndPrimitive();
 };
 void dxDrawRectRoundedOutline(Rect r, Vec4 color, float size) {
 	return dxDrawRectRounded(r, color, size, true);
 }
+
+DArray<Vec2> dxGetRoundedRectVerts(Rect r, float w, float mod = 2.0f) {
+	DArray<Vec2> vecs = dArray<Vec2>(4, getTMemory);
+
+	float v = 2 * pow(1 - (mod/w), 2) - 1;
+	v = clamp(v, -1.0f, 1.0f);
+	float th = acos(v);
+	int steps = ceil(M_2PI/th);
+	steps = (ceil(steps / 4.0f)) * 4.0f;
+	steps = max(steps, 3);
+
+	w = min(w, r.w()/2, r.h()/2);
+
+	r = r.expand(-w*2);
+	Vec2 corners[] = { r.tr(), r.br(), r.bl(), r.tl() };
+
+	for(int cornerIndex = 0; cornerIndex < 4; cornerIndex++) {
+		Vec2 corner = corners[cornerIndex];
+		float startAngle = M_PI_2*cornerIndex;
+
+		int st = steps;
+		for(int i = 0; i < steps; i++) {
+			float a = startAngle + i*(M_PI_2/(steps-1));
+			Vec2 d = vec2(sin(a), cos(a));
+
+			vecs.push(corner + d*w);
+		}
+	}
+
+	return vecs;
+}
+
+inline void dxPushTriangleFan(Vec2 p, Vec2* vecs, int count, Vec4 color) {
+	for(int i = 0; i < count-1; i++) {
+		dxPushTriangle(p, vecs[i], vecs[i+1], color);
+	}
+}
+
+void dxDrawRectBorderRoundedTri(Rect r, Vec4 color, float borderSize, float cornerSize, float tesselationMod = 2.0f) {
+	auto vecs = dxGetRoundedRectVerts(r.expand(-borderSize), cornerSize, tesselationMod);
+	vecs.push(vecs[0]);
+	vecs.push(vecs[1]);
+	dxDrawLineStripTri(vecs.data, vecs.count, color, borderSize);
+};
+void dxDrawRectRoundedTri(Rect r, Vec4 color, float borderSize, float cornerSize, float tesselationMod = 2.0f) {
+	auto vecs = dxGetRoundedRectVerts(r.expand(-borderSize), cornerSize, tesselationMod);
+	dxBeginPrimitiveColored();
+	vecs.push(vecs[0]);
+	dxPushTriangleFan(r.c(), vecs.data, vecs.count, color);
+	dxEndPrimitive();
+};
+void dxDrawRectAndBorderRoundedTri(Rect r, Vec4 color, float borderSize, float cornerSize, float tesselationMod = 2.0f) {
+	auto vecs = dxGetRoundedRectVerts(r.expand(-borderSize), cornerSize, tesselationMod);
+	vecs.push(vecs[0]);
+	vecs.push(vecs[1]);
+	dxDrawLineStripTri(vecs.data, vecs.count, color, borderSize);
+
+	dxBeginPrimitiveColored();
+	vecs.push(vecs[0]);
+	dxPushTriangleFan(r.c(), vecs.data, vecs.count, color);
+	dxEndPrimitive();
+}
+
+
 
 void dxDrawRectRoundedOutlined(Rect r, Vec4 color, Vec4 colorOutline, float size) {
 	dxDrawRectRounded(r.expand(-2), color, size);
@@ -325,8 +503,6 @@ void dxDrawRectRoundedOutlined(Rect r, Vec4 color, Vec4 colorOutline, float size
 };
 
 void dxDrawRectRoundedGradient(Rect r, Vec4 color, int size, Vec4 off) {	
-	GraphicsState* gs = theGState;
-
 	gs->depthStencilState.StencilEnable = true;
 	gs->depthStencilState.StencilReadMask = 0xFF;
 	gs->depthStencilState.StencilWriteMask = 0xFF;
@@ -355,26 +531,23 @@ void dxDrawRectRoundedGradient(Rect r, Vec4 color, int size, Vec4 off) {
 }
 
 void dxDrawCircle(Vec2 pos, float d, Vec4 color) {
-	return dxDrawRect(rectCenDim(pos, vec2(d)), color, theGState->textureCircle->view);
+	return dxDrawRect(rectCenDim(pos, vec2(d)), color, gs->textureCircle->view);
 }
 
 void dxDrawCircleX(Vec2 pos, float r, Vec4 color) {
-
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	int pi = 0;
-
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	Vec2 right = vec2(r,0);
 	Vec2 dir = right;
 	int segmentCount = 20;
 	for(int i = 0; i < segmentCount; i++) {
-		v[pi++] = pVertex( pos       );
-		v[pi++] = pVertex( pos + dir );
+		dxPushVertex( pVertex( pos       ) );
+		dxPushVertex( pVertex( pos + dir ) );
 
 		dir = rotate(right, ((float)(i+1)/(segmentCount)) * M_2PI);
-		v[pi++] = pVertex( pos + dir );
+		dxPushVertex( pVertex( pos + dir ) );
 	}
 
-	dxEndPrimitive(pi);
+	dxEndPrimitive();
 }
 
 void dxDrawRing(Vec2 pos, float r, Vec4 color, float e = 0.1f) {
@@ -457,41 +630,39 @@ void dxDrawHueRing(Vec2 pos, float r, int thickness, float e = 0.1f) {
 }
 
 void dxDrawTriangle(Vec2 p, float r, Vec4 color, Vec2 dir) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	dir = norm(dir) * r;
-	v[0] = pVertex( p + dir                       );
-	v[1] = pVertex( p + rotate(dir, M_2PI*1/3.0f) );
-	v[2] = pVertex( p + rotate(dir, M_2PI*2/3.0f) );
+	dxPushVertex( pVertex( p + dir                       ) );
+	dxPushVertex( pVertex( p + rotate(dir, M_2PI*1/3.0f) ) );
+	dxPushVertex( pVertex( p + rotate(dir, M_2PI*2/3.0f) ) );
 
-	dxEndPrimitive(3);
+	dxEndPrimitive();
 }
 
 void dxDrawTriangle(Vec2 a, Vec2 b, Vec2 c, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	v[0] = pVertex( a );
-	v[1] = pVertex( b );
-	v[2] = pVertex( c );
+	dxPushVertex( pVertex( a ) );
+	dxPushVertex( pVertex( b ) );
+	dxPushVertex( pVertex( c ) );
 
-	dxEndPrimitive(3);
+	dxEndPrimitive();
 }
 
 void dxDrawQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
-	v[0] = pVertex( a );
-	v[1] = pVertex( b );
-	v[2] = pVertex( d );
-	v[3] = pVertex( c );
+	dxPushVertex( pVertex( a ) );
+	dxPushVertex( pVertex( b ) );
+	dxPushVertex( pVertex( d ) );
+	dxPushVertex( pVertex( c ) );
 
-	dxEndPrimitive(4);
+	dxEndPrimitive();
 }
 
 void dxDrawCross(Vec2 p, float size, float size2, Vec4 color) {
-
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-	int vc = 0;
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
 	for(int i = 0; i < 2; i++) {
 		Vec2 p0 = p + (i == 0 ? vec2(-1,-1) : rotateRight(vec2(-1,-1))) * size/2;
@@ -499,15 +670,15 @@ void dxDrawCross(Vec2 p, float size, float size2, Vec4 color) {
 		Vec2 d0 =     (i == 0 ? vec2( 0, 1) : rotateRight(vec2( 0, 1))) * size2/2;
 		Vec2 d1 =     (i == 0 ? vec2( 1, 0) : rotateRight(vec2( 1, 0))) * size2/2;
 
-		v[vc++] = pVertex( p0 );
-		v[vc++] = pVertex( p0 + d0 );
-		v[vc++] = pVertex( p0 + d1 );
-		v[vc++] = pVertex( p1 - d1 );
-		v[vc++] = pVertex( p1 - d0 );
-		v[vc++] = pVertex( p1 );
+		dxPushVertex( pVertex( p0 ) );
+		dxPushVertex( pVertex( p0 + d0 ) );
+		dxPushVertex( pVertex( p0 + d1 ) );
+		dxPushVertex( pVertex( p1 - d1 ) );
+		dxPushVertex( pVertex( p1 - d0 ) );
+		dxPushVertex( pVertex( p1 ) );
 	}
 
-	dxEndPrimitive(vc);
+	dxEndPrimitive();
 }
 
 void dxDrawArrow(Vec2 start, Vec2 end, float thickness, Vec4 color, float headScale = 2.0f) {
@@ -539,12 +710,12 @@ void dxDrawArrow(Vec2 start, Vec2 end, float thickness, Vec4 color, float headSc
 // @3d
 
 void dxDrawLine(Vec3 a, Vec3 b, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
-	v[0] = pVertex( a );
-	v[1] = pVertex( b );
+	dxPushVertex( pVertex( a ) );
+	dxPushVertex( pVertex( b ) );
 
-	dxEndPrimitive(2);
+	dxEndPrimitive();
 }
 
 void dxDrawTriangle(Vec3 a, Vec3 b, Vec3 c, Vec4 color) {
@@ -554,18 +725,18 @@ void dxDrawTriangle(Vec3 a, Vec3 b, Vec3 c, Vec4 color) {
 }
 
 void dxDrawQuad(Vec3 bl, Vec3 tl, Vec3 tr, Vec3 br, Rect uv, ID3D11ShaderResourceView* view, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+	dxBeginPrimitive(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
-	theGState->d3ddc->PSSetShaderResources(0, 1, &view);
+	gs->d3ddc->PSSetShaderResources(0, 1, &view);
 	dxGetShaderVars(Primitive)->color = vec4(1,1,1,1);
 	dxPushShaderConstants(Shader_Primitive);
 
-	v[0] = { bl, color, uv.bl() };
-	v[1] = { tl, color, uv.tl() };
-	v[2] = { br, color, uv.br() };
-	v[3] = { tr, color, uv.tr() };
+	dxPushVertex( { bl, color, uv.bl() } );
+	dxPushVertex( { tl, color, uv.tl() } );
+	dxPushVertex( { br, color, uv.br() } );
+	dxPushVertex( { tr, color, uv.tr() } );
 
-	dxEndPrimitive(4);
+	dxEndPrimitive();
 }
 
 void dxDrawQuad(Vec3 bl, Vec3 tl, Vec3 tr, Vec3 br, Vec4 color) {
@@ -603,8 +774,8 @@ void dxDrawArrow(Vec3 start, Vec3 end, Vec3 up, float thickness, Vec4 color) {
 }
 
 void dxDrawPlane(Vec3 pos, Vec3 normal, Vec3 up, Vec2 dim, Vec4 color, ID3D11ShaderResourceView* view = 0, Rect uv = rect(0,1,1,0)) {
-	if(!view) view = theGState->textureWhite->view;
-	theGState->d3ddc->PSSetShaderResources(0, 1, &view);
+	if(!view) view = gs->textureWhite->view;
+	gs->d3ddc->PSSetShaderResources(0, 1, &view);
 
 	dim = dim/2.0f;
 	Vec3 right = cross(up, normal);
@@ -634,42 +805,36 @@ void dxDrawPlaneOutline(Vec3 pos, Vec3 normal, Vec3 up, Vec2 dim, Vec4 color) {
 }
 
 void dxDrawCube(Vec3 point, Vec3 scale, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	Mesh* m = dxGetMesh("cube\\obj.obj");
-
-	int c = 0;
 	for(int i = 0; i < m->vertices.count; i++) {
-		v[c++] = pVertex( m->vertices[i].pos * scale + point );
+		dxPushVertex( pVertex( m->vertices[i].pos * scale + point ) );
 	}
 
-	dxEndPrimitive(c);
+	dxEndPrimitive();
 }
 
 void dxDrawCube(XForm form, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	Mesh* m = dxGetMesh("cube\\obj.obj");
-
-	int c = 0;
 	for(int i = 0; i < m->vertices.count; i++) {
-		v[c++] = pVertex( (form.rot*(m->vertices[i].pos * form.scale)) + form.trans );
+		dxPushVertex( pVertex( (form.rot*(m->vertices[i].pos * form.scale)) + form.trans ) );
 	}
 
-	dxEndPrimitive(c);	
+	dxEndPrimitive();	
 }
 
 void dxDrawCube(Mat4 mat, Vec4 color) {
-	PrimitiveVertex* v = dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	dxBeginPrimitiveColored(color, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	Mesh* m = dxGetMesh("cube\\obj.obj");
-
-	int c = 0;
 	for(int i = 0; i < m->vertices.count; i++) {
-		v[c++] = pVertex( (mat * vec4(m->vertices[i].pos,1)).xyz );
+		dxPushVertex( pVertex( (mat * vec4(m->vertices[i].pos,1)).xyz ) );
 	}
 
-	dxEndPrimitive(c);	
+	dxEndPrimitive();	
 }
 
 // Expensive, should be better.
@@ -678,8 +843,6 @@ void dxDrawSphere(Vec3 point, float scale, Vec4 color) {
 	defer { dxEndPrimitive(); };
 
 	Mesh* m = dxGetMesh("sphere\\obj.obj");
-
-	int c = 0;
 	for(int i = 0; i < m->vertices.count/3; i++) {
 		dxPushVertex( pVertex(m->vertices[(i*3)+0].pos * scale + point) );
 		dxPushVertex( pVertex(m->vertices[(i*3)+1].pos * scale + point) );
@@ -695,7 +858,7 @@ void dxDrawRing(Vec3 pos, Vec3 normal, float r, float thickness, Vec4 color, flo
 
 	int segmentCount;
 	if(error < 0) {
-		segmentCount = abs(error);
+		segmentCount = fabs(error);
 	} else {
 		float th = acos(2 * pow(1 - error / r, 2) - 1);
 		segmentCount = ceil(M_2PI/th);
@@ -734,7 +897,7 @@ void dxDrawTriangleFan(Vec3 pos, Vec3 start, float angle, Vec3 up, Vec4 color, f
 
 	int segmentCount;
 	if(error < 0) {
-		segmentCount = abs(error);
+		segmentCount = fabs(error);
 	} else {
 		float th = acos(2 * pow(1 - error / r, 2) - 1);
 		segmentCount = ceil(angle/th);
@@ -752,3 +915,5 @@ void dxDrawTriangleFan(Vec3 pos, Vec3 start, float angle, Vec3 up, Vec4 color, f
 		dxFlushIfFull();
 	}
 }
+
+#undef gs

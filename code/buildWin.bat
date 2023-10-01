@@ -1,40 +1,100 @@
 @echo off
+Setlocal EnableDelayedExpansion
 
-set COMPILE_PREPROCESSOR=false
-set COMPILE_MAIN=false
-set COMPILE_APP=true
+rem Set this to true to find latest VS version.
+set ENABLE_FIND_LATEST_VC_PATH=true
 
-if exist "appName.bat" (
-	call appName.bat
-) else (
-	call ..\\appName.bat
-)
+rem Or set the vcvarsall.bat path manually.
+set VCVARSALL_PATH=
 
-set APP_NAME_STRING=%APP_NAME%
-set APP_NAME=%APP_NAME:"=%
-
-set APP_VERSION=0.3
-set GITHUB_LINK=www.github.com/guitarfreak/DirectX-11-Demo
-
+rem Set these paths to be able to ship (as standalone or installer):
 set                ZIP7=C:\Program Files\7-Zip\7z.exe
 set INNO_SETUP_COMPILER=C:\Program Files (x86)\Inno Setup 5\ISCC.exe
 
-set        WIN_SDK_PATH=C:\Program Files (x86)\Windows Kits\10
-set             VS_PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0
+set DUMPBIN="C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.25.28610\bin\Hostx64\x64\dumpbin.exe"
 
-set scriptpath=%~d0%~p0
-cd %scriptpath%
+set RUN_PREPROCESSOR=true
+set COMPILE_PREPROCESSOR=true
+set COMPILE_MAIN=true
+set COMPILE_APP=true
+
+
+set APP_VERSION=0.3.5
+set GITHUB_LINK=www.github.com/guitarfreak/DirectX-11-Demo
+
+rem preprocesser output -> -E, -d2cgsummary -Bt, /Qvec-report:1, /showIncludes
+rem -EHa-
+rem -FC 
+rem -Z7
+set COMPILER_OPTIONS_LIST=-nologo -Oi -wd4838 -wd4005 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHsc- -Ob2
+set COMPILER_OPTIONS_LIST=%COMPILER_OPTIONS_LIST% -Zi
+rem set COMPILER_OPTIONS_LIST=%COMPILER_OPTIONS_LIST% -FA
+
+set LINKER_LIBS_LIST=user32.lib Gdi32.lib Shlwapi.lib Winmm.lib Ole32.lib D3D11.lib d3dcompiler.lib
+rem Shell32.lib 
 
 set PLATFORM=win64
 if "%~1"=="-x86" set PLATFORM=win32
 
-set PLATFORM2=x64
-if "%~1"=="-x86" set PLATFORM2=x86
+set INCLUDE_LIST[0]=\freetype 2.10.2\include
+set     LIB_LIST[0]=\freetype 2.10.2\lib\%PLATFORM%\freetype.lib
+set     DLL_LIST[0]=\freetype 2.10.2\lib\%PLATFORM%\freetype.dll
+set     DLL_LIST[1]=\d3dcompiler\lib\%PLATFORM%\D3DCompiler_47.dll
+
+rem Go to batch directory.
+cd %~d0%~p0
+
+if not %ENABLE_FIND_LATEST_VC_PATH% == true goto endFindVCPath
+	for /f "usebackq tokens=*" %%i in (`"..\libs\vswhere\vswhere.exe" -latest -property installationPath`) do set VS_LATEST_PATH=%%i\VC
+
+	rem From V2017 on the path changed so we have to check 2 paths.
+	set SEARCH_PATHS[0]=%VS_LATEST_PATH%\vcvarsall.bat
+	set SEARCH_PATHS[1]=%VS_LATEST_PATH%\Auxiliary\Build\vcvarsall.bat
+
+	for /F "tokens=2 delims==" %%s in ('set SEARCH_PATHS[') do set VCVARSALL_PATH=%%s
+:endFindVCPath
+
+set C_INC=
+set L_INC=
+
+if "%VCVARSALL_PATH%" == "" goto useCustomPaths
+	set ARCH=x86
+	if not "%~1" == "-x86" ( set ARCH=amd64 )
+	call "%VCVARSALL_PATH%" %ARCH%
+	goto endSetCompiler
+
+:useCustomPaths
+	rem Internally we set the compiler path manually to safe the little bit of time that vcvarsall takes.
+	set WIN_SDK_PATH=C:\Program Files (x86)\Windows Kits\10
+	set      VS_PATH=C:\Program Files (x86)\Microsoft Visual Studio 12.0
+
+	set C_INC=%C_INC% -I"%VS_PATH%\VC\include"
+	set C_INC=%C_INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\um"
+	set C_INC=%C_INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\shared"
+
+	if "%~1"=="-x86" goto compilerSelectionX86
+		set                     PATH=%VS_PATH%\VC\bin\amd64;%PATH%
+		set L_INC=%L_INC% -LIBPATH:"%VS_PATH%\VC\lib\amd64"
+		set L_INC=%L_INC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x64"
+		goto compilerSelectionEnd
+
+	:compilerSelectionX86
+		set                     PATH=%VS_PATH%\VC\bin;%PATH%
+		set L_INC=%L_INC% -LIBPATH:"%VS_PATH%\VC\lib"
+		set L_INC=%L_INC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x86"
+	:compilerSelectionEnd
+:endSetCompiler
+
+if exist "appName.bat" ( call appName.bat ) else ( call ..\\appName.bat )
+set APP_NAME_STRING=%APP_NAME%
+set APP_NAME=%APP_NAME:"=%
+
+
 
 set BUILD_FOLDER=buildWin64
 if "%~1"=="-x86" set BUILD_FOLDER=buildWin32
 
-if NOT "%~4"=="-folder" goto buildSetupEnd
+if not "%~4"=="-folder" goto buildSetupEnd
 	set BUILD_FOLDER=releaseBuild
 	if exist "..\%BUILD_FOLDER%" rmdir "..\%BUILD_FOLDER%" /S /Q
 :buildSetupEnd
@@ -42,153 +102,126 @@ if NOT "%~4"=="-folder" goto buildSetupEnd
 if not exist "..\%BUILD_FOLDER%" mkdir "..\%BUILD_FOLDER%"
 pushd "..\%BUILD_FOLDER%"
 
-set INC=
-set LINC=
+rem Set includes/libs.
+	set LINKER_LIBS=
+	set C_INC_LIBS=
+	set L_INC_LIBS=
 
-set INC_EXTRA=
-set LINC_EXTRA=
+	for %%a in (%LINKER_LIBS_LIST%)                         do set LINKER_LIBS=!LINKER_LIBS! -DEFAULTLIB:%%a
+	for /F "tokens=2 delims==" %%a in ('set INCLUDE_LIST[') do set  C_INC_LIBS=!C_INC_LIBS!  -I"..\libs%%a"
+	for /F "tokens=2 delims==" %%a in ('set LIB_LIST[')     do set  L_INC_LIBS=!L_INC_LIBS!  -LIBPATH:"..\libs%%~pa"
+	for /F "tokens=2 delims==" %%a in ('set LIB_LIST[')     do set LINKER_LIBS=!LINKER_LIBS! -DEFAULTLIB:%%~nxa
 
-rem -DEFAULTLIB:Shell32.lib 
-set LINKER_LIBS= -DEFAULTLIB:user32.lib -DEFAULTLIB:Gdi32.lib -DEFAULTLIB:Shlwapi.lib -DEFAULTLIB:Winmm.lib -DEFAULTLIB:Ole32.lib -DEFAULTLIB:D3D11.lib -DEFAULTLIB:d3dcompiler.lib
+rem Set compiler options and modes.
+	set BUILD_MODE=-Od
+	set RUNTIME=-MD
+	set MODE_DEFINE=
 
-set INC=%INC% -I"%VS_PATH%\VC\include"
-set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\um"
-set INC=%INC% -I"%WIN_SDK_PATH%\Include\10.0.19041.0\shared"
+	if "%~3"=="-releaseMode" (
+		rem -Oy -Zo
+		set BUILD_MODE=-O2
+		set MODE_DEFINE=-DRELEASE_BUILD
+	)
+	if "%~4"=="-folder" (
+		set MODE_DEFINE=%MODE_DEFINE% -DSHIPPING_MODE
+		set RUNTIME=-MT
+	)
+	if "%~5"=="-fullOptimize" (
+		set MODE_DEFINE=%MODE_DEFINE% -DFULL_OPTIMIZE
+	)
 
-if "%~1"=="-x86" goto compilerSelectionX86
-	set                  PATH=%VS_PATH%\VC\bin\amd64;%PATH%
-	set LINC=%LINC% -LIBPATH:"%VS_PATH%\VC\lib\amd64"
-	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x64"
-goto compilerSelectionEnd
+	set MODE_DEFINE=%MODE_DEFINE% -DA_NAME=%APP_NAME_STRING%
+	set COMPILER_OPTIONS= %RUNTIME% %BUILD_MODE% %COMPILER_OPTIONS_LIST%
 
-:compilerSelectionX86
-	set                  PATH=%VS_PATH%\VC\bin;%PATH%
-	set LINC=%LINC% -LIBPATH:"%VS_PATH%\VC\lib"
-	set LINC=%LINC% -LIBPATH:"%WIN_SDK_PATH%\Lib\10.0.19041.0\um\x86"
-:compilerSelectionEnd
+rem Compile/Run preprocessor.
+	set PREPROCESS_NAME=preprocess
 
-set   INC_EXTRA=%INC_EXTRA% -I"..\libs\freetype 2.9\include"
-set  LINC_EXTRA=%LINC_EXTRA% -LIBPATH:"..\libs\freetype 2.9\lib\%PLATFORM%"
-set LINKER_LIBS=%LINKER_LIBS% -DEFAULTLIB:freetype.lib
+	set PREPROCESS_OPTIONS=
+	if not exist "%PREPROCESS_NAME%" (
+		mkdir ".\%PREPROCESS_NAME%"
+		set COMPILE_PREPROCESSOR=true
+		set PREPROCESS_OPTIONS=-O2
+	)
 
-set BUILD_MODE=-Od
-set MODE_DEFINE=
-if "%~3"=="-releaseMode" (
-	rem -Oy -Zo
-	set BUILD_MODE=-O2
-	set MODE_DEFINE=-DRELEASE_BUILD
-)
+	if %COMPILE_PREPROCESSOR% == false goto afterPreprocess
+		set LINKER_OPTIONS_PRE= -link -SUBSYSTEM:CONSOLE -OUT:"%PREPROCESS_NAME%.exe" -incremental:no -opt:ref
 
-set RUNTIME=-MD
+		pushd ".\%PREPROCESS_NAME%"
+		cl %COMPILER_OPTIONS% %PREPROCESS_OPTIONS% ..\..\code\preprocess.cpp %MODE_DEFINE% %C_INC% %LINKER_OPTIONS_PRE% %L_INC%
+		popd
+	:afterPreprocess
 
-if "%~4"=="-folder" (
-	set MODE_DEFINE=%MODE_DEFINE% -DSHIPPING_MODE
-	set RUNTIME=-MT
-)
+	if not exist "..\code\generated" mkdir "..\code\generated"
 
-if "%~5"=="-fullOptimize" (
-	set MODE_DEFINE=%MODE_DEFINE% -DFULL_OPTIMIZE
-)
+	if %RUN_PREPROCESSOR% == true call ".\%PREPROCESS_NAME%\%PREPROCESS_NAME%.exe"
 
-set MODE_DEFINE=%MODE_DEFINE% -DA_NAME=%APP_NAME_STRING%
+rem Compile app.
+	if "%~4"=="-folder" goto noDLL
+	if %COMPILE_APP%==false goto noDLL
+		del main_*.pdb > NUL 2> NUL
+		echo. 2>lock.tmp
+		cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %C_INC% %C_INC_LIBS% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %L_INC% %L_INC_LIBS% %LINKER_LIBS%
 
-rem preprocesser output -> -E
-rem -d2cgsummary -Bt
-rem /Qvec-report:1
-rem /showIncludes
-set COMPILER_OPTIONS= %RUNTIME% %BUILD_MODE% -nologo -Oi -FC -wd4838 -wd4005 -fp:fast -fp:except- -Gm- -GR- -EHa- -Z7 
-set LINKER_OPTIONS= -link -SUBSYSTEM:WINDOWS -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
-rem set LINKER_OPTIONS= -link -SUBSYSTEM:CONSOLE -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref
+		if %ERRORLEVEL%==0 (
+		   echo.
+			echo       ###########
+			echo       # SUCCES! #
+			echo       ###########
+			echo.
+		) 
 
-rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -E
-rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% -showIncludes
-rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% /Qvec-report:1
-rem set COMPILER_OPTIONS=%COMPILER_OPTIONS% /Qvec-report:2
+		del lock.tmp
+	:noDLL
 
-rem PreProcess step
+rem Compile Main.
+	set MAIN_OPTIONS=
+	if not exist "%APP_NAME%.exe" (
+		set COMPILE_MAIN=true
+		set MAIN_OPTIONS=-O2
+	)
 
-set BUILD_PREPROCESS=false
-
-set PREPROCESS_FOLDER=preprocess
-set PREPROCESS_NAME=preprocess
-set RUN_PREPROCESSOR=true
-
-if not exist "%PREPROCESS_NAME%" (
-	mkdir ".\%PREPROCESS_FOLDER%"
-	set COMPILE_PREPROCESSOR=true
-)
-
-if %COMPILE_PREPROCESSOR%==false goto afterPreprocess
-
-	set LINKER_OPTIONS_PRE= -link -SUBSYSTEM:CONSOLE -OUT:"%PREPROCESS_NAME%.exe" -incremental:no -opt:ref
-
-	pushd ".\%PREPROCESS_FOLDER%"
-	cl %COMPILER_OPTIONS% ..\..\code\preprocess.cpp %MODE_DEFINE% %INC% %LINKER_OPTIONS_PRE% %LINC%
-	popd
-
-:afterPreprocess
-
-if %RUN_PREPROCESSOR%==true call ".\%PREPROCESS_FOLDER%\%PREPROCESS_NAME%.exe"
-
-
-if "%~4"=="-folder" goto noDLL
-if %COMPILE_APP%==false goto noDLL
-
-del main_*.pdb > NUL 2> NUL
-echo. 2>lock.tmp
-cl %COMPILER_OPTIONS% ..\code\app.cpp %MODE_DEFINE% -LD %INC% %INC_EXTRA% -link -incremental:no -opt:ref -PDB:main_%random%.pdb -EXPORT:appMain %LINC% %LINC_EXTRA% %LINKER_LIBS%
-
-if %ERRORLEVEL%==0 (
-   echo.
-	echo       ###########
-	echo       # SUCCES! #
-	echo       ###########
-	echo.
-) 
-
-del lock.tmp
-
-:noDLL
-
-if not exist "%APP_NAME%.exe" (
-	set COMPILE_MAIN=true
-	echo %cd%
-)
-
-if %COMPILE_MAIN%==false goto afterMain
-
-cl %COMPILER_OPTIONS% ..\code\main.cpp %MODE_DEFINE% %INC% %INC_EXTRA% %LINKER_OPTIONS% %LINC% %LINC_EXTRA% %LINKER_LIBS%
-
-:afterMain
+	if %COMPILE_MAIN% == true (
+		cl %COMPILER_OPTIONS% %MAIN_OPTIONS% ..\code\main.cpp %MODE_DEFINE% %C_INC% %C_INC_LIBS% -link -SUBSYSTEM:WINDOWS -OUT:"%APP_NAME%.exe" -incremental:no -opt:ref %L_INC% %L_INC_LIBS% %LINKER_LIBS%
+	)
 
 
 
-if NOT "%~4"=="-folder" goto packShippingFolderEnd
+SET mypath=%~dp0
+rem echo %mypath:~0,-1%
 
+rem Copy dlls if not already there.
+	for /F "tokens=2 delims==" %%a in ('set DLL_LIST[') do (
+		if not exist %%~nxa (
+			xcopy "..\libs%%a" "..\%BUILD_FOLDER%" /Q
+		)
+	)
+
+if not "%~4"=="-folder" goto packShippingFolderEnd
 	cd ..
 
 	rem Create release folder.
-
 	mkdir ".\%BUILD_FOLDER%\data"
 	xcopy ".\data" ".\%BUILD_FOLDER%\data" /E /Q
 
 	del /s /q ".\%BUILD_FOLDER%\data\*.png"
 	del /s /q ".\%BUILD_FOLDER%\data\*.jpg"
 
-	del ".\%BUILD_FOLDER%\*.pdb"
-	del ".\%BUILD_FOLDER%\*.exp"
-	del ".\%BUILD_FOLDER%\*.lib"
-	del ".\%BUILD_FOLDER%\*.obj"
+	if "%~6"=="-ship" (
+		del ".\%BUILD_FOLDER%\*.pdb"
+		del ".\%BUILD_FOLDER%\*.exp"
+		del ".\%BUILD_FOLDER%\*.lib"
+		del ".\%BUILD_FOLDER%\*.obj"
+	)
 
-	rmdir ".\%BUILD_FOLDER%\%PREPROCESS_FOLDER%" /S /Q
-
-	xcopy ".\libs\freetype 2.9\lib\%PLATFORM%\*.dll" ".\%BUILD_FOLDER%" /Q
-	xcopy ".\libs\d3dcompiler\lib\%PLATFORM%\*.dll" ".\%BUILD_FOLDER%" /Q
+	rmdir ".\%BUILD_FOLDER%\%PREPROCESS_NAME%" /S /Q
 
 	xcopy ".\README.txt" ".\%BUILD_FOLDER%" /Q
 	xcopy ".\Licenses.txt" ".\%BUILD_FOLDER%" /Q
 
 	.\libs\seticon\seticon.exe icon.png "%BUILD_FOLDER%\%APP_NAME%.exe"
+
+	set PLATFORM2=x64
+	if "%~1"=="-x86" set PLATFORM2=x86
 
 	set RELEASE_FOLDER=.\releases\%APP_NAME% %PLATFORM2%
 	if exist "%RELEASE_FOLDER%" rmdir "%RELEASE_FOLDER%" /S /Q
@@ -198,12 +231,10 @@ if NOT "%~4"=="-folder" goto packShippingFolderEnd
 
 	rmdir ".\%BUILD_FOLDER%" /S /Q
 
-
-	if NOT "%~6"=="-ship" goto shipEnd
+	if not "%~6"=="-ship" goto shipEnd
 		set COMPILE_TOKEN=true
 		call buildCreateInstallerAndZip.bat
 	:shipEnd
-
 :packShippingFolderEnd
 
 IF "%~2"=="-run" call "%APP_NAME%.exe"

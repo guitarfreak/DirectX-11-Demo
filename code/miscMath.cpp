@@ -363,7 +363,7 @@ struct Statistic {
 	double min;
 	double max;
 	double avg;
-	int count;
+	u64 count;
 
 	void begin() {
 		min = DBL_MAX; 
@@ -382,6 +382,8 @@ struct Statistic {
 	void end() {
 		avg /= count;
 	}
+
+	double getAvg() { return avg / count; }
 };
 
 //

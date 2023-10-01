@@ -41,11 +41,12 @@ enum {
 #undef funcc
 
 struct ShaderInfo {
+	char* name;
 	char* code;
 	int varsSize;
 };
 
-#define makeShaderInfo(name) { d3d##name##Shader, sizeof(name##ShaderVars) },
+#define makeShaderInfo(name) { STRINGIFY(name), d3d##name##Shader, sizeof(name##ShaderVars) },
 
 ShaderInfo shaderInfos[] = {
 	ShaderList(makeShaderInfo)
@@ -64,14 +65,14 @@ void setupInputLayouts() {
 
 	{
 		Shader* shader = dxGetShader(Shader_Primitive);
-		if ( FAILED( gs->d3dDevice->CreateInputLayout(primitiveInputLayout, arrayCount(primitiveInputLayout), shader->vertexBlob->GetBufferPointer(), shader->vertexBlob->GetBufferSize(), &gs->primitiveInputLayout) ) ) 
-			printf("Could not create Input Layout!");
+		HRESULT hr = gs->d3dDevice->CreateInputLayout(primitiveInputLayout, arrayCount(primitiveInputLayout), shader->vertexBlob->GetBufferPointer(), shader->vertexBlob->GetBufferSize(), &gs->primitiveInputLayout);
+		assertLogPrint(!hr, "Shader", Log_Error, "Failed to create input layout for primitive shader.", true);
 	}
 
 	{
 		Shader* shader = dxGetShader(Shader_Main);
-		if ( FAILED( gs->d3dDevice->CreateInputLayout(mainShaderInputLayout, arrayCount(mainShaderInputLayout), shader->vertexBlob->GetBufferPointer(), shader->vertexBlob->GetBufferSize(), &gs->mainInputLayout) ) ) 
-			printf("Could not create Input Layout!");
+		HRESULT hr = gs->d3dDevice->CreateInputLayout(mainShaderInputLayout, arrayCount(mainShaderInputLayout), shader->vertexBlob->GetBufferPointer(), shader->vertexBlob->GetBufferSize(), &gs->mainInputLayout);
+		assertLogPrint(!hr, "Shader", Log_Error, "Failed to create input layout for main shader.", true);
 	}
 
 	dxGetShader(Shader_Primitive)->inputLayout = gs->primitiveInputLayout;
@@ -86,7 +87,7 @@ void setupInputLayouts() {
 
 //
 
-void dxLoadShader(int type, char* shaderCode, char* name, ID3D11VertexShader** vertexShader, ID3D11HullShader** hullShader, ID3D11DomainShader** domainShader, ID3D11PixelShader** pixelShader, ID3DBlob** shaderBlob = 0) {
+void dxLoadShader(int type, char* shaderCode, char* shaderName, char* name, ID3D11VertexShader** vertexShader, ID3D11HullShader** hullShader, ID3D11DomainShader** domainShader, ID3D11PixelShader** pixelShader, ID3DBlob** shaderBlob = 0) {
 	enum {
 		SHADER_TYPE_VERTEX = 0,
 		SHADER_TYPE_HULL,
@@ -111,22 +112,21 @@ void dxLoadShader(int type, char* shaderCode, char* name, ID3D11VertexShader** v
 
 	ID3DBlob* blob;
 	D3DCompile(shaderCode, strlen(shaderCode), NULL, NULL, NULL, name, version[type], flags1, 0, &blob, &blobError);
-	{
-		if (blobError != nullptr) {
-			char* errorMessage = (char*)blobError->GetBufferPointer();
+	if (blobError != nullptr) {
+		char* errorMessage = (char*)blobError->GetBufferPointer();
 
-			// If we get an "entrypoint not found" message on hull or domain shaders we assume that that's intended.
-			if(strFind(errorMessage, "entrypoint not found") != -1) {
-				     if(type == SHADER_TYPE_HULL)   hullShader = 0;
-				else if(type == SHADER_TYPE_DOMAIN) domainShader = 0;
+		// If we get an "entrypoint not found" message on hull or domain shaders we assume that that's intended.
+		if(strFind(errorMessage, "entrypoint not found") != -1) {
+			     if(type == SHADER_TYPE_HULL)   hullShader = 0;
+			else if(type == SHADER_TYPE_DOMAIN) domainShader = 0;
 
-				return;
-			} else {
-				printf(errorMessage);
-			}
-
-			blobError->Release();
+			return;
+		} else {
+			if(type == SHADER_TYPE_VERTEX)
+				logPrint("Shader", Log_Warning, fString("Compiling %s:\n%s", shaderName, errorMessage), true);
 		}
+
+		blobError->Release();
 	}
 
 	     if(type == SHADER_TYPE_VERTEX) theGState->d3dDevice->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), 0, vertexShader);
@@ -142,10 +142,12 @@ void dxLoadShaders() {
 		Shader* shader = theGState->shaders + i;
 		ShaderInfo* info = shaderInfos + shader->id;
 
-		dxLoadShader(0, info->code, "vertexShader", &shader->vertexShader, 0, 0, 0, &shader->vertexBlob);
-		dxLoadShader(1, info->code, "hullShader",   0, &shader->hullShader,   0, 0, 0);
-		dxLoadShader(2, info->code, "domainShader", 0, 0, &shader->domainShader, 0, 0);
-		dxLoadShader(3, info->code, "pixelShader",  0, 0, 0, &shader->pixelShader,  0);
+		logPrint("Shader", fString("Compiling: %s", shader->name), true);
+
+		dxLoadShader(0, info->code, shader->name, "vertexShader", &shader->vertexShader, 0, 0, 0, &shader->vertexBlob);
+		dxLoadShader(1, info->code, shader->name, "hullShader",   0, &shader->hullShader,   0, 0, 0);
+		dxLoadShader(2, info->code, shader->name, "domainShader", 0, 0, &shader->domainShader, 0, 0);
+		dxLoadShader(3, info->code, shader->name, "pixelShader",  0, 0, 0, &shader->pixelShader,  0);
 	}
 }
 

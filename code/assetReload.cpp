@@ -9,7 +9,7 @@ void watchFoldersInit(SystemData* sd, GraphicsState* gs) {
 			char* folder = folders[i];
 			HANDLE fileChangeHandle = FindFirstChangeNotification(folder, true, FILE_NOTIFY_CHANGE_LAST_WRITE);
 			if(fileChangeHandle == INVALID_HANDLE_VALUE) {
-				printf("Could not set folder change notification.\n");
+				logPrint("WatchFolder", Log_Warning, fString("\"FindFirstChangeNotification\" failed for folder \"%s\".", folder));
 			}
 			sd->folderHandles[i] = fileChangeHandle;
 		}

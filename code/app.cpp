@@ -1,6 +1,31 @@
 /*
 
-ToDo:
+2019:
+- Octree for rendering.
+- Draw occluders to depth buffer.
+- Do occlusion query for every object.
+- Get spatial hash for entities.
+
+- Crash when walking around using f2 or f3 cant remember. (In release build.)
+- Clean up rect rounded with 	float th = acos(2 * pow(1 - (e/size), 2) - 1); thing.
+
+- keymap file
+  https://www.youtube.com/watch?v=EjgNiaB1TXM&list=PLmV5I2fxaiCI9IAdFmGChKbIbenqRMi6Z&index=21
+
+- logger and logprint should take a mode like Mode::display/everyday or something like that and it should take a category as string like 
+   logPrint(char* category, int mode, char* message);
+	logprint("varaibles", Log_Mode.Everyday, "Error at line %! bla., line_number);
+
+   bonus: could also make that function take var args at the end.
+
+- make setting files like naysayer.
+- change shaders to be more streamlined.
+- Walkmanifold use threads better.
+- Fix crash.
+- shadows flicker.
+
+- font make hash table for unicode offset.
+
 - For shipping mode, pack all data into one file
 - Make true fullscreen work?
 - Audio debug screen.
@@ -17,9 +42,6 @@ ToDo:
 - Environment mapping, basic reflections.
 
 - Make animation that demonstrates scaling.
-
-- Frustum culling.
-- Draw from back to front.
 
 - Input recording not working right now.
 
@@ -38,7 +60,18 @@ ToDo:
 - Better/smoother movement: Acceleration, drag.
 - Make Camera use transform rotation instead of "camRot".
 
+ToDo:
+2020:
+- Pre build shader and load on startup. (Compiling shaders is the most time consuming step at startup.)
+
+- clampMin max to clamp, add saturate -> clamp(X, 0, 1);
+- subpixel font rendering
+
+replace all hresult logs with code texts.
+
 Bugs:
+- crash when letting run and having particle pause in release mode.
+
 - Black shadow spot where sun hits material with displacement map.
 - Particle mipmaps blending dark alpha border.
   This works with pre multiplied alpha, but now things in front of particles are aliased.
@@ -49,7 +82,7 @@ Bugs:
 
 // External.
 
-#define WIN32_LEAN_bAND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <timeapi.h>
@@ -79,6 +112,7 @@ Bugs:
 #include "external\stb_sprintf.h"
 
 #include "external\pcg_basic.c"
+#include "external\ksort.h"
 
 //
 
@@ -87,20 +121,17 @@ Bugs:
 #include FT_PARAMETER_TAGS_H
 #include FT_MODULE_H
 
+#include FT_LCD_FILTER_H
+
 //
 
-struct ThreadQueue;
-struct GraphicsState;
-struct AudioState;
-struct MemoryBlock;
-struct DebugState;
-struct ProfilerTimer;
-ThreadQueue*   theThreadQueue;
-GraphicsState* theGState;
-AudioState*    theAudioState;
-MemoryBlock*   theMemory;
-DebugState*    theDebugState;
-ProfilerTimer* theTimer;
+struct ThreadQueue*   theThreadQueue;
+struct GraphicsState* theGState;
+struct AudioState*    theAudioState;
+struct MemoryBlock*   theMemory;
+struct DebugState*    theDebugState;
+struct SampleData*    theSampler;
+struct Logger*        theLogger;
 
 // Internal.
 
@@ -108,6 +139,7 @@ ProfilerTimer* theTimer;
 
 #include "types.h"
 #include "misc.cpp"
+#include "logger.cpp"
 #include "string.cpp"
 #include "memory.cpp"
 #include "appMemory.cpp"
@@ -117,7 +149,7 @@ ProfilerTimer* theTimer;
 #include "mathBasic.cpp"
 #include "math.cpp"
 #include "color.cpp"
-#include "profilerTimer.cpp"
+#include "profilerSampler.cpp"
 #include "interpolation.cpp"
 #include "sort.cpp"
 #include "misc2.cpp"
@@ -128,6 +160,8 @@ ProfilerTimer* theTimer;
 #include "platformWin32.cpp"
 #include "platformMisc.cpp"
 #include "input.cpp"
+
+#include "settings.cpp"
 
 #include "animation.h"
 #include "rendering.h"
@@ -191,11 +225,15 @@ ProfilerTimer* theTimer;
 
 #include "versionConversion.cpp"
 
+
+
 #ifdef FULL_OPTIMIZE
 #pragma optimize( "", on )
 #else 
 #pragma optimize( "", off )
 #endif
+
+#include <typeinfo>
 
 extern "C" APPMAINFUNCTION(appMain) {
 	MemoryBlock gMemory;
@@ -222,21 +260,27 @@ extern "C" APPMAINFUNCTION(appMain) {
 		SectionTimer st;
 		st.start(&ds->debugTimer);
 
+		logPrint("Init", "Start init system.");
 		systemInit(ad, ds, sd, ws, windowsData);
 		st.add("systemInit");
 
+		logPrint("Init", "Start init audio.");
 		audioInit(&ad->audioState, ws->frameRate);
 		st.add("audioInit");
 		
-		graphicsInit(gs, ws, sd, &st, &ad->gSettings);
+		logPrint("Init", "Start init graphics.");
+		graphicsInit(gs, ws, sd, &st, &ad->gSettings.msaaSamples);
 		// st.add("graphicsInit");
 		
+		logPrint("Init", "Start init watch folders.");
 		watchFoldersInit(sd, gs);
 		st.add("watchFoldersInit");
 		
+		logPrint("Init", "Start init app session.");
 		appSessionInit(ad, sd, ws);
 		st.add("appSessionInit");
 		
+		logPrint("Init", "Start init app.");
 		appInit(ad, sd, ws);
 		windowHandle = sd->windowHandle;
 		st.add("appInit");

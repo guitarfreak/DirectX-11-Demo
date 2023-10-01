@@ -40,7 +40,7 @@ struct PanelData {
 	bool isActive;
 };
 
-void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd);
+void profilerPanel(DebugState* ds, Gui* gui, PanelSettings pd, int refreshRate);
 void inputRecordingPanel(DebugState* ds, Gui* gui, PanelSettings pd);
 void introspectionPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 void animationPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
@@ -49,7 +49,7 @@ void entityPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 void manifoldPanel(AppData* ad, DebugState* ds, Gui* gui, PanelSettings pd);
 
 #define Select_Panel_Function() \
-	case Panel_Type_Profiler:       profilerPanel(ds, gui, pd); break; \
+	case Panel_Type_Profiler:       profilerPanel(ds, gui, pd, ws->refreshRate); break; \
 	case Panel_Type_InputRecording: inputRecordingPanel(ds, gui, pd); break; \
 	case Panel_Type_Introspection:  introspectionPanel(ad, ds, gui, pd); break; \
 	case Panel_Type_Animation:      animationPanel(ad, ds, gui, pd); break; \

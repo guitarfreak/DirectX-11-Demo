@@ -180,3 +180,6 @@ int ThreadQueue::threadIdToIndex(int id) {
 int ThreadQueue::getThreadId() {
 	return threadIdToIndex(GetCurrentThreadId());
 }
+
+//
+

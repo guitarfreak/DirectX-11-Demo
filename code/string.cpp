@@ -241,6 +241,10 @@ int strFind(char* source, char* str, int to = 0, int from = 0) {
 	return result;
 }
 
+inline bool strContains(char* source, char* str, int to = 0, int from = 0) {
+	return strFind(source, str, to, from) != -1;
+}
+
 int strFindX(char* src, char* str) {
 	int len = strLen(str);
 
@@ -330,13 +334,13 @@ int eatEndOfLineOrFile(char** buffer) {
 
 //
 
-bool charIsSign(char c) { return c == '-' || c == '+'; }
-bool charIsDigit(char c) { return (c >= '0') && (c <= '9'); }
-bool charIsLetter(char c) { return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')); }
-bool charIsUppercaseLetter(char c) { return c >= 'A' && c <= 'Z'; }
-bool charIsLowercaseLetter(char c) { return c >= 'a' && c <= 'z'; }
-bool charIsAlphaNumeric(char c) { return charIsDigit(c) || charIsLetter(c); }
-bool charIsWhiteSpace(char c) { return c==' ' || c=='\n' || c=='\t' || c=='\v' || c=='\f' || c=='\r'; }
+inline bool charIsSign(char c) { return c == '-' || c == '+'; }
+inline bool charIsDigit(char c) { return (c >= '0') && (c <= '9'); }
+inline bool charIsLetter(char c) { return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')); }
+inline bool charIsUppercaseLetter(char c) { return c >= 'A' && c <= 'Z'; }
+inline bool charIsLowercaseLetter(char c) { return c >= 'a' && c <= 'z'; }
+inline bool charIsAlphaNumeric(char c) { return charIsDigit(c) || charIsLetter(c); }
+inline bool charIsWhiteSpace(char c) { return c==' ' || c=='\n' || c=='\t' || c=='\v' || c=='\f' || c=='\r'; }
 
 int parseIdentifier(char* str) {
 	if(!charIsLetter(str[0]) && str[0] != '_') return -1;
@@ -367,6 +371,11 @@ bool eatChar(char** str, char c) {
 
 void eatWhiteSpace(char** str) {
 	while(charIsWhiteSpace((*str)[0])) (*str)++;
+}
+
+char* eatWhiteSpace(char* str) {
+	while(charIsWhiteSpace(str[0])) str++;
+	return str;
 }
 
 void eatSpaces(char** str) {

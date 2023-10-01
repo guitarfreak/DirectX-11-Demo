@@ -97,18 +97,12 @@ struct AppSessionSettings {
 	Rect windowRect;
 	Vec3 camPos;
 	Vec2 camRot;
-};
 
-void appWriteSessionSettings(char* filePath, AppSessionSettings* at) {
-	writeDataToFile((char*)at, sizeof(AppSessionSettings), filePath);
-}
-
-void appReadSessionSettings(char* filePath, AppSessionSettings* at) {
-	readDataFromFile((char*)at, filePath);
-}
-
-void saveAppSettings(AppSessionSettings at) {
-	if(fileExists(App_Session_File)) {
-		appWriteSessionSettings(App_Session_File, &at);
+	void load(char* filePath) {
+		readDataFromFile((char*)this, filePath);
 	}
-}
+
+	void save(char* filePath) {
+		writeDataToFile((char*)this, sizeof(AppSessionSettings), filePath);
+	}
+};

@@ -113,10 +113,13 @@ struct AudioState {
 
 	Sound* sounds; // @SizeVar(soundCount)
 	int soundCount;
+
+	//
+
+	void init() { *this = {}; };
 };
 
 void audioDeviceInit(AudioState* as, int frameRate) {
-
 	int hr;
 
 	// as->latency = 1.5f;
@@ -124,17 +127,14 @@ void audioDeviceInit(AudioState* as, int frameRate) {
 
 	const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 	const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
-	hr = CoCreateInstance(
-	       CLSID_MMDeviceEnumerator, NULL,
-	       CLSCTX_ALL, IID_IMMDeviceEnumerator,
-	       (void**)&as->deviceEnumerator);
-	if(hr) { printf("Failed to initialise sound. 1"); assert(!hr); };
+	hr = CoCreateInstance(CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, IID_IMMDeviceEnumerator, (void**)&as->deviceEnumerator);
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"CoCreateInstance\". (HResult code: %d.)", hr), true);
 
 	hr = as->deviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &as->immDevice);
-	if(hr) { printf("Failed to initialise sound. 2"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"GetDefaultAudioEndpoint\". (HResult code: %d.)", hr), true);
 
 	hr = as->immDevice->Activate(__uuidof(IAudioClient),CLSCTX_ALL,NULL,(void**)&as->audioClient);
-	if(hr) { printf("Failed to initialise sound. 3"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"immDevice->Activate\". (HResult code: %d.)", hr), true);
 
 	int referenceTimeToSeconds = 10 * 1000 * 1000;
 	REFERENCE_TIME referenceTime = referenceTimeToSeconds * ((float)1/frameRate) * as->latency; // 100 nano-seconds -> 1 second.
@@ -151,44 +151,43 @@ void audioDeviceInit(AudioState* as, int frameRate) {
 		WAVEFORMATEX what = {};
 		WAVEFORMATEX* formatClosest = &what;
 		hr = as->audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, format, &formatClosest);
-		if(hr) { printf("Failed to initialise sound. 4"); assert(!hr); };
+		assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->IsFormatSupported\". (HResult code: %d.)", hr), true);
 
 		as->channelCount = format->nChannels;
 		as->sampleRate = format->nSamplesPerSec;
 	}
 
 	as->audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, referenceTime, 0, as->waveFormat, 0);
-	if(hr) { printf("Failed to initialise sound. 5"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->Initialize\". (HResult code: %d.)", hr), true);
 
 	REFERENCE_TIME latency;
 	as->audioClient->GetStreamLatency(&latency);
-	if(hr) { printf("Failed to initialise sound. 6"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->GetStreamLatency\". (HResult code: %d.)", hr), true);
 
 	as->latencyInSeconds = (float)latency / referenceTimeToSeconds;
 
 	hr = as->audioClient->GetBufferSize(&as->bufferFrameCount);
-	if(hr) { printf("Failed to initialise sound. 7"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->GetBufferSize\". (HResult code: %d.)", hr), true);
 
 	hr = as->audioClient->GetService(__uuidof(IAudioRenderClient), (void**)&as->renderClient);
-	if(hr) { printf("Failed to initialise sound. 8"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->GetService\". (HResult code: %d.)", hr), true);
 
 	// Fill with silence before starting.
 
 	float* buffer;
 	hr = as->renderClient->GetBuffer(as->bufferFrameCount, (BYTE**)&buffer);
-	if(hr) { printf("Failed to initialise sound. 9"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"renderClient->GetBuffer\". (HResult code: %d.)", hr), true);
 
 	// hr = as->renderClient->ReleaseBuffer(as->bufferFrameCount, AUDCLNT_BUFFERFLAGS_SILENT);
 	hr = as->renderClient->ReleaseBuffer(0, AUDCLNT_BUFFERFLAGS_SILENT);
-	if(hr) { printf("Failed to initialise sound. 10"); assert(!hr); };
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"renderClient->ReleaseBuffer\". (HResult code: %d.)", hr), true);
 
 	// // Calculate the actual duration of the allocated buffer.
 	// hnsActualDuration = (double)REFTIMES_PER_SEC *
 	//                     as->bufferFrameCount / pwfx->nSamplesPerSec;
 
 	hr = as->audioClient->Start();  // Start playing.
-	if(hr) { printf("Failed to initialise sound. 11"); assert(!hr); };
-
+	assertLogPrint(!hr, "Audio", Log_Error, fString("Sound init failed at \"audioClient->Start\". (HResult code: %d.)", hr), true);
 }
 
 void addAudio(AudioState* as, char* filePath, char* name) {
@@ -279,8 +278,7 @@ inline void audioGetSamples(short* data, float fIndex, int channelCount, float s
 
 void initSoundTable(AudioState* as);
 void audioInit(AudioState* as, int frameRate) {
-
-	(*as) = {};
+	as->init();
 	as->masterVolume = 0.5f;
 	as->effectVolume = 0.8f;
 	as->musicVolume = 1.0f;
@@ -392,7 +390,7 @@ void audioUpdate(AudioState* as, float dt) {
 						float* bufferLeftChannel  = buffer + ((frameIndex*2) + 0);
 						float* bufferRightChannel = buffer + ((frameIndex*2) + 1);
 
-						float pan = abs(panning);
+						float pan = fabs(panning);
 						if(panning < 0) {
 							(*bufferLeftChannel)  += samples[0] * volume + (samples[1] * volume * pan);
 							(*bufferRightChannel) += samples[1] * volume * (1 - pan);

@@ -2,10 +2,14 @@
 #define Font_Error_Glyph (int)0x20-1
 
 struct PackedChar {
-   unsigned short x0,y0,x1,y1;
-   float xBearing, yBearing;
-   float width, height;
+   // unsigned short x0,y0,x1,y1;
+   Rect uv;
+   Rect r;
+   // float xBearing, yBearing;
+   // float width, height;
+   float widget, height;
    float xadvance; // yBearing + h-yBearing
+   float xadvanceSubpixelOffset;
 };
 
 Meta_Parse_Struct(0);
@@ -34,6 +38,10 @@ struct Font {
 	Font* italicFont;
 
 	bool pixelAlign;
+	bool pixelAlignStartPos;
+	bool hasKerning;
+	bool enableKerning;
+	bool isSubpixel;
 
 	Texture tex;
 };
@@ -49,7 +57,6 @@ enum TextStatus {
 struct TextInfo {
 	Vec2 pos;
 	int index;
-	Vec2 posAdvance;
 	Rect r;
 	Rect uv;
 
@@ -58,24 +65,28 @@ struct TextInfo {
 };
 
 struct TextSimInfo {
+	Vec2 startPos;
+	Font* font;
+	int wrapWidth;
+
 	Vec2 pos;
 	int index;
 	int wrapIndex;
 
 	bool lineBreak;
 	Vec2 breakPos;
-
-	bool bold;
-	bool italic;
-
-	bool colorMode;
-	Vec3 colorOverwrite;
 };
+
+TextSimInfo textSimInfo(Vec2 startPos, Font* font, int wrapWidth) {
+	return { startPos, font, wrapWidth, startPos };
+}	
 
 enum {
 	TEXT_MARKER_BOLD = 0,
 	TEXT_MARKER_ITALIC,
 	TEXT_MARKER_COLOR,
+
+	TEXT_MARKER_Size,
 };
 
 #define Marker_Size 3

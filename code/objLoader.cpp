@@ -234,7 +234,6 @@ struct ObjLoader {
 		while(true) {
 
 			char c = buf[0];
-			char c2 = buf[1];
 
 			switch(c) {
 				case '#': {
@@ -295,6 +294,8 @@ struct ObjLoader {
 				} break;
 
 				case 'v': {
+					char c2 = buf[1];
+
 					if(c2 == ' ') buf += 2;
 					else buf += 3;
 

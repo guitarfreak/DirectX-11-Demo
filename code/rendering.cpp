@@ -1,9 +1,9 @@
 
+#define gs theGState
+
 // @Misc.
 
 void dxSetRasterizer() {
-	GraphicsState* gs = theGState;
-
 	ID3D11RasterizerState* pRS;
 	gs->d3dDevice->CreateRasterizerState(&gs->rasterizerState, &pRS);
 
@@ -14,59 +14,57 @@ void dxSetRasterizer() {
 
 void dxCullState(bool value) {
 	D3D11_CULL_MODE mode = value ? D3D11_CULL_BACK : D3D11_CULL_NONE;
-	if(theGState->rasterizerState.CullMode != mode) {
-		theGState->rasterizerState.CullMode = mode;
+	if(gs->rasterizerState.CullMode != mode) {
+		gs->rasterizerState.CullMode = mode;
 		dxSetRasterizer();
 	}
 }
 
 void dxFillWireFrame(bool value) {
 	D3D11_FILL_MODE mode = value ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
-   if(theGState->rasterizerState.FillMode != mode) {
-		theGState->rasterizerState.FillMode = mode;
+   if(gs->rasterizerState.FillMode != mode) {
+		gs->rasterizerState.FillMode = mode;
 		dxSetRasterizer();
    }
 }
 
 void dxFrontCCW(bool value) {
-   if(theGState->rasterizerState.FrontCounterClockwise != (BOOL)value) {
-		theGState->rasterizerState.FrontCounterClockwise = (BOOL)value;
+   if(gs->rasterizerState.FrontCounterClockwise != (BOOL)value) {
+		gs->rasterizerState.FrontCounterClockwise = (BOOL)value;
 		dxSetRasterizer();
    }
 }
 
 void dxScissorState(bool value) {
-   if(theGState->rasterizerState.ScissorEnable != (BOOL)value) {
-		theGState->rasterizerState.ScissorEnable = (BOOL)value;
+   if(gs->rasterizerState.ScissorEnable != (BOOL)value) {
+		gs->rasterizerState.ScissorEnable = (BOOL)value;
 		dxSetRasterizer();
    }
 }
 void dxLineAA(int mode = 2) {
-	theGState->rasterizerState.MultisampleEnable = mode == 2 ? true : false;
-	theGState->rasterizerState.AntialiasedLineEnable = mode == 0 ? false : true;
+	gs->rasterizerState.MultisampleEnable = mode == 2 ? true : false;
+	gs->rasterizerState.AntialiasedLineEnable = mode == 0 ? false : true;
 	dxSetRasterizer();
 }
 
 void dxDepthBias(int bias = 0, float slopeScaledBias = 0, float biasClamp = 0) {
-	theGState->rasterizerState.DepthBias = bias;
-	theGState->rasterizerState.DepthBiasClamp = biasClamp;
-	theGState->rasterizerState.SlopeScaledDepthBias = slopeScaledBias;
+	gs->rasterizerState.DepthBias = bias;
+	gs->rasterizerState.DepthBiasClamp = biasClamp;
+	gs->rasterizerState.SlopeScaledDepthBias = slopeScaledBias;
 	dxSetRasterizer();
 }
 
 void dxScissor(Rect r) {
 	D3D11_RECT dRect = {r.left, -r.top, r.right, -r.bottom};
-	theGState->d3ddc->RSSetScissorRects(1, &dRect);
+	gs->d3ddc->RSSetScissorRects(1, &dRect);
 }
 
 void dxViewPort(Vec2i res) {
 	D3D11_VIEWPORT viewPort = {0, 0, res.w, res.h, 0.0f, 1.0f};
-	theGState->d3ddc->RSSetViewports(1, &viewPort);
+	gs->d3ddc->RSSetViewports(1, &viewPort);
 }
 
 void dxSetDepthStencil() {
-	GraphicsState* gs = theGState;
-
 	ID3D11DepthStencilState* pDSState;
 	gs->d3dDevice->CreateDepthStencilState(&gs->depthStencilState, &pDSState);
 
@@ -76,19 +74,19 @@ void dxSetDepthStencil() {
 }
 
 void dxDepthTest(bool value) {
-	if(theGState->depthStencilState.DepthEnable != (BOOL)value) {
-		theGState->depthStencilState.DepthEnable = (BOOL)value;
+	if(gs->depthStencilState.DepthEnable != (BOOL)value) {
+		gs->depthStencilState.DepthEnable = (BOOL)value;
 		dxSetDepthStencil();
 	}
 }
 
 // @Blending.
 
-ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op, D3D11_BLEND srcA, D3D11_BLEND dstA, D3D11_BLEND_OP opA, bool alphaCoverage = false, bool asdf = true) {
+ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op, D3D11_BLEND srcA, D3D11_BLEND dstA, D3D11_BLEND_OP opA, bool alphaCoverage = false, bool blendEnable = true) {
 	D3D11_BLEND_DESC blendDesc = {};
 	blendDesc.AlphaToCoverageEnable = alphaCoverage;
 	blendDesc.IndependentBlendEnable = false;
-	blendDesc.RenderTarget[0].BlendEnable = asdf;
+	blendDesc.RenderTarget[0].BlendEnable = blendEnable;
 	blendDesc.RenderTarget[0].SrcBlend = src;
 	blendDesc.RenderTarget[0].DestBlend = dst;
 	blendDesc.RenderTarget[0].BlendOp = op;
@@ -98,17 +96,17 @@ ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLE
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
 	ID3D11BlendState* blendState;
-	theGState->d3dDevice->CreateBlendState(&blendDesc, &blendState);
+	gs->d3dDevice->CreateBlendState(&blendDesc, &blendState);
 
 	return blendState;
 }
 
-ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op, bool alphaCoverage = false, bool asdf = true) {
-	return dxCreateBlendState(src, dst, op, src, dst, op, alphaCoverage, asdf);
+ID3D11BlendState* dxCreateBlendState(D3D11_BLEND src, D3D11_BLEND dst, D3D11_BLEND_OP op, bool alphaCoverage = false, bool blendEnable = true) {
+	return dxCreateBlendState(src, dst, op, src, dst, op, alphaCoverage, blendEnable);
 }
 
 void dxSetBlendState(int blendState) {
-	theGState->d3ddc->OMSetBlendState(theGState->blendStates[blendState], 0, 0xffffffff);
+	gs->d3ddc->OMSetBlendState(gs->blendStates[blendState], 0, 0xffffffff);
 }
 
 // @Shader.
@@ -120,7 +118,7 @@ void dxSetBlendState(int blendState) {
 
 // 	uint stride = sizeof(MeshVertex);
 // 	uint offset = 0;
-// 	theGState->d3ddc->IASetVertexBuffers( 0, 1, &buffer, &stride, &offset );
+// 	gs->d3ddc->IASetVertexBuffers( 0, 1, &buffer, &stride, &offset );
 
 // 	return vertexCount;
 // }
@@ -132,8 +130,6 @@ void dxSetBlendState(int blendState) {
 //
 
 FrameBuffer* dxGetFrameBuffer(char* name) {
-	GraphicsState* gs = theGState;
-
 	for(int i = 0; i < gs->frameBufferCount; i++) {
 		if(strCompare(gs->frameBuffers[i].name, name)) {
 			return gs->frameBuffers + i;
@@ -144,9 +140,9 @@ FrameBuffer* dxGetFrameBuffer(char* name) {
 }
 
 void dxAddFrameBuffer(char* name, DXGI_FORMAT format, bool renderTarget, bool shaderResource, bool depthStencil = false) {
-	FrameBuffer* fb = theGState->frameBuffers + theGState->frameBufferCount++;
+	FrameBuffer* fb = gs->frameBuffers + gs->frameBufferCount++;
 
-	assert(theGState->frameBufferCount < theGState->frameBufferCountMax);
+	assert(gs->frameBufferCount < gs->frameBufferCountMax);
 
 	*fb = {};
 	fb->name = getPString(name);
@@ -158,8 +154,7 @@ void dxAddFrameBuffer(char* name, DXGI_FORMAT format, bool renderTarget, bool sh
 }
 
 void dxReleaseFrameBuffer(FrameBuffer* fb);
-void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
-	GraphicsState* gs = theGState;
+void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples) {
 	FrameBuffer* fb = dxGetFrameBuffer(name);
 
 	static int index = 0;
@@ -184,7 +179,7 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
 	descTex.ArraySize = 1;
 	descTex.Format = fb->format;
 	descTex.SampleDesc.Count = msaaSamples;
-	descTex.SampleDesc.Quality = hasMsaa ? msaaQuality : 0;
+	descTex.SampleDesc.Quality = hasMsaa ? 1 : 0;
 	descTex.Usage = D3D11_USAGE_DEFAULT;
 	descTex.BindFlags = bindFlags;
 	descTex.CPUAccessFlags = 0;
@@ -193,7 +188,65 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
 	gs->d3dDevice->CreateTexture2D(&descTex, NULL, &fb->texture);
 
 	if(fb->hasRenderTargetView) {
-		gs->d3dDevice->CreateRenderTargetView(fb->texture, NULL, &fb->renderTargetView);
+		// if(fb->format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) 
+		// {
+		// 	// bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		// 	// bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+		// 	D3D11_RENDER_TARGET_VIEW_DESC desc = {};
+		// 	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		// 	desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
+
+		// 	ID3D11RenderTargetView* view = 0;
+
+		// 	HRESULT hr = gs->d3dDevice->CreateRenderTargetView(fb->texture, &desc, &view);
+		// 	char* text = GetHResultErrorMessageText(hr);
+
+		// 	printf("TEXT: %s\n\n", text);
+
+		// 	int stopt = 234;
+		// }
+
+		// if(strCompare(name, "Test")) {
+		// 	// bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		// 	// bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+		// 	D3D11_RENDER_TARGET_VIEW_DESC desc = {};
+		// 	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		// 	desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+
+		// 	ID3D11RenderTargetView* view = 0;
+
+		// 	HRESULT hr = gs->d3dDevice->CreateRenderTargetView(fb->texture, &desc, &fb->renderTargetView);
+
+		// 	// HRESULT hr = gs->d3dDevice->CreateRenderTargetView(fb->texture, &desc, &fb->renderTargetView);
+		// 	// char* text = GetHResultErrorMessageText(hr);
+		// 	// printf("TEXT: %s\n\n", text);
+
+		// } else {
+
+			if(fb->format == DXGI_FORMAT_R8G8B8A8_TYPELESS) {
+				D3D11_RENDER_TARGET_VIEW_DESC desc = {};
+				desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+				desc.ViewDimension = hasMsaa ? D3D11_RTV_DIMENSION_TEXTURE2DMS : 
+			                                  D3D11_RTV_DIMENSION_TEXTURE2D;
+
+				HRESULT hr = gs->d3dDevice->CreateRenderTargetView(fb->texture, &desc, &fb->renderTargetView);
+
+				char* text = GetHResultErrorMessageText(hr);
+				printf("TEXT: %s\n\n", text);
+
+				desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				hr = gs->d3dDevice->CreateRenderTargetView(fb->texture, &desc, &fb->renderTargetViewSRGB);
+
+				text = GetHResultErrorMessageText(hr);
+				printf("TEXT: %s\n\n", text);
+			} else {
+				gs->d3dDevice->CreateRenderTargetView(fb->texture, NULL, &fb->renderTargetView);
+			}
+
+		// }
+
 	}
 	 
 	if(fb->hasShaderResourceView) {
@@ -218,7 +271,37 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
 			gs->d3dDevice->CreateShaderResourceView(fb->texture, &srvDesc, &fb->shaderResourceView);
 
 		} else {
-			gs->d3dDevice->CreateShaderResourceView(fb->texture, NULL, &fb->shaderResourceView);
+			// if(strCompare(name, "Test")) {
+			// 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+			// 	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+			// 	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			// 	srvDesc.Texture2D.MipLevels = descTex.MipLevels;
+			// 	srvDesc.Texture2D.MostDetailedMip = 0;
+
+			// 	HRESULT hr = gs->d3dDevice->CreateShaderResourceView(fb->texture, &srvDesc, &fb->shaderResourceView);
+			// 	char* text = GetHResultErrorMessageText(hr);
+			// 	printf("TEXT: %s\n\n", text);
+				
+			// } else {
+			// 	gs->d3dDevice->CreateShaderResourceView(fb->texture, NULL, &fb->shaderResourceView);
+			// }
+
+
+			if(fb->format == DXGI_FORMAT_R8G8B8A8_TYPELESS) {
+				D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+				srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+				srvDesc.ViewDimension = hasMsaa ? D3D11_SRV_DIMENSION_TEXTURE2DMS : 
+				                                  D3D11_SRV_DIMENSION_TEXTURE2D;
+
+				srvDesc.Texture2D.MipLevels = descTex.MipLevels;
+				srvDesc.Texture2D.MostDetailedMip = 0;
+
+				HRESULT hr = gs->d3dDevice->CreateShaderResourceView(fb->texture, &srvDesc, &fb->shaderResourceView);
+				char* text = GetHResultErrorMessageText(hr);
+				printf("TEXT: %s\n\n", text);
+			} else {
+				gs->d3dDevice->CreateShaderResourceView(fb->texture, NULL, &fb->shaderResourceView);
+			}
 		}
 	}
 
@@ -248,7 +331,6 @@ void dxSetFrameBuffer(char* name, Vec2i dim, int msaaSamples, int msaaQuality) {
 }
 
 void dxResolveFrameBuffer(char* nameSrc, char* nameDst) {
-	GraphicsState* gs = theGState;
 	FrameBuffer* fbSrc = dxGetFrameBuffer(nameSrc);
 	FrameBuffer* fbDst = dxGetFrameBuffer(nameDst);
 
@@ -256,7 +338,6 @@ void dxResolveFrameBuffer(char* nameSrc, char* nameDst) {
 }
 
 void dxCopyFrameBuffer(char* nameSrc, char* nameDst) {
-	GraphicsState* gs = theGState;
 	FrameBuffer* fbSrc = dxGetFrameBuffer(nameSrc);
 	FrameBuffer* fbDst = dxGetFrameBuffer(nameDst);
 
@@ -264,8 +345,6 @@ void dxCopyFrameBuffer(char* nameSrc, char* nameDst) {
 }
 
 void dxBindFrameBuffer(char* name, char* nameDepthStencil = 0) {
-	GraphicsState* gs = theGState;
-
 	ID3D11RenderTargetView* rtv = name ? dxGetFrameBuffer(name)->renderTargetView : 0;
 	ID3D11DepthStencilView* dsv = nameDepthStencil ? dxGetFrameBuffer(nameDepthStencil)->depthStencilView : 0;
 
@@ -275,7 +354,6 @@ void dxBindFrameBuffer(char* name, char* nameDepthStencil = 0) {
 }
 
 void dxClearFrameBuffer(char* name, Vec4 color = vec4(0,1)) {
-	GraphicsState* gs = theGState;
 	FrameBuffer* fb = dxGetFrameBuffer(name);
 
 	if(fb->hasRenderTargetView) {
@@ -315,7 +393,7 @@ ID3D11SamplerState* createSampler(uint filter, uint address, int anisotropy, uin
 	samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
 	ID3D11SamplerState* sampler;
-	theGState->d3dDevice->CreateSamplerState(&samplerDesc, &sampler);
+	gs->d3dDevice->CreateSamplerState(&samplerDesc, &sampler);
 
 	return sampler;
 }
@@ -325,7 +403,6 @@ ID3D11SamplerState* createSampler(uint filter, uint address, int anisotropy, uin
 // 
 
 Texture* dxGetTexture(char* name) {
-	GraphicsState* gs = theGState;
 	for(int i = 0; i < gs->textureCount; i++) {
 		if(strCompare(gs->textures[i].name, name)) {
 			return gs->textures + i;
@@ -366,11 +443,13 @@ void dxCreateTexture(Texture* tex, char* data) {
 
 	ID3D11Texture2D* texture;
 	if(autoGen) {
-		theGState->d3dDevice->CreateTexture2D(&texDesc, 0, &texture);
+		gs->d3dDevice->CreateTexture2D(&texDesc, 0, &texture);
 	} else {
-		theGState->d3dDevice->CreateTexture2D(&texDesc, &resourceData, &texture);
+		gs->d3dDevice->CreateTexture2D(&texDesc, &resourceData, &texture);
 	}
-	defer{texture->Release();};
+
+	// @Note(2023): Why would you release this here?
+	// defer{texture->Release();};
 
 	D3D11_TEX2D_SRV srv;
 	srv.MostDetailedMip = 0;
@@ -381,11 +460,11 @@ void dxCreateTexture(Texture* tex, char* data) {
 	viewDesc.Texture2D = srv;
 
 	ID3D11ShaderResourceView* view;
-	theGState->d3dDevice->CreateShaderResourceView(texture, &viewDesc, &view);
+	gs->d3dDevice->CreateShaderResourceView(texture, &viewDesc, &view);
 
 	if(autoGen) {
-		theGState->d3ddc->UpdateSubresource(texture, 0, nullptr, resourceData.pSysMem, resourceData.SysMemPitch, resourceData.SysMemSlicePitch);
-		theGState->d3ddc->GenerateMips(view);
+		gs->d3ddc->UpdateSubresource(texture, 0, nullptr, resourceData.pSysMem, resourceData.SysMemPitch, resourceData.SysMemSlicePitch);
+		gs->d3ddc->GenerateMips(view);
 	}
 
 	//
@@ -409,8 +488,6 @@ void dxLoadAndCreateTexture(Texture* tex) {
 }
 
 void dxLoadAndCreateTextureDDS(Texture* tex, bool srgb) {
-	GraphicsState* gs = theGState;
-
 	int size = fileSize(tex->file);
 	uchar* buffer = mallocArray(uchar, size); defer{free(buffer);};
 	readFileToBuffer((char*)buffer, tex->file);
@@ -418,7 +495,11 @@ void dxLoadAndCreateTextureDDS(Texture* tex, bool srgb) {
 	ID3D11Resource* resource;
 	ID3D11ShaderResourceView* view;
 
-	DirectX::CreateDDSTextureFromMemoryEx(gs->d3dDevice, gs->d3ddc, buffer, size, 0, D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0, srgb, &resource, &view);
+	HRESULT hr = DirectX::CreateDDSTextureFromMemoryEx(gs->d3dDevice, gs->d3ddc, buffer, size, 0, D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0, srgb, &resource, &view);
+	if(hr != S_OK) {
+		logPrint("Texture", Log_Error, fString("Failed loading texture \"%s\". %s", tex->name, GetHResultErrorMessageText(hr)));
+		return;
+	}
 
 	ID3D11Texture2D* texResource;
 	resource->QueryInterface(__uuidof(ID3D11Texture2D), (void **) &texResource);
@@ -432,9 +513,11 @@ void dxLoadAndCreateTextureDDS(Texture* tex, bool srgb) {
 }
 
 void dxReleaseTexture(Texture* tex) {
-	tex->resource->Release();
+	if (tex->resource != 0) 
+		tex->resource->Release();
 	tex->resource = 0;
-	tex->view->Release();
+	if (tex->view != 0) 
+		tex->view->Release();
 	tex->view = 0;
 }
 
@@ -454,8 +537,8 @@ void dxReleaseTexture(Texture* tex) {
 // }
 // #endif
 
-void dxSetTexture(ID3D11ShaderResourceView* view, int index) {
-	theGState->d3ddc->PSSetShaderResources(index, 1, &view);
+void dxSetTexture(ID3D11ShaderResourceView* view, int index = 0) {
+	gs->d3ddc->PSSetShaderResources(index, 1, &view);
 }
 
 //
@@ -463,7 +546,6 @@ void dxSetTexture(ID3D11ShaderResourceView* view, int index) {
 //
 
 Material* dxGetMaterial(char* name) {
-	GraphicsState* gs = theGState;
 	for(int i = 0; i < gs->materialCount; i++) {
 		if(strCompare(gs->materials[i].name, name)) {
 			return gs->materials + i;
@@ -489,13 +571,13 @@ void dxSetMaterial(Material* m) {
 
 	// Check if material uses texture.
 	{
-		theGState->d3ddc->PSSetShaderResources(0, 1, &m->map_Ka.view);
-		theGState->d3ddc->PSSetShaderResources(1, 1, &m->map_Kd.view);
+		gs->d3ddc->PSSetShaderResources(0, 1, &m->map_Ka.view);
+		gs->d3ddc->PSSetShaderResources(1, 1, &m->map_Kd.view);
 		if(dxGetShaderVars(Main)->material.hasBumpMap) 
-			theGState->d3ddc->PSSetShaderResources(2, 1, &m->bump.view);
-		theGState->d3ddc->PSSetShaderResources(3, 1, &m->map_Ks.view);
+			gs->d3ddc->PSSetShaderResources(2, 1, &m->bump.view);
+		gs->d3ddc->PSSetShaderResources(3, 1, &m->map_Ks.view);
 		if(dxGetShaderVars(Main)->material.hasDispMap) {
-			theGState->d3ddc->DSSetShaderResources(4, 1, &m->disp.view);
+			gs->d3ddc->DSSetShaderResources(4, 1, &m->disp.view);
 			dxGetShaderVars(Main)->material.heightScale = m->heightScale;
 		}
 	}
@@ -504,7 +586,6 @@ void dxSetMaterial(Material* m) {
 //
 
 Mesh* dxGetMesh(char* name) {
-	GraphicsState* gs = theGState;
 	for(int i = 0; i < gs->meshCount; i++) {
 		if(strCompare(gs->meshes[i].name, name)) {
 			return gs->meshes + i;
@@ -513,3 +594,7 @@ Mesh* dxGetMesh(char* name) {
 
 	return 0;
 }
+
+//
+
+#undef gs

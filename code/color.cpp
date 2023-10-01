@@ -53,8 +53,8 @@ inline Vec3 hslToRgb(Vec3 c) { return hslToRgb(c.x, c.y, c.z); }
 
 inline Vec3 hslToRgbf(Vec3 hsl) {
 	hsl.x = modf(hsl.x, 1.0f);
-	hsl.y = clamp01(hsl.y);
-	hsl.z = clamp01(hsl.z);
+	hsl.y = clamp(hsl.y);
+	hsl.z = clamp(hsl.z);
 
 	Vec3 c = hslToRgb(360 * hsl.x, hsl.y, hsl.z);
 	return c;
@@ -102,3 +102,42 @@ inline float linearToSrgb(float val) {
         val = 1.055f * pow(val,1.0f/2.4f) - 0.055f;
     return val;
 }
+
+Vec3 yuvToRgb(Vec3 yuv) {
+	Mat4 asdf = {1, 0, 1.13983, 0,
+	             1, -0.39465, -0.58060, 0,
+	             1, 2.03211, 0, 0,
+	             0, 0, 0, 0};
+
+	Vec4 color = asdf * vec4(yuv, 0);
+	color = clamp(color);
+	// color = linearToGamma(color);
+	// color.a = 1;
+
+	return color.rgb;
+}
+
+// The weights of RGB contributions to luminance.
+// Should sum to unity.
+// http://www.chilliant.com/rgb2hsv.html
+
+Vec3 HUEtoRGB(float H) {
+  float r = fabs(H * 6 - 3) - 1;
+  float g = 2 - fabs(H * 6 - 2);
+  float b = 2 - fabs(H * 6 - 4);
+  return clamp(vec3(r,g,b));
+}
+
+Vec3 HCYtoRGB(Vec3 HCY) {
+ 	Vec3 RGB = HUEtoRGB(HCY.x);
+ 	float Z = dot(RGB, vec3(0.299, 0.587, 0.114));
+
+ 	if (HCY.z < Z)  
+ 		HCY.y *= HCY.z / Z;
+
+ 	else if (Z < 1) 
+ 		HCY.y *= (1 - HCY.z) / (1 - Z);
+ 
+ 	return (RGB - Z) * HCY.y + HCY.z;
+}
+

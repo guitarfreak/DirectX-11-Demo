@@ -40,10 +40,10 @@ void loadDll(HotloadDll* hotloadDll) {
 }
 
 void initDll(HotloadDll* hotloadDll, char* functionName, char* functionTemp, char* lock) {
-    hotloadDll->libFilePath = functionName; 
-    hotloadDll->libTempFilePath = functionTemp; 
-    hotloadDll->lockFilePath = lock; 
-	
+	hotloadDll->libFilePath = functionName; 
+	hotloadDll->libTempFilePath = functionTemp; 
+	hotloadDll->lockFilePath = lock; 
+
 	loadDll(hotloadDll);
 }
 
