@@ -1,4 +1,6 @@
 
+#include <ctype.h>
+
 struct ObjLoader {
 	struct ObjectMaterial {
 		char* name;
@@ -510,7 +512,7 @@ struct ObjLoader {
 		*this = {};
 
 		if(vertexArray.data != 0) clear();
-
+		
 		char* fName = fString("%s%s", folder, fileName);
 		char* file = readFileToBufferZeroTerminated(fName);
 		defer{::free(file);};
@@ -572,12 +574,15 @@ struct ObjLoader {
 
 		buf += strLen("Count: ");
 		int objectCount = strToInt(buf);
-		while(charIsDigitOrMinus(buf[0])) buf++;
+		//while(charIsDigitOrMinus(buf[0])) buf++;
+		buf += strFind(buf, '\n');
 
 		vertexIndex = 0;
 		normalIndex = 0;
 
 		for(int objectIndex = 0; objectIndex < objectCount; objectIndex++) {
+
+			buf = eatWhitespaceX(buf);
 
 			int vertCount;
 			int normalCount;
@@ -600,6 +605,8 @@ struct ObjLoader {
 				}
 			}
 
+			buf = eatWhitespaceX(buf);
+
 			// Normals.
 			{
 				buf += strLen("Normals: ");
@@ -617,6 +624,8 @@ struct ObjLoader {
 					buf += strFind(buf, '\n');
 				}
 			}
+
+			buf = eatWhitespaceX(buf);
 
 			// Skin.
 			{
@@ -646,8 +655,8 @@ struct ObjLoader {
 
 						buf += nameSize;
 
-						if(buf[0] == '\n') {
-							buf++;
+						if(isEndOfLine(buf)) {
+							buf = eatEndOfLine(buf);
 							break;
 						}
 					}
@@ -661,16 +670,18 @@ struct ObjLoader {
 					buf += strFind(buf, '\n');
 				}
 			}
+			
+			buf = eatWhitespaceX(buf);
 
 			// Name.
 			{
 				buf += strLen("Node: ");
-				int end = strFind(buf, '\n');
-
-				buf += end;
+				buf += strFind(buf, '\n');
 
 				addObjectIfChange();
 			}
+
+			buf = eatWhitespaceX(buf);
 
 			// Faces.
 			{
@@ -917,6 +928,7 @@ struct ObjLoader {
 			}
 		}
 
+		buf = eatWhitespaceX(buf);
 		buf += strLen("Frames: ");
 		anim->frameCount = strToInt(buf); buf += strFind(buf, '\n');
 
@@ -994,6 +1006,19 @@ struct ObjLoader {
 		return newLine;
 	}
 
+	bool isEndOfLine(char* buf) {
+		if (buf[0] == '\n') return true;
+		if (buf[1] == '\0') return false;
+		if (buf[0] == '\r' && buf[1] == '\n') return true;
+		return false;
+	}
+
+	char* eatEndOfLine(char* buf) {
+		if (buf[0] == '\r') buf++;
+		if (buf[0] == '\n') buf++;
+		return buf;
+	}
+
 	char* eatWhitespace(char* buf) {
 		// while(buf[0] == ' ' || buf[0] == '\\') buf++;
 
@@ -1003,6 +1028,12 @@ struct ObjLoader {
 			else break;
 		}
 
+		return buf;
+	}
+
+	char* eatWhitespaceX(char* buf) {
+		while (isspace(buf[0]))
+			buf++;
 		return buf;
 	}
 
